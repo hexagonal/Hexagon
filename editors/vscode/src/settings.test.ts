@@ -60,6 +60,29 @@ describe("inlay hints", () => {
   });
 });
 
+describe("formatting", () => {
+  test("two settings, both off until set, and nothing formats unasked", async () => {
+    const manifest = JSON.parse(await readFile(fileURLToPath(
+      new URL("../package.json", import.meta.url),
+    ), "utf8")) as {
+      contributes: {
+        configuration: { properties: Record<string, { type?: unknown; default?: unknown; minimum?: number }> };
+        configurationDefaults: Record<string, Record<string, unknown>>;
+      };
+    };
+    const { properties } = manifest.contributes.configuration;
+    // Unlimited is no number at all, and a number is a whole one of at least one.
+    expect(properties["hexagon.format.maximumLineLength"])
+      .toMatchObject({ type: ["integer", "null"], minimum: 1, default: null });
+    expect(properties["hexagon.format.collapseExtraSpaces"]).toMatchObject({ type: "boolean", default: false });
+    // Canonical Layout §2.4: no format on save, on paste or while typing.
+    const defaults = manifest.contributes.configurationDefaults["[hexagon]"] ?? {};
+    for (const name of ["editor.formatOnSave", "editor.formatOnPaste", "editor.formatOnType"]) {
+      expect(defaults[name]).toBeUndefined();
+    }
+  });
+});
+
 describe("indentation", () => {
   test("a Hexagon file is indented with spaces, whatever the editor's own default", async () => {
     const manifest = JSON.parse(await readFile(fileURLToPath(
