@@ -224,6 +224,9 @@ the Book, the Playground's tutorials and the spec's own examples.
   always a block beneath it. So it goes beneath a binding's `=`, an
   assignment's `:=`, and an arm's or a lambda's `=>` (H5), and it
   begins its own line after `try` and as a call's argument too.
+  A `for` or `while` loop always begins its own line as well: H5 places a
+  value, and a loop has none to place. So a loop never follows an `=`,
+  `:=`, `=>`, `then` or `else` on its line, even where it would fit.
   `if` and `try` follow H5:
   one that fits on its line is written after its `=`, `:=` or `=>`, and
   one that runs on begins its own line. A conditional's shape is F3's, and a

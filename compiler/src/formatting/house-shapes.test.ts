@@ -16,13 +16,17 @@
  * baseline holds that is now in its shape, so the baseline never grows unseen.
  *
  * Run with `HOUSE_SHAPES_UPDATE=1` to write the baseline afresh.
+ *
+ * House text also begins every `for` and `while` loop on a line of its own
+ * (H6): a loop has no value for H5 to place, so none follows an `=`, `:=`,
+ * `=>`, `then` or `else` on its line. No baseline holds an exception.
  */
 
 import { describe, expect, it } from "vitest";
 
 import { STDLIB_SOURCES } from "../stdlib-sources.js";
 import { read } from "./analysis.js";
-import { wrongShapes } from "./widths.js";
+import { constructs, wrongShapes } from "./widths.js";
 
 // The compiler's own sources are host-neutral, so Node's modules are reached
 // as `support/test-project.ts` reaches them.
@@ -137,5 +141,19 @@ describe("House text holds every construct in its shape (H9)", () => {
     const fixed = [...remaining].flatMap(([entry, count]) => Array.from({ length: count }, () => entry));
     expect(unrecorded, "constructs in the wrong shape").toEqual([]);
     expect(fixed, "baseline entries now in their shape: remove them from house-shapes.baseline.txt").toEqual([]);
+  });
+
+  it("begins every loop on a line of its own (H6)", async () => {
+    const midLine: string[] = [];
+    for (const { place, text, offset } of [...library(), ...await tutorials(), ...book().samples]) {
+      const reading = read(text);
+      const tokens = reading.lexed.tokens;
+      for (const { kind, first } of constructs(reading)) {
+        if (kind !== "loop" || first === 0) continue;
+        const line = tokens[first]!.span.start.line;
+        if (tokens[first - 1]!.span.start.line === line) midLine.push(`${place}:${line + 1 + offset}`);
+      }
+    }
+    expect(midLine, "loops that do not begin their line").toEqual([]);
   });
 });
