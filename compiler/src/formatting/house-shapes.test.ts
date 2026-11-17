@@ -105,7 +105,7 @@ describe("House text holds every construct in its shape (H9)", () => {
     const { samples, unread } = book();
     // The Book's samples that are fragments no module can hold: a sentence's
     // worth of syntax, or a program shown being refused.
-    expect(unread).toBeLessThan(80);
+    expect(unread).toBeLessThanOrEqual(32);
     const texts = [...library(), ...await tutorials(), ...samples];
     const found: { readonly entry: string; readonly named: string }[] = [];
     for (const { place, text, offset } of texts) {
