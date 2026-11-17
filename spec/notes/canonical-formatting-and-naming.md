@@ -340,9 +340,11 @@ the Book, the Playground's tutorials and the spec's own examples.
   keeping its head on that call's line (H7). An expression the table
   spreads runs on over further lines, so H5 puts it on a line of its own
   beneath its `=`, `:=` or `=>`, unless it is a lambda, whose head H7
-  keeps where it stands. A union spread one alternative to a line leads
-  every alternative with `|`, its first included (Unions §2), as Format
-  document writes it (Canonical Layout §16).
+  keeps where it stands. A union whose alternatives stand beneath its
+  `=`, one to a line, leads every alternative with `|`, its first
+  included and a lone one too (Unions §2), as Format document writes it
+  (Canonical Layout §16). An `else if` chain is spread however short, so
+  `if a then 1 else if b then 2 else 3` takes six lines.
 
   ```
   let scale = if aligned > 1074 then 1074 else aligned

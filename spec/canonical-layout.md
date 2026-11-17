@@ -538,6 +538,7 @@ Both are legal. A line indented deeper than its item continues the item whatever
 36. **A tighter width limit for a conditional inside an argument, a field or an index.** The call's own width limit already spreads most of these, since the conditional makes the argument list wide, and a width limit that depends on the seat would be a second number for one kind (§15.1).
 37. **Leaving a multi-line union's first bar to the author.** A formatted document would hold both spellings, `Shape` and `| Shape`, beneath the same kind of `=`, as it would hold both spellings of a list if only some had their trailing comma (item 24). Unions §2 already gives every alternative of a multi-line union its bar (§16).
 38. **An option to leave a union's bars as written**, as Leave trailing commas as written does for commas. The bar-led spelling is the one Unions §2 records for a multi-line union, and for any formatter, so there is no second house to serve (§16).
+39. **A bar only where a union has two or more alternatives.** `union Id =` with `Wrap(Int)` beneath it would then be spelled unlike the same union with a second alternative, and adding that alternative would change the first one's line too. The bar follows where the alternatives stand, not how many there are (§16).
 
 ## 11. Edit notes to existing specs
 
@@ -670,7 +671,7 @@ A construct that fits on its line can still be too dense to read there. Each kin
 
 Every other construct has no width limit of its own, and the Maximum line length alone decides it: a vector, a tuple, a call or constructor with one argument, arithmetic and `++`, a function header, and any construct this table does not name.
 
-Each construct is held to its own row, wherever it stands. So an arm whose body is a conditional stays on one line only while the arm is within 80 and the conditional within 60. A conditional holds another wherever the other stands inside it, its condition included. Every conditional in an `else if` chain is part of the chain, so none of its links stands on one line, and `else` keeps its `if` beside it on the line (§9.4 rule 4).
+Each construct is held to its own row, wherever it stands. So an arm whose body is a conditional stays on one line only while the arm is within 80 and the conditional within 60. A conditional holds another wherever the other stands inside it, its condition included. Every conditional in an `else if` chain is part of the chain, so none of its links stands on one line, and `else` keeps its `if` beside it on the line (§9.4 rule 4). So `if a then 1 else if b then 2 else 3`, though only 35 wide, is spread.
 
 ### 15.2 What a width limit measures
 
@@ -752,13 +753,16 @@ The formatter never puts a spread construct on one line, even one within its wid
 
 ## 16. A union's leading bar
 
-Format document writes a `|` before the first alternative of a union whose alternatives stand one to a line: it has two or more, and each begins a line of its own, the first on a line beneath the `=`. Every alternative then begins with its `|`, as Unions §2 writes a multi-line union, so adding, removing or moving an alternative changes only its own lines:
+Format document writes a `|` before the first alternative of a union whose alternatives stand one to a line beneath its `=`: each begins a line of its own, the first on a line beneath the `=`. What decides it is where the alternatives stand, not how many there are, so a lone alternative written beneath the `=` takes the bar too. Every alternative then begins with its `|`, as Unions §2 writes a multi-line union, so adding, removing or moving an alternative changes only its own lines:
 
 ```
 union Reason =
     | Shape
     | Range
     | Cycle(firstSeen: Vector(Int))
+
+union Id =
+    | Wrap(Int)
 ```
 
 The bar goes directly before the alternative's first token, with one space after it (§7.1), below any comment on the lines above. A union whose first alternative already has its bar gains no second one. The bar changes no tree, since the two spellings are one declaration (Unions §2). It is the one token the formatter adds besides the trailing comma (§14), and a line's length counts it. Format selection adds the bars that Format document adds within its region (§2.2).
@@ -766,7 +770,6 @@ The bar goes directly before the alternative's first token, with one space after
 No bar is added to any other union, for example:
 
 - **A union on one line**, such as `union Tree = Leaf | Node(Tree, Int, Tree)`, or one whose alternatives share a line beneath its `=`. Unions §2 writes a one-line union without the bar.
-- **A union with one alternative**, even one written beneath its `=`. It is a one-liner (§6.3), and Unions §2 writes those without the bar.
 - **A union whose alternatives are not each on a line of their own**, such as one whose first alternative stands on its `=` line, as in `union Reason = Shape` with `| Range` beneath it. A bar there would read `union Reason = | Shape`.
 
 No option turns the bar off. The formatter never removes a bar, from a one-line union or from anywhere else (§13).
