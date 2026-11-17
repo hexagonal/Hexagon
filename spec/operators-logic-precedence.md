@@ -1,6 +1,6 @@
 # Hexagon Spec — Operators, Logic & Precedence
 
-**Status:** Decided (v1), except items explicitly marked deferred. Amended 2026-11-13 (#1538): §6.2 says that two minus signs are written apart. Amended 2026-11-14 (#1542): `//` writes a fraction, at its own level 5 (§3, §6.4). Amended 2026-11-14 (#1545): a divisor or bottom written as a literal zero is refused when the program is compiled (§6.1, §6.4, §15; Division & Remainder §12). Amended 2026-11-16 (#1561): §11.3, the formatter never collapses a multiline conditional (Canonical Layout §1). Amended 2026-11-16 (#1573): a condition runs from `if` to its `then` and may be carried across lines (§11.1–§11.3, §15; Lexer & Layout §2.4), and a loop's body written on its head's line eats to the right (§3, §3.2). Amended 2026-11-16 (#1590): §12, a line ending in `:=` opens a block for the RHS (Lexer & Layout §2.1).
+**Status:** Decided (v1), except items explicitly marked deferred. Amended 2026-11-13 (#1538): §6.2 says that two minus signs are written apart. Amended 2026-11-14 (#1542): `//` writes a fraction, at its own level 5 (§3, §6.4). Amended 2026-11-14 (#1545): a divisor or bottom written as a literal zero is refused when the program is compiled (§6.1, §6.4, §15; Division & Remainder §12). Amended 2026-11-16 (#1561): §11.3, the formatter never collapses a multiline conditional (Canonical Layout §1). Amended 2026-11-16 (#1573): a condition runs from `if` to its `then` and may be carried across lines (§11.1–§11.3, §15; Lexer & Layout §2.4), and a loop's body written on its head's line eats to the right (§3, §3.2). Amended 2026-11-16 (#1590): §12, a line ending in `:=` opens a block for the RHS (Lexer & Layout §2.1). Amended 2026-11-17 (#1602): §11.3, a conditional stays on one line up to 60 code points, and an `else if` chain never does (Canonical Layout §15).
 **Scope:** The complete v1 operator inventory; the precedence and associativity table; word-based logical operators (`not`, `and`, `or`, `implies`, `iff`) and their desugarings; comparison operators, chaining, and the single-evaluation rule; arithmetic operators including `**`; the concatenation operator `++`; the pipe operator `|>`; the fraction form `//`; the `if … then … else` expression (mandatory `then`; `else` omissible as `Unit` sugar, §11.2); the grammatical placement of `..`, `:=`, `=>`, `[]`, `.`, and call syntax.
 **Not in scope:** Semantics of indexing/slicing (`xs[i]`, `xs[lo..hi]`) beyond precedence — owed to the collections/indexing spec. Semantics of `Range` construction — Loops, Ranges & Iteration spec is authoritative; this spec only fixes `..`'s precedence. `match` — pattern-matching spec; referenced here only as a member of the eats-to-the-right family. Constraint mechanics (dictionary passing, coherence) — Constraints spec.
 **Companions:** Constraints (operator→member elaboration targets, prelude constraint listing), Primitive Types (per-type instance inventories, `Ord String`), Numeric Literals (literal elaboration under operators), Loops/Ranges/Iteration (`..` semantics, `while`/`for` condition grammar by reference), Statements/Blocks/Mutability (`:=` semantics, discard rule), Exceptions (edit note §14.2), Functions (`=>`, header sugar).
@@ -424,7 +424,7 @@ Eats to the right (§3.2): `expr2` extends as far as possible, so `1 + if c then
 
 ### 11.3 Canonical formatting
 
-When the entire conditional is short enough, keep it on one line:
+A conditional of up to 60 code points, with or without `else`, stays on one line (Canonical Layout §15):
 
 ```
 if isTall then 5 else 6
@@ -439,10 +439,13 @@ else
     falseExpression
 ```
 
-This multiline spelling is the reliable canonical form regardless of branch
-complexity. The formatter never collapses it, since it keeps the author's line
-breaks (Canonical Layout §1). A block arm's value is its final expression per
-the standard block rule.
+This multiline spelling is canonical for a conditional wider than 60, for one
+that holds another conditional, and wherever a branch takes more than one line.
+The formatter never collapses it, since it keeps the author's line breaks
+(Canonical Layout §1), and with Apply width limits on it writes it for a
+conditional on one line that is wider than 60 or holds another (Canonical
+Layout §3.5, §15). A block arm's value is its final expression per the standard
+block rule.
 
 A condition too long for one line is carried on at two levels, each carried-on
 line beginning with its operator, and `then` ends the condition's last line
@@ -461,9 +464,10 @@ canonical: the canonical `then` ends the condition's last line, where it shows
 that the branch follows.
 
 `else if` is syntactically `else` whose expression is another mandatory-`then`
-conditional; there is no dedicated construct. A chain canonically writes `else if`
-on the same line, including in multiline code. Align each `else if` and the final
-`else` with the first `if`, and indent each branch body one level:
+conditional; there is no dedicated construct. A chain is never written on one
+line (Canonical Layout §15), and canonically keeps each `else` and its `if`
+together on a line. Align each `else if` and the final `else` with the first
+`if`, and indent each branch body one level:
 
 ```hexagon
 if leftProduct < rightProduct then

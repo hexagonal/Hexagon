@@ -145,11 +145,10 @@ both branches; an effect-position (`Unit`) conditional canonically omits
 writing the unit branch explicitly is non-canonical ceremony:
 
 ```
-if delayed then
-    print("Order delayed")
+if delayed then print("Order delayed")
 ```
 
-Keep a genuinely short conditional on one line:
+Keep a conditional of up to 60 code points on one line (Canonical Layout §15):
 
 ```
 if isTall then 5 else 6
@@ -167,7 +166,8 @@ else
 The formatter never collapses the multiline form, since it keeps the author's
 line breaks (Canonical Layout §1).
 
-In multiline code, a chain canonically uses `else if` on the same line, aligned
-with the first `if` and final `else`. Each branch body indents one level; the
-chain does not accumulate indentation. A separate `else` with an indented nested
-conditional remains legal. Operators §11.3 owns the rule.
+A chain is never written on one line, and canonically keeps each `else` and its
+`if` together on a line, aligned with the first `if` and final `else`. Each
+branch body indents one level; the chain does not accumulate indentation. A
+separate `else` with an indented nested conditional remains legal. Operators
+§11.3 owns the rule.
