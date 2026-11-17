@@ -1,8 +1,9 @@
 /**
  * The whitespace pass: one document's lines rewritten into canonical layout —
  * line ends (Canonical Layout §4), indentation (§5), blank lines (§6), spacing
- * within a line (§7) and comments (§8). It keeps every line break the author
- * wrote in code; breaking long lines is `breaking.ts`'s.
+ * within a line (§7), inside a string's interpolation holes too (§7.4), and
+ * comments (§8). It keeps every line break the author wrote in code; breaking
+ * long lines is `breaking.ts`'s.
  *
  * Indentation is read from the layout pass's own output. Its virtual tokens say
  * where each block opens, where each of its items begins and where it ends, so
@@ -43,6 +44,26 @@ const BYTE_ORDER_MARK = "﻿";
 type Element =
   | { readonly kind: "token"; readonly index: number; readonly start: number; readonly end: number; readonly startLine: number; readonly endLine: number }
   | { readonly kind: "comment"; readonly comment: Source.Comment; readonly start: number; readonly end: number; readonly startLine: number; readonly endLine: number };
+
+/** A gap inside an interpolation hole that §7.4 rewrites, by offsets in the author's text. */
+interface HoleGap {
+  readonly start: number;
+  readonly end: number;
+  readonly text: string;
+}
+
+/** What a hole holds, in order: its braces, its tokens and its comments. */
+interface HolePiece {
+  readonly kind: "brace" | "token" | "comment";
+  /** The token's index among the hole's tokens. */
+  readonly index: number;
+  readonly start: number;
+  readonly end: number;
+  /** The line the piece ends on. */
+  readonly endLine: number;
+  /** A comment that ends its line: a line comment, or one with only spaces after it there. */
+  readonly endsLine: boolean;
+}
 
 interface Line {
   readonly start: number;
@@ -108,6 +129,8 @@ class Writer {
   #alternativeLine = -1;
   /** The `<` and `>` of a list, which open and close as brackets do (§5.2). */
   readonly #angles: Spacing.Roles;
+  /** The gaps inside interpolation holes that §7.4 rewrites, in order. */
+  readonly #holeGaps: readonly HoleGap[];
 
   constructor(reading: Scan, options: Options) {
     this.#reading = reading;
@@ -117,6 +140,7 @@ class Writer {
     this.#lines = splitLines(this.#text);
     this.#elements = this.#readElements();
     this.#angles = Spacing.roles(this.#tokens, new Set());
+    this.#holeGaps = this.#readHoles();
   }
 
   /** Whether a token opens brackets: `(`, `[`, `{`, or a list's `<`. */
@@ -488,7 +512,7 @@ class Writer {
 
       if (spanning !== undefined && spanning.element.endLine >= lineNumber) {
         const end = Math.min(spanning.element.end, line.end);
-        text = shiftLine(this.#text.slice(line.start, end), spanning.shift);
+        text = shiftLine(this.#source(line.start, end), spanning.shift);
         kind = "content";
         previous = spanning.element;
         if (spanning.element.endLine === lineNumber) spanning = undefined;
@@ -523,7 +547,7 @@ class Writer {
         const element = here[index]!;
         const gap = this.#gap(previous!, element, roles, index === here.length - 1);
         text += gap;
-        const piece = this.#text.slice(element.start, Math.min(element.end, line.end));
+        const piece = this.#source(element.start, Math.min(element.end, line.end));
         text += piece;
         previous = element;
         if (element.endLine > lineNumber) spanning = { element, shift: 0 };
@@ -545,7 +569,7 @@ class Writer {
     const first = here[0]!;
     if (codeAt === 0) {
       const indent = this.#indent.get(lineNumber) ?? 0;
-      const piece = this.#text.slice(first.start, Math.min(first.end, line.end));
+      const piece = this.#source(first.start, Math.min(first.end, line.end));
       const text = " ".repeat(indent) + piece;
       return { kind: "Placed", text, count: 1, firstColumn: indent };
     }
@@ -600,7 +624,7 @@ class Writer {
       text += lineText.slice(element.start - base, element.end - base);
     }
     text += " ".repeat(lastGap);
-    text += this.#text.slice(code.start, Math.min(code.end, line.end));
+    text += this.#source(code.start, Math.min(code.end, line.end));
     return { kind: "Placed", text, count: codeAt + 1, firstColumn: start };
   }
 
@@ -645,22 +669,119 @@ class Writer {
       if (right.kind === "comment" && left.kind === "token" && last) return " ".repeat(Math.max(1, authored));
       return " ".repeat(authored);
     }
-    const rule = Spacing.rule(this.#tokens, roles, left.index, authored > 0);
-    const collapse = this.#options.collapseExtraSpaces;
-    switch (rule) {
-      case "one":
-        return " ".repeat(collapse ? 1 : Math.max(1, authored));
-      case "none": {
-        if (authored === 0) return "";
-        const leftText = this.#text.slice(left.start, left.end);
-        const rightText = this.#text.slice(right.start, right.end);
-        const kinds = [this.#tokens[left.index]!.kind, this.#tokens[right.index]!.kind] as const;
-        return Spacing.canJoin(leftText, rightText, kinds) ? "" : " ";
+    const leftText = this.#text.slice(left.start, left.end);
+    const rightText = this.#text.slice(right.start, right.end);
+    return spaced(this.#tokens, roles, left.index, [leftText, rightText], authored, this.#options.collapseExtraSpaces);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Interpolation holes (§7.4)
+
+  /**
+   * The gaps inside the document's interpolation holes, at any depth, that
+   * §7.4 rewrites. A string is one token to the layout pass (Lexer §6.1) and is
+   * written as it stands, apart from these: the gaps between a hole's tokens on
+   * one line follow §7.1–§7.3, and a hole's own braces take no space inside
+   * them. The string's text stays as written, and so does every gap that holds
+   * a line break, with the indentation and line-end spaces around it.
+   */
+  #readHoles(): HoleGap[] {
+    const gaps: HoleGap[] = [];
+    const comments = [...this.#reading.lexed.comments].sort((left, right) => left.span.start.offset - right.span.start.offset);
+    const visit = (token: Lexed.Token): void => {
+      if (token.kind !== "String") return;
+      for (const part of token.parts) {
+        if (part.kind !== "Interpolation") continue;
+        const tokens = part.tokens.filter(({ kind }) => kind !== "Eof");
+        tokens.forEach(visit);
+        this.#spaceHole(part, tokens, comments, gaps);
       }
-      case "kept":
-      case "presence":
-        return authored === 0 ? "" : " ".repeat(collapse ? 1 : authored);
+    };
+    this.#tokens.forEach(visit);
+    return gaps.sort((left, right) => left.start - right.start);
+  }
+
+  #spaceHole(
+    part: Lexed.StringInterpolation,
+    tokens: readonly Lexed.Token[],
+    all: readonly Source.Comment[],
+    gaps: HoleGap[],
+  ): void {
+    const open = part.span.start.offset;
+    const close = part.span.end.offset - 1;
+    // The hole's own comments, not those of a string inside it.
+    const strings = tokens.filter(({ kind }) => kind === "String").map(({ span }) => span);
+    const comments: Source.Comment[] = [];
+    for (let at = firstAtOrAfter(all, ({ span }) => span.start.offset, open); at < all.length; at += 1) {
+      const { span } = all[at]!;
+      if (span.start.offset >= close) break;
+      const inner = strings.some(({ start, end }) => start.offset <= span.start.offset && span.start.offset < end.offset);
+      if (!inner) comments.push(all[at]!);
     }
+    const brace = (start: number, end: number, endLine: number): HolePiece =>
+      ({ kind: "brace", index: -1, start, end, endLine, endsLine: false });
+    const pieces: HolePiece[] = [
+      brace(open, open + 2, part.span.start.line),
+      ...tokens.map((token, index): HolePiece => ({
+        kind: "token",
+        index,
+        start: token.span.start.offset,
+        end: token.span.end.offset,
+        endLine: token.span.end.line,
+        endsLine: false,
+      })),
+      ...comments.map((comment): HolePiece => ({
+        kind: "comment",
+        index: -1,
+        start: comment.span.start.offset,
+        end: comment.span.end.offset,
+        endLine: comment.span.end.line,
+        endsLine: comment.kind === "Line" ||
+          this.#text.slice(comment.span.end.offset, this.#lines[comment.span.end.line]!.end).trim() === "",
+      })),
+      brace(close, close + 1, part.span.end.line),
+    ].sort((left, right) => left.start - right.start);
+    const roles = Spacing.roles(tokens, new Set());
+    for (let at = 0; at + 1 < pieces.length; at += 1) {
+      const left = pieces[at]!;
+      const right = pieces[at + 1]!;
+      const written = this.#text.slice(left.end, right.start);
+      // A line break, and the indentation and spaces around it, stay (§7.4).
+      if (/[\r\n]/u.test(written)) continue;
+      const lineStart = this.#lines[left.endLine]!.start;
+      const authored = visualWidth(this.#text.slice(lineStart, right.start), 0) -
+        visualWidth(this.#text.slice(lineStart, left.end), 0);
+      let gap: string;
+      if (left.kind === "comment" || right.kind === "comment") {
+        // As anywhere: a comment's gaps are kept, and one before a comment
+        // that ends its line is at least one space (§8.3).
+        const trailing = right.kind === "comment" && left.kind === "token" && right.endsLine;
+        gap = " ".repeat(trailing ? Math.max(1, authored) : authored);
+      } else if (left.kind === "brace" || right.kind === "brace") {
+        // None inside the hole's braces (§7.1), except where a `-` against
+        // the closing brace would close a comment.
+        const minus = right.kind === "brace" && this.#text.slice(left.start, left.end).endsWith("-");
+        gap = minus ? " " : "";
+      } else {
+        const texts = [this.#text.slice(left.start, left.end), this.#text.slice(right.start, right.end)] as const;
+        gap = spaced(tokens, roles, left.index, texts, authored, this.#options.collapseExtraSpaces);
+      }
+      if (gap !== written) gaps.push({ start: left.end, end: right.start, text: gap });
+    }
+  }
+
+  /** The author's text from `from` to `to`, with §7.4's gaps inside holes rewritten. */
+  #source(from: number, to: number): string {
+    let out = "";
+    let at = from;
+    const gaps = this.#holeGaps;
+    for (let next = firstAtOrAfter(gaps, ({ start }) => start, from); next < gaps.length; next += 1) {
+      const gap = gaps[next]!;
+      if (gap.end > to) break;
+      out += this.#text.slice(at, gap.start) + gap.text;
+      at = gap.end;
+    }
+    return out + this.#text.slice(at, to);
   }
 
   // ---------------------------------------------------------------------------
@@ -760,6 +881,44 @@ interface RenderedLine {
   readonly kind: "blank" | "code" | "comment" | "content";
   /** The line of the author's document this one was written from. */
   readonly source: number;
+}
+
+/** The index of the first item, in a list sorted by `offset`, at or after `target`. */
+function firstAtOrAfter<T>(items: readonly T[], offset: (item: T) => number, target: number): number {
+  let low = 0;
+  let high = items.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (offset(items[middle]!) < target) low = middle + 1;
+    else high = middle;
+  }
+  return low;
+}
+
+/**
+ * What the gap after `tokens[left]`, before the next token, becomes (§7.1–§7.3),
+ * given the two tokens' text and the gap's width as the author wrote it.
+ */
+function spaced(
+  tokens: readonly Lexed.Token[],
+  roles: Spacing.Roles,
+  left: number,
+  texts: readonly [string, string],
+  authored: number,
+  collapse: boolean,
+): string {
+  switch (Spacing.rule(tokens, roles, left, authored > 0)) {
+    case "one":
+      return " ".repeat(collapse ? 1 : Math.max(1, authored));
+    case "none": {
+      if (authored === 0) return "";
+      const kinds = [tokens[left]!.kind, tokens[left + 1]!.kind] as const;
+      return Spacing.canJoin(texts[0], texts[1], kinds) ? "" : " ";
+    }
+    case "kept":
+    case "presence":
+      return authored === 0 ? "" : " ".repeat(collapse ? 1 : authored);
+  }
 }
 
 function block(itemIndent: number, arms: boolean): Frame {
