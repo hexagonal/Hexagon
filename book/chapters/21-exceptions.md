@@ -206,9 +206,10 @@ let narrow(input: String): Output =
 
 -- The window is everything: a ParseError from `generate` is caught here.
 let wide(input: String): Output =
-    try match parse(input) with
-        Ok(ast) => generate(ast)
-        Err(reason) => report(reason)
+    try
+        match parse(input) with
+            Ok(ast) => generate(ast)
+            Err(reason) => report(reason)
     catch
         ParseError(line, message) => reportAt(line, message)
 ```
@@ -274,9 +275,10 @@ the lambda out and give it a `try`:
 
 ```hexagon
 Vector.map(options, option =>
-    try match option with
-        Some(value) => decode(value)
-        None => fallback
+    try
+        match option with
+            Some(value) => decode(value)
+            None => fallback
     catch
         ParseError(line, message) => reportAt(line, message)
 )

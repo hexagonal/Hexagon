@@ -277,10 +277,7 @@ Hexagon language:
 extern from "url-tools"
     export type SearchParams
 
-    export method get(
-        params: SearchParams,
-        key: String,
-    ) ->! Nullable(String)
+    export method get(params: SearchParams, key: String) ->! Nullable(String)
 ```
 
 Hexagon sees an ordinary subject-first function, `->!` because a lookup on foreign

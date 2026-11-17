@@ -401,8 +401,7 @@ the whole `if` produces `String`.
 Conditionals that exist only for an effect may leave the `else` path unwritten:
 
 ```hexagon
-if delayed then
-    Debug.log("Order delayed")
+if delayed then Debug.log("Order delayed")
 ```
 
 The missing branch is `()`, the unit value — the compiler supplies it. This is not

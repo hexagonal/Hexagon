@@ -128,7 +128,7 @@ let confirmedReservation = { reservation with confirmed = True }
 Every overridden field must already exist and keep its field type:
 
 ```hexagon
-{ reservation with seats = 4 }         -- same record type
+{ reservation with seats = 4 }        -- same record type
 { reservation with table = "window" } -- error: update cannot add a field
 ```
 
