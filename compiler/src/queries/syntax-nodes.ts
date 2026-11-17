@@ -499,7 +499,11 @@ function pattern(written: Parsed.Pattern): SyntaxNode {
     case "Typed":
       return node("other", written.span, [pattern(written.pattern), annotation(written.annotation)]);
     case "Declared":
-      return node("other", written.span, [...written.components.map(pattern), name(written.name)]);
+      // A fraction's `name` is its `//` token: punctuation, the pattern's own text.
+      return node("other", written.span, [
+        ...written.components.map(pattern),
+        written.fraction ? undefined : name(written.name),
+      ]);
     case "Or":
       return node("other", written.span, written.alternatives.map(pattern));
     case "Vector":
@@ -596,7 +600,9 @@ function expression(written: Parsed.Expr): SyntaxNode {
     case "Call":
       return own([expression(written.callee), ...written.arguments.map(expression)]);
     case "PatternConstruction":
-      return own([...written.components.map(expression), name(written.name)]);
+      // A fraction's `name` is its `//` token, which is an operator, not a
+      // name: it is the expression's own text, as a `Binary`'s operator is.
+      return own([...written.components.map(expression), written.fraction ? undefined : name(written.name)]);
     case "Access":
       return own([expression(written.receiver), name(written.field)]);
     case "Index":
