@@ -1,6 +1,3 @@
 module Sign
 
-export union Sign =
-    | Negative
-    | Zero
-    | Positive
+export union Sign = Negative | Zero | Positive

@@ -135,10 +135,7 @@ honor Integral<BigInt> =
             throw(DivideByZeroFault("BigInt.mod: divisor is zero"))
         else
             let remainder = left.rem(right)
-            if remainder < 0 then
-                remainder + right.abs()
-            else
-                remainder
+            if remainder < 0 then remainder + right.abs() else remainder
 
     {-- `left` divided by `right` as a whole number, rounded so that what is
         left over, which is `mod`, is never negative:\

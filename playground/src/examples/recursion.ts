@@ -7,11 +7,7 @@ export const recursion: PlaygroundExample = {
   source: `module Recursion
 
 -- fun introduces a directly recursive binding.
-fun factorial(n: Int) =
-    if n <= 1 then
-        1
-    else
-        n * factorial(n - 1)
+fun factorial(n: Int) = if n <= 1 then 1 else n * factorial(n - 1)
 
 Debug.log("6! = \${factorial(6)}")
 `,

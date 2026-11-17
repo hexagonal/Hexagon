@@ -14,11 +14,7 @@ export const helloWorld: PlaygroundExample = {
 module Tour
 
 -- Unions describe a closed set of alternatives.
-union Suit =
-    | Clubs
-    | Diamonds
-    | Hearts
-    | Spades
+union Suit = Clubs | Diamonds | Hearts | Spades
 
 -- Tuples combine values with different types.
 let card = (10, Hearts)
@@ -36,11 +32,7 @@ let greet2(thing: a) = "Hello, \${thing}!"
 let plus(x: Int, y: Int) = x + y
 
 -- Recursive functions use fun.
-fun factorial(n: Int) =
-    if n <= 1 then
-        1
-    else
-        n * factorial(n - 1)
+fun factorial(n: Int) = if n <= 1 then 1 else n * factorial(n - 1)
 
 -- Match handles every union alternative.
 let color(suit: Suit) =

@@ -3,9 +3,7 @@ module Result
 -- The value that holds a caught exception (`spec/option-result-convenience.md`
 -- section 1): `attempt` gives one, and `orThrow` throws it again. A program
 -- whose failures are data of its own declares a union for them.
-export union Result(a) =
-    | Ok(value: a)
-    | Err(error: Exn)
+export union Result(a) = Ok(value: a) | Err(error: Exn)
 
 {-- Transforms a successful value. `Err` stays unchanged. -}
 export let map(source: Result(a), transform: a ->! b): Result(b) =

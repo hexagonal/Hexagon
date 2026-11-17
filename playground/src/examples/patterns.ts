@@ -8,11 +8,7 @@ export const patterns: PlaygroundExample = {
 
 -- derives (Show) asks the compiler for the display operation
 -- interpolation needs, so a constructor can be printed by name.
-union Direction derives (Show) =
-    | North
-    | East
-    | South
-    | West
+union Direction derives (Show) = North | East | South | West
 
 let opposite(direction: Direction) =
     match direction with

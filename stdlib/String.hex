@@ -124,8 +124,7 @@ honor Hash<String> =
 
 let points(text: String): Vector(String) =
     var result: Vector(String) = []
-    for point in text do
-        result := result.append(point)
+    for point in text do result := result.append(point)
     result
 
 {-- The number of codepoints in the string. A codepoint is one Unicode
@@ -140,8 +139,7 @@ export let length(text: String): Int =
         0
     else
         var high = 2
-        while text[high..high] != "" do
-            high := high * 2
+        while text[high..high] != "" do high := high * 2
         var low = 1
         while high - low > 1 do
             let middle = (low + high).div(2)

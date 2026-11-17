@@ -88,10 +88,7 @@ union Root(k, v) =
 -- The trie representation, following Immutable.js's Map. `size` is maintained
 -- incrementally — every insert path reports whether it grew the trie — so it is
 -- a field read rather than a traversal.
-record HashTrie(k, v) = {
-    size: Int,
-    root: Root(k, v),
-}
+record HashTrie(k, v) = { size: Int, root: Root(k, v) }
 
 -- Signals a structurally malformed trie (a runtime bug, never a caller error).
 -- Thrown only on paths a well-formed trie can never take.
@@ -140,11 +137,7 @@ let lastShift: Int = 30
 
 -- The one empty trie. A `HashTrie` is immutable, so every empty map and set in a
 -- program can be this same value.
-let empty: HashTrie(k, v) =
-    HashTrie({
-        size = 0,
-        root = NoRoot,
-    })
+let empty: HashTrie(k, v) = HashTrie({ size = 0, root = NoRoot })
 
 -- The one-entry trie binding `key` to `value`, **unconstrained**: no `Hash`
 -- evidence is taken and none is needed, because the pair is held unplaced in a
@@ -153,11 +146,7 @@ let empty: HashTrie(k, v) =
 -- two — and it serves `Set.singleton` on the same terms when the Set step
 -- arrives. The first keyed operation carrying `Hash` is where placement
 -- happens, and until then a singleton costs one allocation and no user code.
-let singleton(key: k, value: v): HashTrie(k, v) =
-    HashTrie({
-        size = 1,
-        root = Sole(key, value),
-    })
+let singleton(key: k, value: v): HashTrie(k, v) = HashTrie({ size = 1, root = Sole(key, value) })
 
 -- How many entries `trie` holds, read from the maintained field.
 let size(trie: HashTrie(k, v)): Int = trie.size
@@ -245,8 +234,7 @@ fun lookup(tree: Tree(k, v), hash: Int, key: k, shift: Int, equal: (k, k) -> Boo
 let get<k: Hash>(trie: HashTrie(k, v), key: k): Option(v) =
     match trie.root with
         NoRoot => None
-        Sole(soleKey, soleValue) =>
-            if soleKey == key then Some(soleValue) else None
+        Sole(soleKey, soleValue) => if soleKey == key then Some(soleValue) else None
         Rooted(tree) =>
             lookup(tree, placement(key), key, 0, (left, right) => left == right)
 
@@ -300,8 +288,7 @@ fun lookupKey(tree: Tree(k, v), hash: Int, key: k, shift: Int, equal: (k, k) -> 
 let representative<k: Hash>(trie: HashTrie(k, v), key: k): Option(k) =
     match trie.root with
         NoRoot => None
-        Sole(soleKey, _) =>
-            if soleKey == key then Some(soleKey) else None
+        Sole(soleKey, _) => if soleKey == key then Some(soleKey) else None
         Rooted(tree) =>
             lookupKey(tree, placement(key), key, 0, (left, right) => left == right)
 
@@ -419,20 +406,14 @@ let set<k: Hash>(trie: HashTrie(k, v), key: k, value: v): HashTrie(k, v) =
         -- here and the trie becomes an ordinary `Rooted` one for good.
         Sole(soleKey, soleValue) =>
             if soleKey == key then
-                HashTrie({
-                    size = 1,
-                    root = Sole(soleKey, value),
-                })
+                HashTrie({ size = 1, root = Sole(soleKey, value) })
             else
                 let settledRoot = Entry(placement(soleKey), soleKey, soleValue)
                 let (settled, grew) =
                     insert(settledRoot, placement(key), key, value, 0, (left, right) =>
                         left == right
                     )
-                HashTrie({
-                    size = if grew then 2 else 1,
-                    root = Rooted(settled),
-                })
+                HashTrie({ size = if grew then 2 else 1, root = Rooted(settled) })
         Rooted(tree) =>
             let placed = placement(key)
             let (root, inserted) =
@@ -523,8 +504,7 @@ let remove<k: Hash>(trie: HashTrie(k, v), key: k): HashTrie(k, v) =
         -- Unplaced, so the question is one comparison: the sole entry either is
         -- the one being unbound — leaving the shared `empty` — or the removal
         -- requested nothing, and the forgiving answer is this very value.
-        Sole(soleKey, _) =>
-            if soleKey == key then empty else trie
+        Sole(soleKey, _) => if soleKey == key then empty else trie
         Rooted(tree) =>
             let (root, removed) =
                 discard(tree, placement(key), key, 0, (left, right) => left == right)
@@ -532,10 +512,7 @@ let remove<k: Hash>(trie: HashTrie(k, v), key: k): HashTrie(k, v) =
                 match root with
                     None => empty
                     Some(replacement) =>
-                        HashTrie({
-                            size = trie.size - 1,
-                            root = Rooted(replacement),
-                        })
+                        HashTrie({ size = trie.size - 1, root = Rooted(replacement) })
             else
                 trie
 
@@ -677,8 +654,7 @@ union Pruned(k, v) =
 -- (Collections Part 4 section 5.4).
 fun filterTree(tree: Tree(k, v), keep: (k, v) ->! Bool): Pruned(k, v) =
     match tree with
-        Entry(_, key, value) =>
-            if keep!(key, value) then Whole(1) else Emptied
+        Entry(_, key, value) => if keep!(key, value) then Whole(1) else Emptied
         Collision(hash, count, pairs) =>
             var kept = pairs
             var keptCount = 0
@@ -1002,8 +978,7 @@ fun split(
                                     pending,
                                 )
                             pending := after
-                            if childRepeated then
-                                repeated := True
+                            if childRepeated then repeated := True
                             match remapped with
                                 None => ()
                                 Some(subtree) =>
@@ -1048,19 +1023,14 @@ let filtered(trie: HashTrie(k, v), pruned: Pruned(k, v)): HashTrie(k, v) =
     match pruned with
         Whole(_) => trie
         Emptied => empty
-        Rebuilt(tree, count) =>
-            HashTrie({
-                size = count,
-                root = Rooted(tree),
-            })
+        Rebuilt(tree, count) => HashTrie({ size = count, root = Rooted(tree) })
 
 -- `trie` keeping the entries `keep` accepts, with no key hashed again. Keeping
 -- every entry answers `trie` itself.
 let filterEntries(trie: HashTrie(k, v), keep: ((k, v)) ->! Bool): HashTrie(k, v) =
     match trie.root with
         NoRoot => trie
-        Sole(soleKey, soleValue) =>
-            if keep!((soleKey, soleValue)) then trie else empty
+        Sole(soleKey, soleValue) => if keep!((soleKey, soleValue)) then trie else empty
         Rooted(tree) =>
             filtered(trie, filterTree!(tree, (key, value) => keep!((key, value))))
 
@@ -1095,19 +1065,13 @@ let remapEntries<j: Hash>(
             let hashOf = (key: j) => placement(key)
             let shadow = reshape!(tree, transform, hashOf)
             if keepsEverySlot(tree, shadow, hashOf, equal) then
-                Some(HashTrie({
-                    size = trie.size,
-                    root = Rooted(shadow),
-                }))
+                Some(HashTrie({ size = trie.size, root = Rooted(shadow) }))
             else if not anyKept(tree, shadow, hashOf) then
                 match placeAll(shadow, None, False, hashOf, equal) with
                     (_, True) => None
                     (None, False) => Some(empty)
                     (Some(placed), False) =>
-                        Some(HashTrie({
-                            size = trie.size,
-                            root = Rooted(placed),
-                        }))
+                        Some(HashTrie({ size = trie.size, root = Rooted(placed) }))
             else
                 let (kept, moves, keptRepeated) = split(tree, shadow, hashOf, equal, NoMoves)
                 var root = kept
@@ -1124,19 +1088,14 @@ let remapEntries<j: Hash>(
                                     let (grown, inserted) =
                                         insert(placed, hash, key, value, 0, equal)
                                     root := Some(grown)
-                                    if not inserted then
-                                        repeated := True
+                                    if not inserted then repeated := True
                             pending := rest
                 if repeated then
                     None
                 else
                     match root with
                         None => Some(empty)
-                        Some(placed) =>
-                            Some(HashTrie({
-                                size = trie.size,
-                                root = Rooted(placed),
-                            }))
+                        Some(placed) => Some(HashTrie({ size = trie.size, root = Rooted(placed) }))
 
 -- **The set side, and why it is a second record rather than a bare trie**
 -- (#373). A `Set(a)` is a trie whose values are all `()`, and it would have been
@@ -1229,8 +1188,7 @@ let foldMembers(s: HashSet(a), initial: b, combine: (b, a) ->! b): b =
 let findMember(s: HashSet(a), matches: a ->! Bool): Option(a) =
     match s.trie.root with
         NoRoot => None
-        Sole(soleKey, _) =>
-            if matches!(soleKey) then Some(soleKey) else None
+        Sole(soleKey, _) => if matches!(soleKey) then Some(soleKey) else None
         Rooted(tree) =>
             match findTree!(tree, (key, _) => matches!(key)) with
                 None => None
@@ -1241,17 +1199,10 @@ let findMember(s: HashSet(a), matches: a ->! Bool): Option(a) =
 let filterMembers(s: HashSet(a), keep: a ->! Bool): HashSet(a) =
     match s.trie.root with
         NoRoot => s
-        Sole(soleKey, _) =>
-            if keep!(soleKey) then s else emptySet
+        Sole(soleKey, _) => if keep!(soleKey) then s else emptySet
         Rooted(tree) =>
             match filterTree!(tree, (key, _) => keep!(key)) with
                 Whole(_) => s
                 Emptied => emptySet
                 Rebuilt(kept, count) =>
-                    HashSet({
-                        trie =
-                            HashTrie({
-                                size = count,
-                                root = Rooted(kept),
-                            }),
-                    })
+                    HashSet({ trie = HashTrie({ size = count, root = Rooted(kept) }) })

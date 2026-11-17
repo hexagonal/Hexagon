@@ -96,8 +96,7 @@ fun tailOffset(capacity: Int): Int =
 -- height-`h` trie holds when full.
 fun pow32(exponent: Int): Int =
     var result = 1
-    for step in 1..exponent do
-        result := result * radix
+    for step in 1..exponent do result := result * radix
     result
 
 -- Reads the element at an absolute `internal` index. Indices at or beyond
@@ -427,8 +426,7 @@ let trimHeight(
                     match node with
                         Branch(children) => Node.get(children, child)
                         -- A branch level always holds branches above height 1.
-                        Leaf(_) =>
-                            throw(TrieCorruptionFault("trimHeight: a leaf above height 1"))
+                        Leaf(_) => throw(TrieCorruptionFault("trimHeight: a leaf above height 1"))
                 low := low - delta
                 high := high - delta
                 cap := cap - delta
@@ -494,10 +492,7 @@ fun window(trie: TrieVector(a), begin: Int, end: Int): TrieVector(a) =
     let count = size(trie)
     let low = if begin < 0 then 0 else begin
     let high = if end > count then count else end
-    if low >= high then
-        empty
-    else
-        slice(trie, low, high)
+    if low >= high then empty else slice(trie, low, high)
 
 -- `++` at `Vector(a)` (Operators §7): the elements of `right` appended to `left`
 -- in order. Linear in `right` as Part 1 §2.2 documents, times `append`'s
