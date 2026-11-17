@@ -65,7 +65,7 @@ These are the first four options, not necessarily the last. Any option must pass
 1. **It starts off.** With the option at its default, the formatter writes exactly what it would write without the option.
 2. **Two settings never undo each other.** Take any two settings, A and B. Once a document has been formatted under A and then under B, formatting it again under either A or B changes nothing.
 
-All four pass. Maximum line length only adds line breaks, and no setting removes one. Collapse extra spaces only removes spaces, and no setting adds them back. Leave trailing commas as written only keeps the formatter from adding commas, and no setting removes one. A line's length counts a comma §14 would add whether or not it is written (§9.2), so adding the comma never carries a line past a limit it was formatted to. Apply width limits only adds line breaks, as Maximum line length does, together with the trailing commas §14 gives the brackets it opens and the blank line after a union it spreads (§6.3), and no setting removes any of these. A width limit measures a construct spaced as Collapse extra spaces on spaces it, and without a trailing comma (§15.2), so the other options never change what it spreads.
+All four pass. Maximum line length only adds line breaks, and no setting removes one. Collapse extra spaces only removes spaces, and no setting adds them back. Leave trailing commas as written only keeps the formatter from adding commas, and no setting removes one. A line's length counts a comma §14 would add whether or not it is written (§9.2), so adding the comma never carries a line past a limit it was formatted to. Apply width limits only adds line breaks, as Maximum line length does, together with the trailing commas §14 gives the brackets it opens, and the leading bar (§16) and blank line (§6.3) of a union it spreads, and no setting removes any of these. A width limit measures a construct spaced as Collapse extra spaces on spaces it, and without a trailing comma (§15.2), so the other options never change what it spreads.
 
 An option where one setting adds what another removes fails the second test. Two developers with different settings would rewrite the same lines back and forth on every save. Padding inside record braces is the example: it is a rule (§7.1), not an option.
 
@@ -357,7 +357,7 @@ A line is broken in two cases only: where Maximum line length is set to a number
 
 ### 9.2 The length of a line
 
-A line's length is the number of Unicode code points on it, from its first character to its last. Its indentation counts; its line end does not. A trailing comment and the gap before it do not count. Where §14 would add a trailing comma with Leave trailing commas as written off, the line counts it whether or not it is written, so a line measures the same under either setting of the option (§3.4). With the option on, such a line is broken once its written length reaches the limit.
+A line's length is the number of Unicode code points on it, from its first character to its last. Its indentation counts; its line end does not. A trailing comment and the gap before it do not count. Where §14 would add a trailing comma with Leave trailing commas as written off, the line counts it whether or not it is written, so a line measures the same under either setting of the option (§3.4). With the option on, such a line is broken once its written length reaches the limit. In the same way, a line counts a leading bar that §16 would add to it, whether or not the bar is written yet.
 
 Code points are the measure in version one. The measure may later become display width, so that a wide character counts as two. That change is safe: since the formatter never joins lines, a document formatted under one measure is at most broken further under the other.
 
@@ -529,11 +529,11 @@ Both are legal. A line indented deeper than its item continues the item whatever
 27. **Leaving an interpolation hole as written.** A hole holds code, and the spaces between its tokens are no part of the string's value, so spacing them changes nothing the program computes. Left as written, `${10 // 12 == 5 // 6}` would disagree with the same code written outside a string, `10//12 == 5//6`. Prettier spaces the code inside a JavaScript template literal's `${…}` in the same way, and keeps it on its line (§7.4).
 28. **A space inside a hole's braces**, as in `${ total }`, as a record's braces take one. A hole's braces enclose one expression, as parentheses do, and Hexagon writes parentheses tight. Swift's hole is a pair of parentheses, `\(total)`. Prettier spaces a JavaScript object's braces and writes a template literal's hole tight, side by side as `${{ x: 1 }.x}` (§7.4).
 29. **Leaving it to the author whether a construct that fits is spread**, as "a genuinely short conditional stays on one line" did. Whoever wrote each line decided what "short" meant, so one file held the same construct in two shapes. Each kind of construct has exactly one rule (§15.1).
-30. **A width limit that is a share of Maximum line length**, such as 60 percent of it. A width limit describes how much a reader takes in at once, not the width of a window. rustfmt's limits, which its documentation calls ratios, stay fixed at every limit of 100 or less in its source. Where Maximum line length is less than a width limit, the line limit is reached first (§15.2).
+30. **A width limit that is a share of Maximum line length**, such as 60 percent of it. A width limit describes how much a reader takes in at once, not the width of a window. rustfmt's limits, which its documentation calls ratios, stay fixed at every line length of 100 or less in its source. Where Maximum line length is less than a width limit, the line limit is reached first (§15.2).
 31. **Measuring a width limit on the whole line**, indentation and the rest of the line included. The same conditional would then be one line at the left margin and spread inside a nested block (§15.2).
 32. **Counting items instead of width**, such as spreading a record of three or more fields. Width tracks what reads as dense more closely, and one unit for every kind is simpler (§15.2).
 33. **A width limit for vectors, tuples, one-argument calls, arithmetic and function headers.** A vector of short literals reads as a table at any width, and a dense tuple is dense because of a call inside it, which its own width limit spreads. A call with one argument, spread, only moves its argument down a line and adds a line holding `)`. Two sibling functions whose headers are 77 and 86 wide would be laid out unalike for the sake of nine characters (§15.1).
-34. **Never putting a conditional used for its effect on one line**, as rustfmt never puts an `if` without `else` on one line. An `if` without `else` is an `if` with an implied `else ()` (Operators §11.2), and OCaml writes `if c then x := y` on one line. A loop's body is limited in the same way. Only nesting is never on one line (§15.1).
+34. **Never putting a conditional used for its effect on one line**, as rustfmt never puts an `if` without `else` on one line. An `if` without `else` is an `if` with an implied `else ()` (Operators §11.2), and OCaml writes `if c then x := y` on one line. A loop with a one-line body takes a width limit in the same way. Only nesting is never on one line (§15.1).
 35. **A width limit for nested conditionals**, so that `if a then b else if c then d else e` stays on one line when short. Nesting is where width is the wrong measure: the reader must find which `else` belongs to which `if` (§15.1).
 36. **A tighter width limit for a conditional inside an argument, a field or an index.** The call's own width limit already spreads most of these, since the conditional makes the argument list wide, and a width limit that depends on the seat would be a second number for one kind (§15.1).
 37. **Leaving a multi-line union's first bar to the author.** A formatted document would hold both spellings, `Shape` and `| Shape`, beneath the same kind of `=`, as it would hold both spellings of a list if only some had their trailing comma (item 24). Unions §2 already gives every alternative of a multi-line union its bar (§16).
@@ -590,7 +590,7 @@ The formatter deliberately leaves these choices to the author. The house style f
 - **Where lines break**, except in a line longer than the Maximum line length, and in a construct that Apply width limits spreads (§15). This covers which line a keyword stands on, such as `match x with` on the header line or on a line of its own. It also covers whether a construct within its width limit is written on one line or several, and whether brackets are open. While Apply width limits is off, it covers a construct over its width limit too. House text decides these by its table (`notes/canonical-formatting-and-naming.md` H9).
 - **Grouping by blank lines**, beyond the three places the formatter adds one (§6.2) and the cap of one.
 - **Extra spaces that align columns**, while Collapse extra spaces is off, and a wide gap before a trailing comment.
-- **The tokens:** parentheses, a leading `|` on a union written on one line or with its first alternative on its `=` line (§16), `;` or a new line, a degenerate `x: _`, the fused `fun f(…) = …` or a `fun` block, and the order and place of imports. Each token-level rule that other chapters name for "the formatter" waits for a ruling of its own. Until then, the canonical spelling is the author's to write.
+- **The tokens:** parentheses, a leading `|` on any union §16 does not cover, `;` or a new line, a degenerate `x: _`, the fused `fun f(…) = …` or a `fun` block, and the order and place of imports. Each token-level rule that other chapters name for "the formatter" waits for a ruling of its own. Until then, the canonical spelling is the author's to write.
 - **A trailing comma that §14 does not add**: one on a list whose closing bracket does not begin a line, such as a one-line list, and every one while Leave trailing commas as written is on. The formatter never removes a comma.
 - **Comments**: what they say, which line they are on, and the shape of a doc comment.
 - **Strings**: their text, and the line breaks, indentation and line-end spaces of a hole written over several lines (§7.4).
@@ -621,7 +621,7 @@ export let same<
 >(left: (a, b), right: (a, b)): Bool = left == right
 ```
 
-The comma goes directly after the last item, ahead of any comment on its line. A list that already ends with a comma gains no second one. The comma is the one token the formatter adds, and it changes no tree (§1). A line's length counts it (§9.2). Format selection adds the commas that Format document adds within its region (§2.2).
+The comma goes directly after the last item, ahead of any comment on its line. A list that already ends with a comma gains no second one. The comma is one of the two tokens the formatter adds, beside a union's leading bar (§16), and it changes no tree (§1). A line's length counts it (§9.2). Format selection adds the commas that Format document adds within its region (§2.2).
 
 No comma is added in three cases:
 
@@ -752,7 +752,7 @@ The formatter never puts a spread construct on one line, even one within its wid
 
 ## 16. A union's leading bar
 
-Format document writes a `|` before the first alternative of a union whose alternatives stand one to a line: each alternative begins a line of its own, the first on a line beneath the `=`. Every alternative then begins with its `|`, as Unions §2 writes a multi-line union, so adding, removing or moving an alternative changes only its own lines:
+Format document writes a `|` before the first alternative of a union whose alternatives stand one to a line: it has two or more, and each begins a line of its own, the first on a line beneath the `=`. Every alternative then begins with its `|`, as Unions §2 writes a multi-line union, so adding, removing or moving an alternative changes only its own lines:
 
 ```
 union Reason =
@@ -763,9 +763,10 @@ union Reason =
 
 The bar goes directly before the alternative's first token, with one space after it (§7.1), below any comment on the lines above. A union whose first alternative already has its bar gains no second one. The bar changes no tree, since the two spellings are one declaration (Unions §2). It is the one token the formatter adds besides the trailing comma (§14), and a line's length counts it. Format selection adds the bars that Format document adds within its region (§2.2).
 
-No bar is added in two cases:
+No bar is added to any other union, for example:
 
 - **A union on one line**, such as `union Tree = Leaf | Node(Tree, Int, Tree)`, or one whose alternatives share a line beneath its `=`. Unions §2 writes a one-line union without the bar.
-- **A union whose first alternative stands on its `=` line**, as in `union Reason = Shape` with `| Range` beneath it. A bar there would read `union Reason = | Shape`.
+- **A union with one alternative**, even one written beneath its `=`. It is a one-liner (§6.3), and Unions §2 writes those without the bar.
+- **A union whose alternatives are not each on a line of their own**, such as one whose first alternative stands on its `=` line, as in `union Reason = Shape` with `| Range` beneath it. A bar there would read `union Reason = | Shape`.
 
 No option turns the bar off. The formatter never removes a bar, from a one-line union or from anywhere else (§13).

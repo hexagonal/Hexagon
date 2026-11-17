@@ -168,5 +168,6 @@ line breaks (Canonical Layout §1).
 
 A chain is never written on one line, and canonically keeps each `else` and its
 `if` together on a line, aligned with the first `if` and final `else`. Each
-branch body indents one level; the chain does not accumulate indentation. A separate `else` with an
-indented nested conditional remains legal. Operators §11.3 owns the rule.
+branch body indents one level; the chain does not accumulate indentation. A
+separate `else` with an indented nested conditional remains legal. Operators
+§11.3 owns the rule.
