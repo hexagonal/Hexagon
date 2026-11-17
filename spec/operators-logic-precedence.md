@@ -465,9 +465,9 @@ that the branch follows.
 
 `else if` is syntactically `else` whose expression is another mandatory-`then`
 conditional; there is no dedicated construct. A chain is never written on one
-line (Canonical Layout §15), and canonically writes `else if` on the same line.
-Align each `else if` and the final `else` with the first `if`, and indent each
-branch body one level:
+line (Canonical Layout §15), and canonically keeps each `else` and its `if`
+together on a line. Align each `else if` and the final `else` with the first
+`if`, and indent each branch body one level:
 
 ```hexagon
 if leftProduct < rightProduct then

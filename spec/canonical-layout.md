@@ -47,7 +47,7 @@ The commands run only when the developer asks for them. Hexagon's tools do not f
 
 ### 3.1 Maximum line length
 
-**Maximum line length** is either Unlimited or a number of characters (§9.2). The default is Unlimited, and under Unlimited no line is ever broken. Set to a number, it breaks each longer line as §9 describes. Since the formatter never joins lines, a document formatted at one length is left alone at any greater length and at Unlimited.
+**Maximum line length** is either Unlimited or a number of characters (§9.2). The default is Unlimited, and under Unlimited no line is broken for its length. Set to a number, it breaks each longer line as §9 describes. Since the formatter never joins lines, a document formatted at one length is left alone at any greater length and at Unlimited.
 
 ### 3.2 Collapse extra spaces
 
@@ -83,7 +83,7 @@ Either way, it removes none: a comma the author wrote stays where it is.
 **Spread wide constructs** is either off or on. The default is off.
 
 - **Off:** a line is broken only where it is longer than the Maximum line length (§9).
-- **On:** Format document also spreads a construct written on one line that is wider than its cap, or that is never written on one line, even where its line fits (§15).
+- **On:** Format document also spreads a construct on one line that is wider than its cap, or whose kind is never on one line, even where its line fits (§15).
 
 Either way, nothing is joined: a construct within its cap that the author spread stays spread (§13).
 
@@ -577,7 +577,7 @@ An implementation of the formatter (#1562) must meet these conditions.
 3. **Mangled input comes back canonical.** A document whose whitespace has been scrambled, without changing its meaning, formats to the same result as the original.
 4. **The standard library is canonical.** Every standard-library file is unchanged by Format document at Maximum line length 100, with Collapse extra spaces on, Leave trailing commas as written off and Spread wide constructs on, the house settings (#1563, #1602).
 5. **Format selection agrees with Format document.** It is computed from the whole-document result and returns only the edits inside its region (§2.2).
-6. **It can name every construct in the wrong shape.** A check reports each construct written on one line that §15 spreads, and each construct within its cap that is spread where it could stand on one line (`notes/canonical-formatting-and-naming.md` H9). A test runs it over the standard library, the Playground's tutorials and the Book's samples (#1602).
+6. **It can name every construct in the wrong shape.** A check reports each construct on one line that §15 spreads, and each construct that house text writes on one line but that is spread (`notes/canonical-formatting-and-naming.md` H9, with the exceptions it lists). A test runs it over the standard library, the Playground's tutorials and the Book's samples (#1602).
 
 The language server serves both commands (#1564), and the VS Code extension relies on it (#1565). The Playground offers both commands in its editor, and the four options in its Settings… window (#1566). A `hexc format` command with a check mode belongs to version one with the rest of the command line, and calls the same core. The Book's code samples are written in canonical layout. The Book does not describe formatting.
 
@@ -664,23 +664,25 @@ A construct that fits on its line can still be too dense to read there. Each kin
 | A lambda | up to 60 | its body beneath its `=>` (§9.4 rule 1) |
 | A match arm | up to 80 | its body beneath its `=>` (§9.4 rule 1) |
 | An `and` or `or` expression | up to 80 | carried on, each of its loosest operators beginning a line (§9.4 rule 5) |
-| An `else if` chain; a conditional that holds another conditional; a loop whose body is a loop or a conditional | never | as a conditional or a loop takes it |
+| An `else if` chain; a conditional that holds another conditional; a loop whose body is a loop or a conditional | never | each branch on a line of its own, in every link of a chain; a loop's body beneath `do` (§9.4 rules 4 and 6) |
 
 Every other construct has no cap of its own, and the Maximum line length alone decides it: a vector, a tuple, a call or constructor with one argument, arithmetic and `++`, a function header, and any construct this table does not name.
 
-Each construct is held to its own row, wherever it stands. So an arm whose body is a conditional stays on one line only while the arm is within 80 and the conditional within 60. A conditional holds another wherever the other stands inside it: in its condition, in a branch, or deeper, such as in a lambda passed in a branch.
+Each construct is held to its own row, wherever it stands. So an arm whose body is a conditional stays on one line only while the arm is within 80 and the conditional within 60. A conditional holds another wherever the other stands inside it, its condition included. Every conditional in an `else if` chain is part of the chain, so none of its links stands on one line, and `else` keeps its `if` beside it on the line (§9.4 rule 4).
 
 ### 15.2 What a cap measures
 
 A cap counts Unicode code points, as a line's length does (§9.2). It measures the construct's own text as it would read on one line, from its first token to its last. That text is spaced as §7 spaces it with Collapse extra spaces on, a comment inside it counts as written, and a trailing comma does not count, since a list on one line takes none (§14). The construct's indentation, and whatever else shares its line, do not count. So the same construct takes the same shape at any depth.
 
-The arguments of a call or constructor are measured alone, from the first token after its `(` to the last before its `)`. The name in front is not what makes a call dense. Every other kind is measured whole: a conditional from its `if`, a loop from its `for` or `while`, a chain from the first token of its receiver, a lambda from its parameters, an arm from its pattern, and a declaration from its first token, `export` included, to its last, its `derives` clause included.
+The arguments of a call or constructor are measured alone, from the first token after its `(` to the last before its `)`. The name in front is not what makes a call dense. Every other kind is measured whole: a conditional from its `if`, a loop from its `for` or `while`, a chain from the first token of its receiver, a lambda from its parameters, an arm from its pattern, and a declaration from its first token to its last, `export` and its `derives` clause included.
 
 The caps are fixed numbers. They do not change with the Maximum line length: where that length is less than a cap, the line limit is reached first. A construct within its cap on a line longer than the limit is broken by §9 as any such line is.
 
+A construct stands **on one line** when its first token and its last share a line. For the arguments of a call or constructor, and for a record literal, these are its brackets, `(` and `)` or `{` and `}`. A record declaration is on one line when its braces are, and a union declaration when all its alternatives are, wherever its `=` stands. So brackets that are open (§5.2), whether one item to a line or filled (§9.4 rule 2), are not on one line.
+
 ### 15.3 What Spread wide constructs does
 
-With the option on, Format document **spreads** each construct written wholly on one line that is wider than its cap, or that its row never puts on one line. The line holding it is broken as §9.4 breaks a line that is too long, outermost structure first, until the construct takes the shape its row gives. So a binding's value goes beneath its `=` before a conditional in it is spread, and a lambda that is a call's last argument keeps its head on the call's line while its body goes beneath its `=>` (§9.4 rules 1 and 2). Each line is then looked at again (§9.1), so a construct inside the one just spread is spread in turn where its own row calls for it.
+With the option on, Format document **spreads** each construct on one line (§15.2) that is wider than its cap, or whose row says never. The line holding it is broken as §9.4 breaks a line that is too long, outermost structure first, until the construct takes the shape its row gives. So a binding's value goes beneath its `=` before a conditional in it is spread, and a lambda that is a call's last argument keeps its head on the call's line while its body goes beneath its `=>` (§9.4 rules 1 and 2). Where §9.4 tries one shape first and moves to another only where a line is still too long, as it does for a lambda's head, spreading moves on only where a line is still too long or still holds a construct that this section spreads. Each line is then looked at again (§9.1), so a construct inside the one just spread is spread in turn where its own row calls for it.
 
 With the limit at 100, for example:
 
@@ -705,7 +707,26 @@ let total =
 
 Both lines fit within 100. The conditional is 70 wide and `fold`'s arguments are 67, each over its cap of 60, so each is spread, its binding's value first going beneath the `=`. The lambda is 56 wide, within its own cap, and its body goes beneath its `=>` only because that is the shape of the call it ends.
 
-A construct the author wrote over several lines is left as it is, whatever its width: the option spreads only what stands wholly on one line. A construct in a place that §9.3 never breaks, such as a string's interpolation hole, stays on its line too.
+Breaking outermost first breaks what stands around the construct as well, even where that is within its own cap or has none, such as a call with one argument. With the limit at 100,
+
+```
+print(if total > 100 then "large enough for the yearly report" else "too small")
+```
+
+becomes
+
+```
+print(
+    if total > 100 then
+        "large enough for the yearly report"
+    else
+        "too small"
+)
+```
+
+The conditional is 73 wide. The call's brackets open first, since the call is the outermost structure, and only then is the conditional spread. Its last branch is a block, so the brackets take no comma (§14).
+
+A construct that is not on one line is left as it is, whatever its width: the option spreads only what stands on one line. So brackets the author opened stay as they are, while a record declaration with its braces closed on the line beneath its `=` is spread as one written whole on one line is. A construct in a place that §9.3 never breaks, such as a string's interpolation hole, stays on its line too.
 
 A union declaration has no shape in §9.4, since breaking a long line never splits its alternatives (§9.3). Spread, its alternatives go beneath its `=`, one level in and one to a line, each after the first led by its `|`. The formatter adds no `|` before the first alternative, since that token is the author's (§13). House text writes one, as Unions §2 prefers. The union is then multi-line, so a blank line follows it (§6.2, §6.3). With the limit at 100,
 
