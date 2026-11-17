@@ -493,6 +493,12 @@ describe("selection ranges", () => {
     expect(grown(`${HEAD}let r = 1 + 2 ‸// 3\n`).slice(0, 2)).toEqual(["2 // 3", "1 + 2 // 3"]);
     const named = "let double(n: Int): Int = n\npattern twice(value: Int): Int\n    build = double\n";
     expect(grown(`${HEAD}${named}let t = (3)tw‸ice\n`).slice(0, 2)).toEqual(["twice", "(3)twice"]);
+    const viewed = "let halve(n: Int): Option(Int) = Some(n)\npattern twice(value: Int): Int\n    view = halve\n";
+    expect(grown(`${HEAD}${viewed}let k = match 4 with\n    (v)tw‸ice => v\n    _ => 0\n`).slice(0, 2))
+      .toEqual(["twice", "(v)twice"]);
+    // And in a pattern, where `//` is punctuation, as a bracket is.
+    expect(grown(`${HEAD}let q = 1 // 2\nlet k = match q with\n    a ‸// b => a\n`).slice(0, 2))
+      .toEqual(["a // b", "a // b => a"]);
     expect(grown(`${HEAD}let f = ((‸a, b): (Int, Int)) => a + b\n`).slice(0, 4))
       .toEqual(["a", "(a, b)", "(a, b): (Int, Int)", "((a, b): (Int, Int)) => a + b"]);
     expect(grown(`${HEAD}let f: Int -> I‸nt = (v) => v\n`).slice(0, 3)).toEqual(["Int", "Int -> Int", "let f: Int -> Int = (v) => v"]);
@@ -690,9 +696,11 @@ describe("selection ranges", () => {
             // from its name through the default; the member's own span is the
             // lambda's beginning, its header.
             const defaulted = around?.kind === "ConstraintDeclaration" && piece.defaultValue !== undefined;
-            // A fraction's `//` is the name the parser gives it, and an
-            // operator, its expression's own text, as a `Binary`'s operator is.
-            const operator = around?.kind === "PatternConstruction" && around.fraction === true && field === "name";
+            // A fraction's `//` is the name the parser gives it, in an
+            // expression or a pattern, and is the fraction's own text, as a
+            // `Binary`'s operator is.
+            const operator = (around?.kind === "PatternConstruction" || around?.kind === "Declared") &&
+              around.fraction === true && field === "name";
             if (!spans.has(`${from}:${span.end.offset}`) && !defaulted && !operator) {
               failures.push(`${path}: ${String(piece.kind ?? field)} ${JSON.stringify(text.slice(from, span.end.offset).slice(0, 40))}`);
             }

@@ -499,7 +499,11 @@ function pattern(written: Parsed.Pattern): SyntaxNode {
     case "Typed":
       return node("other", written.span, [pattern(written.pattern), annotation(written.annotation)]);
     case "Declared":
-      return node("other", written.span, [...written.components.map(pattern), name(written.name)]);
+      // A fraction's `name` is its `//` token: punctuation, the pattern's own text.
+      return node("other", written.span, [
+        ...written.components.map(pattern),
+        written.fraction ? undefined : name(written.name),
+      ]);
     case "Or":
       return node("other", written.span, written.alternatives.map(pattern));
     case "Vector":
