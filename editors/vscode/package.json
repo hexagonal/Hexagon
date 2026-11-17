@@ -95,6 +95,11 @@
           "default": false,
           "markdownDescription": "Add no trailing commas when formatting. Off, Format Document and Format Selection add a comma after the last item of every list whose closing bracket begins its line. Either way, a comma already written is kept."
         },
+        "hexagon.format.applyWidthLimits": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Also spread a construct written on one line that is wider than its width limit when formatting, though its line fits: a conditional, a loop, a chain, a call's arguments, a record, a record or union declaration or a lambda over 60, a match arm or an `and`/`or` over 80, and an `else if` chain or a nested conditional however short. Formatting never joins lines, so a construct already spread stays spread."
+        },
         "hexagon.trace.server": {
           "type": "string",
           "enum": [

@@ -69,7 +69,10 @@ let refusal(path: String, error: JsValue): Exn =
             NotUtf8 => "not UTF-8: ${path}"
             Other(_) =>
                 let described = JsError.message(error)
-                if described.contains(path) then described else "${described}: ${path}"
+                if described.contains(path) then
+                    described
+                else
+                    "${described}: ${path}"
     FileError(reason, path, message)
 
 -- The whole file's bytes, as the `Buffer` Node read them into.
@@ -126,7 +129,13 @@ export let readText(path: String): String =
     match strictText!(path, bytes).toString?() with
         Some(text) => text
         None =>
-            throw^(FileError(NotUtf8, path, "not UTF-8 at byte ${firstBadByte~(bytes)}: ${path}"))
+            throw^(
+                FileError(
+                    NotUtf8,
+                    path,
+                    "not UTF-8 at byte ${firstBadByte~(bytes)}: ${path}",
+                ),
+            )
 
 {-- The whole file at `path` as text, as `readText` reads it, except that each
     ill-formed sequence becomes U+FFFD instead of refusing the file. For a file

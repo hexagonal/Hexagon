@@ -247,7 +247,8 @@ let get<k: Hash>(trie: HashTrie(k, v), key: k): Option(v) =
         NoRoot => None
         Sole(soleKey, soleValue) =>
             if soleKey == key then Some(soleValue) else None
-        Rooted(tree) => lookup(tree, placement(key), key, 0, (left, right) => left == right)
+        Rooted(tree) =>
+            lookup(tree, placement(key), key, 0, (left, right) => left == right)
 
 -- Whether `trie` binds `key`.
 let containsKey<k: Hash>(trie: HashTrie(k, v), key: k): Bool =
@@ -301,7 +302,8 @@ let representative<k: Hash>(trie: HashTrie(k, v), key: k): Option(k) =
         NoRoot => None
         Sole(soleKey, _) =>
             if soleKey == key then Some(soleKey) else None
-        Rooted(tree) => lookupKey(tree, placement(key), key, 0, (left, right) => left == right)
+        Rooted(tree) =>
+            lookupKey(tree, placement(key), key, 0, (left, right) => left == right)
 
 -- The subtree holding both `existing` and `fresh`, whose mixed hashes the caller
 -- guarantees **differ**. Branches are built from `shift` downward for as long as
@@ -377,7 +379,14 @@ fun insert(
             let slot = bitCountBelow(bitmap, index)
             if bitTest(bitmap, index) then
                 let (child, inserted) =
-                    insert(Node.get(children, slot), hash, key, value, shift + step, equal)
+                    insert(
+                        Node.get(children, slot),
+                        hash,
+                        key,
+                        value,
+                        shift + step,
+                        equal,
+                    )
                 (Branch(bitmap, Node.set(children, slot, child)), inserted)
             else
                 (
@@ -742,7 +751,10 @@ fun reshape(tree: Tree(k, v), transform: ((k, v)) ->! (j, w), hashOf: j -> Int):
         Collision(hash, count, pairs) =>
             Collision(hash, count, nodeMap!(pairs, transform))
         Branch(bitmap, children) =>
-            Branch(bitmap, nodeMap!(children, (child) => reshape!(child, transform, hashOf)))
+            Branch(
+                bitmap,
+                nodeMap!(children, (child) => reshape!(child, transform, hashOf)),
+            )
 
 -- Whether the first `count` of a reshaped collision's `pairs`, from `index` on,
 -- all keep the collision's slot, and none equals another. A returned key keeps
@@ -787,7 +799,8 @@ fun keepsEverySlot(
                 Branch(_, _) => False
         Collision(hash, count, _) =>
             match shadow with
-                Collision(_, _, newPairs) => pairsKeepSlot(newPairs, 0, count, hash, hashOf, equal)
+                Collision(_, _, newPairs) =>
+                    pairsKeepSlot(newPairs, 0, count, hash, hashOf, equal)
                 Entry(_, _, _) => False
                 Branch(_, _) => False
         Branch(bitmap, children) =>
@@ -1023,7 +1036,10 @@ let findEntry(trie: HashTrie(k, v), matches: ((k, v)) ->! Bool): Option((k, v)) 
     match trie.root with
         NoRoot => None
         Sole(soleKey, soleValue) =>
-            if matches!((soleKey, soleValue)) then Some((soleKey, soleValue)) else None
+            if matches!((soleKey, soleValue)) then
+                Some((soleKey, soleValue))
+            else
+                None
         Rooted(tree) => findTree!(tree, (key, value) => matches!((key, value)))
 
 -- What a filter of `trie`'s tree left, as a trie: `trie` itself when every entry
@@ -1205,7 +1221,9 @@ let foldMembers(s: HashSet(a), initial: b, combine: (b, a) ->! b): b =
         NoRoot => initial
         Sole(soleKey, _) => combine!(initial, soleKey)
         Rooted(tree) =>
-            foldTree!(tree, initial, (accumulated, key, _) => combine!(accumulated, key))
+            foldTree!(tree, initial, (accumulated, key, _) =>
+                combine!(accumulated, key)
+            )
 
 -- The first element of `s`, in traversal order, that `matches` accepts.
 let findMember(s: HashSet(a), matches: a ->! Bool): Option(a) =

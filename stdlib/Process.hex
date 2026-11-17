@@ -55,5 +55,6 @@ export let arguments(): Vector(String) =
     doesn't end the program, and the last setting wins. Any other status
     throws `ExitStatusFault`. -}
 export let setExitStatus(status: Int): Unit =
-    if status < 0 or status > 255 then throw(ExitStatusFault(status))
+    if status < 0 or status > 255 then
+        throw(ExitStatusFault(status))
     assume exitCode!(process, status)

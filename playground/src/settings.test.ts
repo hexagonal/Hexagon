@@ -30,6 +30,7 @@ const none: PlaygroundSettings = {
   maximumLineLength: undefined,
   collapseExtraSpaces: false,
   leaveTrailingCommasAsWritten: false,
+  applyWidthLimits: false,
 };
 
 describe("the playground's settings", () => {
@@ -74,6 +75,7 @@ describe("the playground's settings", () => {
       "Formatting: Maximum line length",
       "Formatting: Collapse extra spaces",
       "Formatting: Leave trailing commas as written",
+      "Formatting: Apply width limits",
     ]);
   });
 
@@ -95,6 +97,7 @@ describe("the playground's settings", () => {
       maximumLineLength: "format.maximumLineLength",
       collapseExtraSpaces: "format.collapseExtraSpaces",
       leaveTrailingCommasAsWritten: "format.leaveTrailingCommasAsWritten",
+      applyWidthLimits: "format.applyWidthLimits",
     } as const;
     for (const row of settingRows) {
       if (row.key === "inputBox") continue;
@@ -193,10 +196,14 @@ describe("the window's rows", () => {
 
 describe("the formatting options", () => {
   test("all off by default, and the window's line length read as a whole number or Unlimited", () => {
-    expect(formatOptions(none))
-      .toEqual({ maximumLineLength: undefined, collapseExtraSpaces: false, leaveTrailingCommasAsWritten: false });
-    expect(formatOptions({ ...none, maximumLineLength: 72, collapseExtraSpaces: true, leaveTrailingCommasAsWritten: true }))
-      .toEqual({ maximumLineLength: 72, collapseExtraSpaces: true, leaveTrailingCommasAsWritten: true });
+    expect(formatOptions(none)).toEqual({
+      maximumLineLength: undefined,
+      collapseExtraSpaces: false,
+      leaveTrailingCommasAsWritten: false,
+      applyWidthLimits: false,
+    });
+    const all = { maximumLineLength: 72, collapseExtraSpaces: true, leaveTrailingCommasAsWritten: true, applyWidthLimits: true };
+    expect(formatOptions({ ...none, ...all })).toEqual(all);
     expect(lineLengthOf("100")).toBe(100);
     for (const typed of ["", "  ", "0", "-3", "7.5", "eighty"]) expect(lineLengthOf(typed)).toBeUndefined();
   });

@@ -195,7 +195,9 @@ export let fromVector<a: Hash>(values: Vector(a)): Set(a) = fromSeq(values.toSeq
     are one element, and of two that are distinguishable, such as `0.0` and
     `-0.0`, the first produced in traversal order is kept. -}
 export let map<b: Hash>(s: Set(a), transform: a ->! b): Set(b) =
-    fold!(s, empty, (images, element) => add(images, transform!(element)))
+    fold!(s, empty, (images, element) =>
+        add(images, transform!(element))
+    )
 
 {-- Whether some element of `s` satisfies `matches`. It stops at the first that
     does. -}
@@ -284,13 +286,21 @@ export let min<a: Ord>(s: Set(a)): Option(a) = minUsing(s, Ord.compare)
     of elements whose keys are equal, the last in traversal order. `key` runs
     once per element, in traversal order. -}
 export let maxBy<b: Ord>(s: Set(a), key: a ->! b): Option(a) =
-    unranked(fold!(s, None, (best, element) => laterBy(best, (key!(element), element))))
+    unranked(
+        fold!(s, None, (best, element) =>
+            laterBy(best, (key!(element), element))
+        ),
+    )
 
 {-- The element of `s` whose key is least, or `None` when `s` is empty, and of
     elements whose keys are equal, the first in traversal order. `key` runs
     once per element, in traversal order. -}
 export let minBy<b: Ord>(s: Set(a), key: a ->! b): Option(a) =
-    unranked(fold!(s, None, (best, element) => earlierBy(best, (key!(element), element))))
+    unranked(
+        fold!(s, None, (best, element) =>
+            earlierBy(best, (key!(element), element))
+        ),
+    )
 
 {-- The elements of `s` added in traversal order, starting from zero, so the
     empty set's sum is zero. -}

@@ -1,5 +1,6 @@
 /**
- * Breaking a line longer than the Maximum line length (Canonical Layout §9).
+ * Breaking a line longer than the Maximum line length (Canonical Layout §9),
+ * or one holding a construct that Apply width limits spreads (§15).
  *
  * A break is a line end put before a token; the whitespace pass then writes the
  * new line's indentation by §5, as it would have written it had the author
@@ -8,13 +9,22 @@
  * is left whole, and the next one tried. A line's length counts the trailing
  * comma §14 would add after its last token whether or not it is written, so a
  * line measures the same whatever Leave trailing commas as written says (§9.2);
- * the commas themselves are added once the lines are broken.
+ * the commas themselves are added once the lines are broken. It counts the
+ * leading bar §16 would add in the same way.
+ *
+ * A line that holds a construct §15 spreads is broken in the same way as one
+ * that is too long, outermost structure first, until that construct is no
+ * longer on one line (§15.3). A union declaration, which §9 never breaks, is
+ * spread by a shape of its own: its alternatives one to a line beneath its
+ * `=`.
  */
 
 import { differingItems, read, sameText, sameTree, scan, type Reading } from "./analysis.js";
+import { barSites } from "./bars.js";
 import { commaSites } from "./commas.js";
 import * as Spacing from "./spacing.js";
 import * as Whitespace from "./whitespace.js";
+import { spreads, type Construct } from "./widths.js";
 import type * as Lexed from "../syntax/lexed/index.js";
 
 /** Binary operators by precedence level, loosest highest (Operators §3). */
@@ -54,17 +64,33 @@ interface Plan {
   readonly before: readonly number[];
   /** The breaks whose new line stands at the broken line's own column. */
   readonly level?: ReadonlySet<number>;
+  /**
+   * A trailing comma the plan removes: one after a last item that the plan
+   * makes end in a block, where the grammar has no room for it (§14).
+   */
+  readonly removes?: number;
 }
 
 const MAXIMUM_ROUNDS = 10_000;
 
-export function breakLines(original: Reading, text: string, limit: number, options: Whitespace.Options): string {
+/**
+ * Breaks each line longer than `limit`, which may be `Infinity`, and, where
+ * `widths` asks, each line holding a construct that §15 spreads.
+ */
+export function breakLines(
+  original: Reading,
+  text: string,
+  limit: number,
+  options: Whitespace.Options,
+  widths = false,
+): string {
   let current = read(text);
   const failed = new Set<string>();
   for (let round = 0; round < MAXIMUM_ROUNDS; round += 1) {
     const reading = current;
-    const plans = longLines(reading, limit)
-      .map((line) => plan(reading, line, failed, limit))
+    const spreading = widths ? spreads(reading) : [];
+    const plans = linesToBreak(reading, limit, spreading)
+      .map((line) => plan(reading, line, failed, limit, spreading))
       .filter((found): found is Plan => found !== undefined);
     if (plans.length === 0) return current.text;
     current = settle(original, current, plans, options, failed);
@@ -142,6 +168,11 @@ function attempt(
     }
   }
   for (const [line, shift] of shifts) inserts.push({ offset: lines[line]!, remove: 0, text: " ".repeat(shift) });
+  for (const one of plans) {
+    if (one.removes === undefined) continue;
+    const { start, end } = tokens[one.removes]!.span;
+    inserts.push({ offset: start.offset, remove: end.offset - start.offset, text: "" });
+  }
 
   for (const one of plans) {
     const line = tokens[one.line]!.span.start.line;
@@ -152,10 +183,11 @@ function attempt(
       let gap = offset;
       while (gap > 0 && (text[gap - 1] === " " || text[gap - 1] === "\t")) gap -= 1;
       // A provisional indentation that keeps the line's place in the layout:
-      // carried on, two levels deeper, except `else` and a chain's links under
-      // a receiver that begins its line, which stand at their item's. The
-      // whitespace pass then writes the line's own (§5).
-      const level = token.kind === "Else" || one.level?.has(index) === true;
+      // carried on, two levels deeper, except `else`, a comma after a block,
+      // and a chain's links under a receiver that begins its line, which
+      // stand at their item's. The whitespace pass then writes the line's own
+      // (§5).
+      const level = token.kind === "Else" || token.kind === "Comma" || one.level?.has(index) === true;
       const provisional = level ? indent : indent + 2 * Whitespace.LEVEL;
       inserts.push({ offset: gap, remove: offset - gap, text: "\n" + " ".repeat(provisional) });
     }
@@ -167,7 +199,7 @@ function attempt(
   }
 
   const provisional = scan(broken);
-  if (!sameText(original, provisional)) return { kind: "Failed" };
+  if (!sameText(original, provisional, false, false, true)) return { kind: "Failed" };
   if (provisional.syntaxError) return { kind: "Failed" };
   const written = Whitespace.write(provisional, options);
   if (written.kind !== "Written") return { kind: "Failed" };
@@ -259,6 +291,53 @@ interface LongLine {
   /** Token indices of the code that begins on the line, first to last. */
   readonly first: number;
   readonly last: number;
+  /** A union declaration on the line that §15 spreads. */
+  readonly union?: Construct;
+  /** A record declaration on the line that §15 spreads. */
+  readonly record?: Construct;
+}
+
+/**
+ * The lines to break: those longer than the limit, and those holding a
+ * construct on one line that §15 spreads, in order.
+ */
+function linesToBreak(reading: Reading, limit: number, spreading: readonly Construct[]): LongLine[] {
+  const long = longLines(reading, limit);
+  if (spreading.length === 0) return long;
+  const tokens = reading.lexed.tokens;
+  const byLine = new Map<number, LongLine>();
+  for (const line of long) byLine.set(tokens[line.first]!.span.start.line, line);
+  for (const construct of spreading) {
+    const line = tokens[construct.opens]!.span.start.line;
+    let known = byLine.get(line);
+    if (known === undefined) {
+      let first = construct.opens;
+      while (first > 0 && tokens[first - 1]!.span.start.line === line) first -= 1;
+      let last = construct.opens;
+      while (tokens[last + 1] !== undefined && tokens[last + 1]!.kind !== "Eof" &&
+        tokens[last + 1]!.span.start.line === line) last += 1;
+      // Where several items share a line, only the last is broken (§9.3), so
+      // a construct in an earlier one stays on its line (§15.3).
+      if (construct.opens < lastItemStart(tokens, first, last)) continue;
+      known = { first, last };
+    }
+    if (construct.kind === "union" && known.union === undefined) known = { ...known, union: construct };
+    if (construct.kind === "record declaration" && known.record === undefined) known = { ...known, record: construct };
+    byLine.set(line, known);
+  }
+  return [...byLine.values()].sort((left, right) => left.first - right.first);
+}
+
+/**
+ * The first token of the last of the items a line holds, separated by `;`,
+ * which stands only between the items of a block, never inside brackets.
+ */
+function lastItemStart(tokens: readonly Lexed.Token[], first: number, last: number): number {
+  let start = first;
+  for (let index = first; index <= last; index += 1) {
+    if (tokens[index]!.kind === "Semicolon") start = index + 1;
+  }
+  return start;
 }
 
 /**
@@ -269,6 +348,7 @@ function longLines(reading: Reading, limit: number): LongLine[] {
   const tokens = reading.lexed.tokens.filter(({ kind }) => kind !== "Eof");
   const text = reading.text;
   const sites = commaSites(reading);
+  const bars = barSites(reading);
   const found: LongLine[] = [];
   let index = 0;
   while (index < tokens.length) {
@@ -278,7 +358,8 @@ function longLines(reading: Reading, limit: number): LongLine[] {
     const end = tokens[last]!.span.end;
     if (end.line === line) {
       const lineStart = end.offset - end.column;
-      const length = [...text.slice(lineStart, end.offset)].length + (sites.has(last) ? 1 : 0);
+      const length = [...text.slice(lineStart, end.offset)].length + (sites.has(last) ? 1 : 0) +
+        (bars.has(index) ? 2 : 0);
       if (length > limit) found.push({ first: index, last });
     }
     index = last + 1;
@@ -287,7 +368,13 @@ function longLines(reading: Reading, limit: number): LongLine[] {
 }
 
 /** The break §9.4 makes in a line: its outermost structure first. */
-function plan(reading: Reading, line: LongLine, failed: ReadonlySet<string>, limit: number): Plan | undefined {
+function plan(
+  reading: Reading,
+  line: LongLine,
+  failed: ReadonlySet<string>,
+  limit: number,
+  spreading: readonly Construct[],
+): Plan | undefined {
   const tokens = reading.lexed.tokens;
   // Where several items share a line, only the last is broken (§9.3).
   let start = line.first;
@@ -323,8 +410,34 @@ function plan(reading: Reading, line: LongLine, failed: ReadonlySet<string>, lim
   const before = (index: number): boolean => firstHead === undefined || index < firstHead;
   const head = range(start).find((index) =>
     atTop(index) && before(index) && valueHeads.has(tokens[index]!.kind));
-  const measure = measuring(reading, limit);
+  const measure = measuring(reading, limit, spreading);
   const pairs = pairsOf(reading);
+  // A union that §15 spreads: its alternatives one to a line beneath its `=`.
+  const union = line.union;
+  if (union !== undefined) {
+    candidates.push({
+      shape: "union",
+      before: () => {
+        const lead = tokens[union.opens - 1]?.kind === "Bar" ? union.opens - 1 : union.opens;
+        const bars = range(union.opens).filter((index) => index <= union.closes && tokens[index]!.kind === "Bar");
+        return [lead, ...bars];
+      },
+    });
+  }
+  // A body, conditional or loop that ends an item of open brackets
+  // ends in a block once it is broken, and a comma the author wrote after it
+  // would be read inside the block: it begins a line of its own, the one place
+  // it can stand (Lexer & Layout §7).
+  const comma = (found: number[]): number[] =>
+    found.length > 0 && tokens[line.last]!.kind === "Comma" && atTop(line.last) && pairs.enclosing[line.last] !== undefined
+      ? [...found, line.last]
+      : found;
+  // A record declaration that §15 spreads: its braces open where they
+  // stand, the house's `record R = {`, its value kept on the `=`'s line.
+  const record = line.record;
+  if (record !== undefined) {
+    candidates.push({ shape: "record", before: () => brackets(shaping, [record.opens], depth) });
+  }
   // 2. A line holding several items of open brackets opened on an earlier
   // line breaks between them before anything inside them breaks.
   candidates.push({ shape: "items", before: () => betweenItems(tokens, pairs, depth, start, line.last, measure) });
@@ -344,16 +457,16 @@ function plan(reading: Reading, line: LongLine, failed: ReadonlySet<string>, lim
   const blocked = insideHeads(heads, line.last);
   if (value.length > 0) {
     // 4. A conditional.
-    candidates.push({ shape: "conditional", before: () => conditional(tokens, value, line.last) });
+    candidates.push({ shape: "conditional", before: () => comma(conditional(tokens, value, line.last)) });
     // 6. A loop: its body beneath its `do`.
     candidates.push({
       shape: "loop",
-      before: () => heads
+      before: () => comma(heads
         .filter(({ keyword, closer }) =>
           closer !== undefined && closer < line.last && atTop(keyword) &&
           (tokens[keyword]!.kind === "While" || tokens[keyword]!.kind === "For"))
         .slice(0, 1)
-        .map(({ closer }) => closer! + 1),
+        .map(({ closer }) => closer! + 1)),
     });
     // 3. A chain.
     candidates.push({ shape: "chain", before: () => chain(tokens, roles, value) });
@@ -413,6 +526,13 @@ function plan(reading: Reading, line: LongLine, failed: ReadonlySet<string>, lim
     });
   }
 
+  // Last of all, a body that ends an item of open brackets before a comma
+  // goes beneath its `=>`, the comma on a line of its own, where nothing else
+  // on the line could be broken.
+  if (head !== undefined && head < line.last && tokens[head]!.kind === "FatArrow") {
+    candidates.push({ shape: "body before a comma", before: () => comma([head + 1]).length > 1 ? comma([head + 1]) : [] });
+  }
+
   for (const candidate of candidates) {
     if (failed.has(`${line.first}:${candidate.shape}`)) continue;
     const before = candidate.before().filter((index) => index > line.first && index <= line.last);
@@ -423,7 +543,18 @@ function plan(reading: Reading, line: LongLine, failed: ReadonlySet<string>, lim
     if (before.length === 0) continue;
     // A chain whose receiver begins its line keeps its links at its level.
     const level = candidate.shape === "chain" && valueStart === line.first ? new Set(before) : undefined;
-    return { line: line.first, shape: candidate.shape, before, ...(level === undefined ? {} : { level }) };
+    // A comma after an item that ends in a block once broken: a separator
+    // begins a line of its own, and a trailing comma, which has no room
+    // there, is removed (§14).
+    const trailing = before.includes(line.last) && tokens[line.last]!.kind === "Comma" &&
+      (closers.has(tokens[line.last + 1]?.kind ?? "") || tokens[line.last + 1]?.kind === "Greater");
+    return {
+      line: line.first,
+      shape: candidate.shape,
+      before: trailing ? before.filter((index) => index !== line.last) : before,
+      ...(level === undefined ? {} : { level }),
+      ...(trailing ? { removes: line.last } : {}),
+    };
   }
   return undefined;
 }
@@ -616,20 +747,25 @@ function operator(
 
 /** Measures lines against the limit, as they stand before a break. */
 interface Measure {
-  /** Whether the line holding a token fits when it ends with that token (§9.2). */
+  /**
+   * Whether the line holding a token fits when it ends with that token (§9.2),
+   * and holds no construct that §15 spreads (§15.3).
+   */
   readonly fits: (last: number) => boolean;
   /** The width of the text from the start of one token to the end of another, in code points. */
   readonly width: (first: number, last: number) => number;
   readonly limit: number;
 }
 
-function measuring(reading: Reading, limit: number): Measure {
+function measuring(reading: Reading, limit: number, spreading: readonly Construct[]): Measure {
   const tokens = reading.lexed.tokens;
   const text = reading.text;
   return {
     fits: (last) => {
       const end = tokens[last]!.span.end;
-      return [...text.slice(end.offset - end.column, end.offset)].length <= limit;
+      if ([...text.slice(end.offset - end.column, end.offset)].length > limit) return false;
+      return !spreading.some((construct) =>
+        tokens[construct.opens]!.span.start.line === end.line && Math.max(construct.last, construct.closes) <= last);
     },
     width: (first, last) => [...text.slice(tokens[first]!.span.start.offset, tokens[last]!.span.end.offset)].length,
     limit,

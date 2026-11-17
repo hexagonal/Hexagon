@@ -83,7 +83,10 @@ let described(error: JsValue): String =
     let code = codeOf~(error)
     let message = JsError.message(error)
     let withoutCode =
-        if message.startsWith("${code}: ") then message.dropFirstN(code.length() + 2) else message
+        if message.startsWith("${code}: ") then
+            message.dropFirstN(code.length() + 2)
+        else
+            message
     if withoutCode.endsWith(", write") then
         withoutCode.dropLastN(7)
     else if withoutCode.endsWith(", read") then
@@ -102,7 +105,11 @@ let endWithLine(line: String): Unit =
 
 -- Section 4.3's other failure.
 let failed(descriptor: Int, error: JsValue): Unit =
-    let stream = if descriptor == 1 then "standard output" else "standard error"
+    let stream =
+        if descriptor == 1 then
+            "standard output"
+        else
+            "standard error"
     endWithLine~("cannot write to ${stream}: ${described~(error)}")
 
 -- Every byte of `text` to `descriptor`, or the program ends (section 4.3).
@@ -165,7 +172,10 @@ let inputBytes(): JsValue =
         try
             let length = reserve~(used)
             let count = readBytes!(0, input~(length), used, length - used)
-            if count == 0 then reading := False else used := used + count
+            if count == 0 then
+                reading := False
+            else
+                used := used + count
             wait := 10
         catch
             JsError(error) =>

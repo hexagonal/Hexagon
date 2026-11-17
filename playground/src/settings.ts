@@ -3,7 +3,7 @@ import type { PlaygroundFormatOptions, PlaygroundInlayHint } from "./protocol";
 /**
  * The playground's settings, the ones its `Settings…` window lists: which inlay
  * hints the editor shows, whether the run's input box is on the page, and the
- * three formatting options. Each starts off and stays off until the dev turns it
+ * four formatting options. Each starts off and stays off until the dev turns it
  * on, as the extension's own settings do.
  */
 export interface PlaygroundSettings {
@@ -21,6 +21,8 @@ export interface PlaygroundSettings {
   readonly collapseExtraSpaces: boolean;
   /** `hexagon.format.leaveTrailingCommasAsWritten` in the extension. */
   readonly leaveTrailingCommasAsWritten: boolean;
+  /** `hexagon.format.applyWidthLimits` in the extension. */
+  readonly applyWidthLimits: boolean;
 }
 
 /** The settings that are on or off, each a checkbox in the window. */
@@ -34,6 +36,7 @@ export const defaultPlaygroundSettings: PlaygroundSettings = {
   maximumLineLength: undefined,
   collapseExtraSpaces: false,
   leaveTrailingCommasAsWritten: false,
+  applyWidthLimits: false,
 };
 
 export const settingsStorageKey = "hexagon.playground.settings";
@@ -98,6 +101,13 @@ export const settingRows: readonly SettingRow[] = [
     description:
       "Add no trailing commas when formatting. Off, Format Document and Format Selection add a comma after the last item of every list whose closing bracket begins its line. Either way, a comma already written is kept.",
   },
+  {
+    key: "applyWidthLimits",
+    group: "Formatting",
+    label: "Apply width limits",
+    description:
+      "Also spread a construct written on one line that is wider than its width limit when formatting, though its line fits: a conditional, a loop, a chain, a call's arguments, a record, a record or union declaration or a lambda over 60, a match arm or an `and`/`or` over 80, and an `else if` chain or a nested conditional however short. Formatting never joins lines, so a construct already spread stays spread.",
+  },
 ];
 
 /** A line length as the window or storage gives it: a whole number of at least one, else Unlimited. */
@@ -131,6 +141,7 @@ export function parseSettings(stored: string | null | undefined): PlaygroundSett
     maximumLineLength: lineLengthOf(entry("maximumLineLength")),
     collapseExtraSpaces: flag("collapseExtraSpaces"),
     leaveTrailingCommasAsWritten: flag("leaveTrailingCommasAsWritten"),
+    applyWidthLimits: flag("applyWidthLimits"),
   };
 }
 
@@ -196,6 +207,7 @@ export function formatOptions(settings: PlaygroundSettings): PlaygroundFormatOpt
     maximumLineLength: settings.maximumLineLength,
     collapseExtraSpaces: settings.collapseExtraSpaces,
     leaveTrailingCommasAsWritten: settings.leaveTrailingCommasAsWritten,
+    applyWidthLimits: settings.applyWidthLimits,
   };
 }
 

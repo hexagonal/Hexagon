@@ -145,7 +145,10 @@ export let length(text: String): Int =
         var low = 1
         while high - low > 1 do
             let middle = (low + high).div(2)
-            if text[middle..middle] != "" then low := middle else high := middle
+            if text[middle..middle] != "" then
+                low := middle
+            else
+                high := middle
         low
 
 let joinChunks(chunks: Vector(String)): String = fromSeq(Iterable.toSeq(chunks))
@@ -238,7 +241,11 @@ let findMatch(
 let splitWith(text: String, delimiter: String, insensitive: Bool): Vector(String) =
     let source = counted(text)
     let target = points(delimiter)
-    let foldedTarget = if insensitive then points(foldedText(delimiter)) else target
+    let foldedTarget =
+        if insensitive then
+            points(foldedText(delimiter))
+        else
+            target
     let sourceLength = source.size
     if Vector.length(target) == 0 then
         var pieces: Vector(String) = [""]
@@ -270,7 +277,11 @@ let replaceWith(
 ): String =
     let source = counted(text)
     let target = points(targetText)
-    let foldedTarget = if insensitive then points(foldedText(targetText)) else target
+    let foldedTarget =
+        if insensitive then
+            points(foldedText(targetText))
+        else
+            target
     let sourceLength = source.size
     if Vector.length(target) == 0 then
         var chunks: Vector(String) = [replacement]
@@ -322,7 +333,10 @@ export let lines(text: String): Vector(String) =
                 index := index + 1
             start := index + 1
         index := index + 1
-    if start <= sourceLength then result.append(slicePoints(text, start, sourceLength)) else result
+    if start <= sourceLength then
+        result.append(slicePoints(text, start, sourceLength))
+    else
+        result
 
 {-- A vector of the words of the string, which are the runs of codepoints
     between whitespace:\
@@ -340,7 +354,8 @@ export let words(text: String): Vector(String) =
         let start = index
         while index <= sourceLength and not nativeIsWhitespace(source[index]) do
             index := index + 1
-        if start < index then result := result.append(slicePoints(text, start, index - 1))
+        if start < index then
+            result := result.append(slicePoints(text, start, index - 1))
     result
 
 {-- A vector of the pieces of the string that lie between the occurrences of
@@ -365,14 +380,20 @@ export let splitCi(text: String, delimiter: String): Vector(String) =
     A `count` of zero or less gives the whole string, and a `count` greater than
     the length gives an empty one. -}
 export let dropFirstN(text: String, count: Int): String =
-    if count <= 0 then text else slicePoints(text, count + 1, length(text))
+    if count <= 0 then
+        text
+    else
+        slicePoints(text, count + 1, length(text))
 
 {-- The string without its last `count` codepoints:\
     `"hello".dropLastN(2)` is `"hel"`.\
     A `count` of zero or less gives the whole string, and a `count` greater than
     the length gives an empty one. -}
 export let dropLastN(text: String, count: Int): String =
-    if count <= 0 then text else slicePoints(text, 1, length(text) - count)
+    if count <= 0 then
+        text
+    else
+        slicePoints(text, 1, length(text) - count)
 
 {-- The string without its first codepoint. An empty string stays empty. -}
 export let dropFirst(text: String): String = dropFirstN(text, 1)
@@ -415,14 +436,24 @@ export let indexOf(text: String, targetText: String): Option(Int) =
     when it does not appear:\
     `"Banana".indexOfCi("b")` is `Some(1)`. -}
 export let indexOfCi(text: String, targetText: String): Option(Int) =
-    match findMatch(counted(text), points(targetText), points(foldedText(targetText)), 1, True) with
+    match findMatch(
+        counted(text),
+        points(targetText),
+        points(foldedText(targetText)),
+        1,
+        True,
+    ) with
         None => None
         Some((start, _)) => Some(start)
 
 let lastIndexWith(text: String, targetText: String, insensitive: Bool): Option(Int) =
     let source = counted(text)
     let target = points(targetText)
-    let foldedTarget = if insensitive then points(foldedText(targetText)) else target
+    let foldedTarget =
+        if insensitive then
+            points(foldedText(targetText))
+        else
+            target
     if Vector.length(target) == 0 then
         Some(source.size + 1)
     else
@@ -553,7 +584,10 @@ export let toCodepoint(text: String): Option(Int) =
         None
     else
         let value = codepointUnchecked(text)
-        if value >= 55_296 and value <= 57_343 then None else Some(value)
+        if value >= 55_296 and value <= 57_343 then
+            None
+        else
+            Some(value)
 
 {-- A string of one codepoint, the one whose Unicode number is `value`, or
     `None` when no codepoint has that number:\
@@ -591,7 +625,8 @@ export let toLower(text: String): String =
     while reverseIndex >= 1 do
         following := following.prepend(afterCased)
         let point = source[reverseIndex]
-        if not nativeIsCaseIgnorable(point) then afterCased := nativeIsCased(point)
+        if not nativeIsCaseIgnorable(point) then
+            afterCased := nativeIsCased(point)
         reverseIndex := reverseIndex - 1
     var chunks: Vector(String) = []
     var beforeCased = False
@@ -602,6 +637,7 @@ export let toLower(text: String): String =
             chunks := chunks.append("ς")
         else
             chunks := chunks.append(nativeLowercaseMapping(point))
-        if not nativeIsCaseIgnorable(point) then beforeCased := nativeIsCased(point)
+        if not nativeIsCaseIgnorable(point) then
+            beforeCased := nativeIsCased(point)
         index := index + 1
     joinChunks(chunks)

@@ -905,7 +905,9 @@ function changeSetting(key: ToggleKey, on: boolean): void {
   writeSettings(settingsState.settings);
   if (key === "inputBox") applyInputBoxSetting();
   // The formatting options are read when the dev next formats.
-  else if (key !== "collapseExtraSpaces" && key !== "leaveTrailingCommasAsWritten") sourceEditor.refreshInlayHints();
+  else if (key !== "collapseExtraSpaces" && key !== "leaveTrailingCommasAsWritten" && key !== "applyWidthLimits") {
+    sourceEditor.refreshInlayHints();
+  }
 }
 
 function changeLineLength(length: number | undefined): void {

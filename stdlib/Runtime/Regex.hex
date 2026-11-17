@@ -120,7 +120,10 @@ let unionOf(left: Vector((Int, Int)), right: Vector((Int, Int))): Vector((Int, I
             rightAt > rightSize
                     or (leftAt <= leftSize and left[leftAt].item1 <= right[rightAt].item1)
         let (low, high) = if takeLeft then left[leftAt] else right[rightAt]
-        if takeLeft then leftAt := leftAt + 1 else rightAt := rightAt + 1
+        if takeLeft then
+            leftAt := leftAt + 1
+        else
+            rightAt := rightAt + 1
         let count = Vector.length(result)
         if count > 0 and low <= result[count].item2 + 1 then
             if high > result[count].item2 then
@@ -136,7 +139,10 @@ let complementOf(set: Vector((Int, Int))): Vector((Int, Int)) =
     for (low, high) in set do
         if low > next then result := result.append((next, low - 1))
         next := high + 1
-    if next <= lastPoint then result.append((next, lastPoint)) else result
+    if next <= lastPoint then
+        result.append((next, lastPoint))
+    else
+        result
 
 -- Whether `point` is in `set`, by binary search.
 let contains(set: Vector((Int, Int)), point: Int): Bool =
@@ -198,7 +204,8 @@ let foldedSet(set: Vector((Int, Int))): Vector((Int, Int)) =
             let orbit = foldOrbit(point)
             if Vector.length(orbit) > 1 then
                 for other in orbit do
-                    if not contains(set, other) then added := added.append(other)
+                    if not contains(set, other) then
+                        added := added.append(other)
             point := point + 1
     unionOf(set, setOfPoints(added))
 
@@ -245,7 +252,11 @@ let opJump: Int = 3
 let opSave: Int = 4
 let opAssert: Int = 5
 
-record ClassSpec = { items: Vector(Syntax.ClassItem), negated: Bool, folded: Bool }
+record ClassSpec = {
+    items: Vector(Syntax.ClassItem),
+    negated: Bool,
+    folded: Bool,
+}
 
 record Code = {
     ops: Vector(Int),
@@ -276,7 +287,9 @@ let setFirst(code: Code, at: Int, target: Int): Code =
     { code with first = Vector.set(code.first, at + 1, target) }
 
 let setSecond(code: Code, at: Int, target: Int): Code =
-    { code with second = Vector.set(code.second, at + 1, target) }
+    {
+        code with second = Vector.set(code.second, at + 1, target),
+    }
 
 let kindCode(kind: Syntax.PropertyKind): Int =
     match kind with
@@ -320,7 +333,8 @@ let emitClass(code: Code, spec: ClassSpec): Code =
     var found = -1
     var index = 1
     while found < 0 and index <= Vector.length(code.classes) do
-        if sameSpec(code.classes[index], spec) then found := index - 1
+        if sameSpec(code.classes[index], spec) then
+            found := index - 1
         index := index + 1
     if found >= 0 then
         emit(code, opConsume, found, 0)
@@ -333,7 +347,11 @@ let emitClass(code: Code, spec: ClassSpec): Code =
         )
 
 let singleClass(point: Int): ClassSpec =
-    ClassSpec({ items = [Syntax.Range(point, point)], negated = False, folded = False })
+    ClassSpec({
+        items = [Syntax.Range(point, point)],
+        negated = False,
+        folded = False,
+    })
 
 -- A `split` at `at` whose preferred branch is the next instruction and whose
 -- other is `out` — or the other way round where the repetition is lazy.
@@ -384,10 +402,17 @@ fun emitExpr(code: Code, expr: Syntax.Expr, backward: Bool): Code =
             else
                 emitClass(
                     code,
-                    ClassSpec({ items = [Syntax.Range(10, 10)], negated = True, folded = False }),
+                    ClassSpec({
+                        items = [Syntax.Range(10, 10)],
+                        negated = True,
+                        folded = False,
+                    }),
                 )
         Syntax.Class(items, negated, folded) =>
-            emitClass(code, ClassSpec({ items = items, negated = negated, folded = folded }))
+            emitClass(
+                code,
+                ClassSpec({ items = items, negated = negated, folded = folded }),
+            )
         Syntax.Anchor(kind) => emit(code, opAssert, anchorCode(kind), 0)
         Syntax.Concat(parts) =>
             var current = code
@@ -411,7 +436,12 @@ fun emitExpr(code: Code, expr: Syntax.Expr, backward: Bool): Code =
             var index = 1
             while index < count do
                 let split = counter(current)
-                current := emitExpr(emit(current, opSplit, split + 1, 0), branches[index], backward)
+                current :=
+                    emitExpr(
+                        emit(current, opSplit, split + 1, 0),
+                        branches[index],
+                        backward,
+                    )
                 jumps := jumps.append(counter(current))
                 current := emit(current, opJump, 0, 0)
                 current := setSecond(current, split, counter(current))
@@ -487,7 +517,12 @@ let after(code: Code): Code = { code with ops = [], first = [], second = [] }
 -- that every start is tried at the lowest priority and the first match found
 -- cuts the rest, as leftmost-first wants.
 let forwardOf(code: Code, pattern: Syntax.Pattern): Code =
-    let any = ClassSpec({ items = [Syntax.Range(0, lastPoint)], negated = False, folded = False })
+    let any =
+        ClassSpec({
+            items = [Syntax.Range(0, lastPoint)],
+            negated = False,
+            folded = False,
+        })
     let seeded = emitClass(emit(after(code), opSplit, 3, 1), any)
     let looped = emit(seeded, opJump, 0, 0)
     emit(emitExpr(looped, pattern.root, False), opMatch, 0, 0)
@@ -520,7 +555,12 @@ record Compiled = {
 }
 
 -- One program of instructions, frozen: the forward and reverse scans' own.
-record Machine = { ops: Buffer(Int), first: Buffer(Int), second: Buffer(Int), size: Int }
+record Machine = {
+    ops: Buffer(Int),
+    first: Buffer(Int),
+    second: Buffer(Int),
+    size: Int,
+}
 
 let frozen(values: Vector(Int)): Buffer(Int) =
     let buffer = create~(Vector.length(values), 0)
@@ -598,7 +638,12 @@ record Thread = { pc: Int, slots: Vector(Int) }
 
 -- Where the scan stands: the position and code-unit offset of the next
 -- codepoint, and the codepoints on either side, -1 at the text's edges.
-record Place = { position: Int, offset: Int, before: Int, after: Int }
+record Place = {
+    position: Int,
+    offset: Int,
+    before: Int,
+    after: Int,
+}
 
 let width(point: Int): Int = if point > 65_535 then 2 else 1
 
@@ -619,7 +664,11 @@ let holds(kind: Int, place: Place): Bool =
         isWord(place.before) == isWord(place.after)
 
 let saved(slots: Vector(Int), slot: Int, place: Place): Vector(Int) =
-    Vector.set(Vector.set(slots, 2 * slot + 1, place.position), 2 * slot + 2, place.offset)
+    Vector.set(
+        Vector.set(slots, 2 * slot + 1, place.position),
+        2 * slot + 2,
+        place.offset,
+    )
 
 -- `list` with the threads `start` reaches through the instructions that consume
 -- nothing, in priority order: a `split`'s first branch is followed before its
@@ -821,19 +870,39 @@ record Dfa = {
 -- States a cache may hold before it is discarded and rebuilt.
 let dfaBudget: Int = 4096
 
-let emptyDfa: Dfa = Dfa({ ids = Map.empty, lists = [], edges = [], moves = Map.empty })
+let emptyDfa: Dfa =
+    Dfa({
+        ids = Map.empty,
+        lists = [],
+        edges = [],
+        moves = Map.empty,
+    })
 
 -- What a codepoint is to an assertion: 0 the text's edge, 1 a `\n`, 2 a word
 -- codepoint, 3 another; and a codepoint standing for each.
 let edgeOf(point: Int): Int =
-    if point < 0 then 0 else if point == 10 then 1 else if isWord(point) then 2 else 3
+    if point < 0 then
+        0
+    else if point == 10 then
+        1
+    else if isWord(point) then
+        2
+    else
+        3
 
 -- The edge a state records: none where the program holds no assertion, which
 -- reads no edge, so that the edge does not multiply its states.
 let edgeIn(program: Compiled, point: Int): Int = if program.assertive then edgeOf(point) else 0
 
 let standIn(edge: Int): Int =
-    if edge == 0 then -1 else if edge == 1 then 10 else if edge == 2 then 97 else 32
+    if edge == 0 then
+        -1
+    else if edge == 1 then
+        10
+    else if edge == 2 then
+        97
+    else
+        32
 
 -- The partition of the codepoint space the DFA reads (§6.1): the boundaries of
 -- every class, of the word class, and of `\n`, as the ascending first codepoint
@@ -869,7 +938,10 @@ let letterOf(starts: Vector(Int), point: Int): Int =
         var high = Vector.length(starts)
         while low < high do
             let middle = Int.div(low + high + 1, 2)
-            if starts[middle] <= point then low := middle else high := middle - 1
+            if starts[middle] <= point then
+                low := middle
+            else
+                high := middle - 1
         low - 1
 
 -- From the instructions in `waiting`, in priority order, the consuming
@@ -905,7 +977,8 @@ let reach(
                 else if op == opSave then
                     pending := pending.append(pc + 1)
                 else if op == opAssert then
-                    if holds(read~(machine.first, pc), place) then pending := pending.append(pc + 1)
+                    if holds(read~(machine.first, pc), place) then
+                        pending := pending.append(pc + 1)
                 else if op == opMatch then
                     matched := True
                 else
@@ -1011,7 +1084,17 @@ let scanForward(
         let probe = if point < 0 then -1 else starts[letter + 1]
         stamp := stamp + 1
         let (grown, next, matched) =
-            move~(program, program.forward, mark, stamp, dfa, state, letter, probe, True)
+            move~(
+                program,
+                program.forward,
+                mark,
+                stamp,
+                dfa,
+                state,
+                letter,
+                probe,
+                True,
+            )
         dfa := grown
         if matched then last := Some((position, offset))
         if (first and matched) or point < 0 or Vector.length(dfa.lists[next + 1]) == 0 then
@@ -1031,7 +1114,16 @@ let scanForward(
                     dfa := fresh
                     state := restarted
     write~(program.stamps, 0, stamp)
-    write~(program.caches, 0, Some(if Vector.length(dfa.lists) > dfaBudget then emptyDfa else dfa))
+    write~(
+        program.caches,
+        0,
+        Some(
+            if Vector.length(dfa.lists) > dfaBudget then
+                emptyDfa
+            else
+                dfa
+        ),
+    )
     if exhausted then None else Some(last)
 
 -- The match's start, scanning backward from its end `(position, offset)` no
@@ -1047,7 +1139,11 @@ let scanBackward(
     let starts = alphabetOf~(program)
     let mark = read~(program.marks, 2)
     let (endPosition, endOffset) = end
-    let ahead = if endOffset < codeUnits(text) then codepointAt(text, endOffset) else -1
+    let ahead =
+        if endOffset < codeUnits(text) then
+            codepointAt(text, endOffset)
+        else
+            -1
     var stamp = read~(program.stamps, 0)
     let (seeded, initial) = stateIn(cacheOf~(program, 1), [0], edgeIn(program, ahead))
     var dfa = seeded
@@ -1063,7 +1159,17 @@ let scanBackward(
         let probe = if point < 0 then -1 else starts[letter + 1]
         stamp := stamp + 1
         let (grown, next, matched) =
-            move~(program, program.backward, mark, stamp, dfa, state, letter, probe, False)
+            move~(
+                program,
+                program.backward,
+                mark,
+                stamp,
+                dfa,
+                state,
+                letter,
+                probe,
+                False,
+            )
         dfa := grown
         if matched then best := (position, offset)
         if position <= floor or point < 0 or Vector.length(dfa.lists[next + 1]) == 0 then
@@ -1083,7 +1189,16 @@ let scanBackward(
                     dfa := fresh
                     state := restarted
     write~(program.stamps, 0, stamp)
-    write~(program.caches, 1, Some(if Vector.length(dfa.lists) > dfaBudget then emptyDfa else dfa))
+    write~(
+        program.caches,
+        1,
+        Some(
+            if Vector.length(dfa.lists) > dfaBudget then
+                emptyDfa
+            else
+                dfa
+        ),
+    )
     if exhausted then None else Some(best)
 
 -- The match `pike` found, as the row answers it.
@@ -1105,7 +1220,11 @@ let viaVm(
 ): Option((Vector(Option((Int, Int, String))), (Int, Int))) =
     match pike~(program, text, units, place, spans, False, -1) with
         None => None
-        Some(slots) => if spans then Some(answerOf(program, text, slots)) else Some(([], cursor))
+        Some(slots) =>
+            if spans then
+                Some(answerOf(program, text, slots))
+            else
+                Some(([], cursor))
 
 -- The leftmost-first match at or after position `start`, with the cursor the
 -- next search resumes from (§6.2): every group when `spans` is set, and with it
@@ -1133,9 +1252,20 @@ let search(
         cursorPosition >= 1 and cursorPosition <= start and start - cursorPosition <= 64
     let located = not fromCursor and start > 1 and text[(start - 1)..(start - 1)] != ""
     let beyond = not fromCursor and not located and start > 1
-    var position = if fromCursor then cursorPosition else if located then start else 1
+    var position =
+        if fromCursor then
+            cursorPosition
+        else if located then
+            start
+        else
+            1
     var offset =
-        if fromCursor then cursorOffset else if located then codeUnits(text[1..(start - 1)]) else 0
+        if fromCursor then
+            cursorOffset
+        else if located then
+            codeUnits(text[1..(start - 1)])
+        else
+            0
     while not beyond and position < start and offset < units do
         offset := offset + width(codepointAt(text, offset))
         position := position + 1
@@ -1213,4 +1343,7 @@ let searchByVm(
         ) with
             None => None
             Some(slots) =>
-                if spans then Some(answerOf(program, text, slots)) else Some(([], (1, 0)))
+                if spans then
+                    Some(answerOf(program, text, slots))
+                else
+                    Some(([], (1, 0)))

@@ -341,7 +341,11 @@ export let min<a: Ord>(values: Vector(a)): Option(a) = minUsing(values, Ord.comp
     If `key` returns the largest value for several elements, the result is the
     last of them. -}
 export let maxBy<b: Ord>(values: Vector(a), key: a ->! b): Option(a) =
-    unranked(fold!(values, None, (best, value) => laterBy(best, (key!(value), value))))
+    unranked(
+        fold!(values, None, (best, value) =>
+            laterBy(best, (key!(value), value))
+        ),
+    )
 
 {-- The element for which the function `key` returns the smallest value, or
     `None` when the vector is empty:\
@@ -349,7 +353,11 @@ export let maxBy<b: Ord>(values: Vector(a), key: a ->! b): Option(a) =
     If `key` returns the smallest value for several elements, the result is the
     first of them. -}
 export let minBy<b: Ord>(values: Vector(a), key: a ->! b): Option(a) =
-    unranked(fold!(values, None, (best, value) => earlierBy(best, (key!(value), value))))
+    unranked(
+        fold!(values, None, (best, value) =>
+            earlierBy(best, (key!(value), value))
+        ),
+    )
 
 {-- The elements added together. -}
 export let sum<a: Num>(values: Vector(a)): a = fold(values, 0, Num.add)

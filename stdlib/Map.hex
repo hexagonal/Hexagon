@@ -236,14 +236,22 @@ export let min<k: Ord, v: Ord>(m: Map(k, v)): Option((k, v)) = minUsing(m, Ord.c
     are equal, the last in traversal order. `key` runs once per entry, in
     traversal order. -}
 export let maxBy<c: Ord>(m: Map(k, v), key: ((k, v)) ->! c): Option((k, v)) =
-    unranked(fold!(m, None, (best, entry) => laterBy(best, (key!(entry), entry))))
+    unranked(
+        fold!(m, None, (best, entry) =>
+            laterBy(best, (key!(entry), entry))
+        ),
+    )
 
 {-- The entry of `m` whose key, as `key` computes it from the entry, is least,
     or `None` when `m` is empty, and of entries whose computed keys are equal,
     the first in traversal order. `key` runs once per entry, in traversal
     order. -}
 export let minBy<c: Ord>(m: Map(k, v), key: ((k, v)) ->! c): Option((k, v)) =
-    unranked(fold!(m, None, (best, entry) => earlierBy(best, (key!(entry), entry))))
+    unranked(
+        fold!(m, None, (best, entry) =>
+            earlierBy(best, (key!(entry), entry))
+        ),
+    )
 
 honor Iterable<Map(k, v)> =
     type Item = (k, v)
