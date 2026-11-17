@@ -70,6 +70,22 @@ describe("A construct on one line that its row spreads (§15.1; H9)", () => {
     ]);
   });
 
+  it("counts a pipeline of two stages as a chain, and no module's name as a link", () => {
+    expect(named(lines(
+      "module A",
+      `let a = values |> Vector.map(double) |> Vector.filter(${"x".repeat(30)})`,
+      `let b = Vector.fromSeq(${"x".repeat(50)}).length()`,
+    ))).toEqual(["2 chain spread 77"]);
+  });
+
+  it("counts a comment inside a construct as written (§15.2)", () => {
+    expect(named(lines(
+      "module A",
+      `let a = if ready then ${"x".repeat(20)} else {- why -} ${"y".repeat(20)}`,
+      `let b = if ready then ${"x".repeat(20)} else ${"y".repeat(20)}`,
+    ))).toEqual(["2 conditional spread 70"]);
+  });
+
   it("holds no width limit for a vector, a tuple, a call of one argument, arithmetic or a header", () => {
     expect(named(lines(
       "module A",
@@ -221,6 +237,15 @@ describe("A spread construct that could stand on one line (H9)", () => {
       "    sum + value",
       ")",
     ))).toEqual(["2 arguments one line 38", "2 lambda one line 27"]);
+  });
+
+  it("names no lambda that ends a record the table spreads (H7)", () => {
+    expect(named(lines(
+      "module A",
+      `let a = Handler({ name = "${"x".repeat(40)}", run = (event) =>`,
+      "    event + 1",
+      "})",
+    ))).toEqual([]);
   });
 
   it("measures a union on one line without its leading bar", () => {

@@ -2235,6 +2235,23 @@ describe("Apply width limits (§3.5, §15)", () => {
     ));
   });
 
+  it("spreads a union whose alternatives stand on one line beneath its `=`, keeping a bar written there (§15.2)", () => {
+    expect(format(lines(
+      "module A",
+      "union Kind =",
+      "    | GeneralCategory | Script | ScriptExtensions | Binary | Any | Ascii",
+    ), house)).toBe(lines(
+      "module A",
+      "union Kind =",
+      "    | GeneralCategory",
+      "    | Script",
+      "    | ScriptExtensions",
+      "    | Binary",
+      "    | Any",
+      "    | Ascii",
+    ));
+  });
+
   it("spreads a union whose alternatives stand on one line beneath its `=` (§15.2)", () => {
     expect(format(lines(
       "module A",
@@ -2396,6 +2413,11 @@ describe("A union's leading bar (§16)", () => {
     expect(format(format(text))).toBe(format(text));
   });
 
+  it("adds no bar to a foreign enum written in a union's shape", () => {
+    const text = lines("module A", "extern enum Tri =", "    true as Yes", "    | false as No");
+    expect(format(text)).toBe(text);
+  });
+
   it("adds the bar whatever the options say", () => {
     const text = lines("module A", "union Id =", "    Wrap(Int)");
     for (const options of [{ leaveTrailingCommasAsWritten: true }, { collapseExtraSpaces: true }, { maximumLineLength: 20 }]) {
@@ -2433,6 +2455,7 @@ describe("A union's leading bar (§16)", () => {
     const before = read("module A\nunion Id =\n    Wrap(Int)\n");
     expect(sameText(before, read("module A\nunion Id =\n    | Wrap(Int)\n"), false, true)).toBe(true);
     expect(sameText(before, read("module A\nunion Id =\n    | Wrap(Int)\n"))).toBe(false);
+    expect(sameText(read("module A\nlet x = f(a, b)\n"), read("module A\nlet x = f(a, | b)\n"), false, true)).toBe(false);
   });
 });
 

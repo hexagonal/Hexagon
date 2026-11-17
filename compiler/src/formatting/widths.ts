@@ -147,7 +147,7 @@ export function constructs(reading: Reading): readonly Construct[] {
 const notExpressions = new Set([
   "pattern", "annotation", "returnAnnotation", "parameters", "typeParameters", "destructurings", "slots",
   "constructors", "declaredParameters", "derives", "impliedTypes", "subject", "constraint", "baseConstraints",
-  "name", "field", "qualifier", "fields", "components", "result", "delegate", "module", "alias", "span",
+  "name", "field", "qualifier", "components", "result", "delegate", "module", "alias", "span",
   "widens", "group", "block", "keyword", "markSpan", "arrowSpan", "foreign",
 ]);
 

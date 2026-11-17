@@ -47,6 +47,8 @@ stdlib/Runtime/HashTrie.hex · one line · arm · Sole(soleKey, _) => if matches
 stdlib/Runtime/HashTrie.hex · one line · arm · Sole(soleKey, _) => if keep!(soleKey) then s else emptySet
 stdlib/Runtime/HashTrie.hex · one line · call · { trie = HashTrie({ size = count, root = Rooted(kept) }) }
 stdlib/Runtime/HashTrie.hex · one line · record · { trie = HashTrie({ size = count, root = Rooted(kept) }) }
+stdlib/Runtime/HashTrie.hex · one line · call · { size = count, root = Rooted(kept) }
+stdlib/Runtime/HashTrie.hex · one line · record · { size = count, root = Rooted(kept) }
 stdlib/Runtime/Regex.hex · one line · loop · for item in items do set := unionOf(set, itemSet(item))
 stdlib/Runtime/Regex.hex · one line · loop · for part in parts do all := all and nullable(part)
 stdlib/Runtime/Regex.hex · one line · loop · for branch in branches do any := any or nullable(branch)

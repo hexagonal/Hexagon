@@ -391,8 +391,7 @@ function plan(
       shape: "union",
       before: () => {
         const lead = tokens[union.opens - 1]?.kind === "Bar" ? union.opens - 1 : union.opens;
-        const bars = range(union.opens).filter((index) =>
-          index <= union.closes && tokens[index]!.kind === "Bar" && depth[index] === depth[union.opens]);
+        const bars = range(union.opens).filter((index) => index <= union.closes && tokens[index]!.kind === "Bar");
         return [lead, ...bars];
       },
     });
