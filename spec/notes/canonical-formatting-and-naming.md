@@ -151,13 +151,14 @@ declarations through this list before considering the segment done.
   `Unit`; an else-less `if` producing a value is a type error with the
   add-an-else fixit. (Operators §11.2; canonical-formatting-plan §5 restates)
 - **F3 [canonical]** An effect-position (`Unit`) conditional omits `else`;
-  explicit `else ()` is non-canonical ceremony. A value-producing conditional
-  writes both branches. A conditional, with or without `else`, stays on one
-  line up to 60 wide; otherwise the multiline form (H9). An `else if` chain
-  is never on one line, nor is a conditional that holds another. A chain
-  keeps each `else` and its `if` together on a line, aligned with the first
-  `if`; each branch body indents one level. (Operators §11.2–§11.3; Canonical Layout §15;
-  canonical-formatting-plan §5 restates)
+  explicit `else ()` is non-canonical ceremony. A value-producing
+  conditional writes both branches. A conditional, with or without `else`,
+  stays on one line up to 60 wide; otherwise the multiline form (H9). An
+  `else if` chain is never on one line, nor is a conditional that holds
+  another. A chain keeps each `else` and its `if` together on a line,
+  aligned with the first `if`; each branch body indents one level.
+  (Operators §11.2–§11.3; Canonical Layout §15; canonical-formatting-plan §5
+  restates)
 - **F4 [canonical, v1 stance]** *(#700.)* The fused `fun f(…) = …` and the
   single-member `fun` block are both legal, and the formatter rewrites
   neither into the other — the fused spelling is idiomatic for one member,
@@ -293,19 +294,20 @@ the Book, the Playground's tutorials and the spec's own examples.
       )
   ```
 
-- **H9** House text is formatted with Spread wide constructs on, and
-  writes each kind of construct on one line or spread as the table below
-  says. Canonical Layout §15 owns the table and its measure; this restates
-  them. Format document spreads a construct on one line that is wider than
-  its cap, or whose kind is never on one line. The other half is made by
-  hand, as H5's move is, since the formatter never joins lines: a
-  construct within its cap, or of a kind with no cap, is written on one
-  line wherever that line fits, even where it was written spread. For a
-  call's arguments and a record, on one line means their brackets are; for
-  a declaration, its braces or its alternatives (Canonical Layout §15.2).
-  A test holds the standard library, the Playground's tutorials and the
-  Book's samples to both halves, and names each construct in the wrong
-  shape (#1602). (Canonical Layout §3.5, §12, §15)
+- **H9** House text is formatted with Apply width limits on, and writes
+  each kind of construct on one line or spread as the table below says.
+  Canonical Layout §15 owns the table and its measure; this restates them.
+  Format document spreads a construct on one line that is wider than its
+  width limit, or whose kind is never on one line. The other half is made
+  by hand, as H5's move is, since the formatter never joins lines: a
+  construct within its width limit, or of a kind with no width limit, is
+  written on one line wherever that line fits, even where it was written
+  spread. For a call's arguments and a record, on one line means their
+  brackets are; for a declaration, its braces or its alternatives
+  (Canonical Layout §15.2). A test holds the standard library, the
+  Playground's tutorials and the Book's samples to both halves, and names
+  each construct in the wrong shape (#1602). (Canonical Layout §3.5, §12,
+  §15)
 
   | Kind | On one line |
   |---|---|
@@ -320,16 +322,16 @@ the Book, the Playground's tutorials and the spec's own examples.
   | A match arm | up to 80 |
   | An `and` or `or` expression | up to 80 |
   | An `else if` chain; a conditional that holds another conditional; a loop whose body is a loop or a conditional | never |
-  | A vector, a tuple, a call with one argument, arithmetic and `++`, a function header, and anything not named here | no cap: the line limit decides |
+  | A vector, a tuple, a call with one argument, arithmetic and `++`, a function header, and anything not named here | no width limit: the line limit decides |
 
-  A cap counts the code points of the construct's own text as it would
-  read on one line, with its tokens spaced as §7 of Canonical Layout
+  A width limit counts the code points of the construct's own text as it
+  would read on one line, with its tokens spaced as §7 of Canonical Layout
   spaces them and no trailing comma. Its indentation and the rest of its
   line do not count. A call counts its arguments alone; every other kind
-  counts whole, from its first token to its last, a declaration's
-  `export` and `derives` included. Each construct is held to its own
-  row, so an arm whose body is a conditional stays on one line while the
-  arm is within 80 and the conditional within 60 (H7's example).
+  counts whole, from its first token to its last, a declaration's `export`
+  and `derives` included. Each construct is held to its own row, so an arm
+  whose body is a conditional stays on one line while the arm is within 80
+  and the conditional within 60 (H7's example).
 
   A construct is still spread where something in it must be: a construct
   the table spreads, a block of two or more items, a `match` with its arms
@@ -338,8 +340,9 @@ the Book, the Playground's tutorials and the spec's own examples.
   keeping its head on that call's line (H7). An expression the table
   spreads runs on over further lines, so H5 puts it on a line of its own
   beneath its `=`, `:=` or `=>`, unless it is a lambda, whose head H7
-  keeps where it stands. A spread union leads every alternative with `|`,
-  its first included (Unions §2).
+  keeps where it stands. A union spread one alternative to a line leads
+  every alternative with `|`, its first included (Unions §2), as Format
+  document writes it (Canonical Layout §16).
 
   ```
   let scale = if aligned > 1074 then 1074 else aligned

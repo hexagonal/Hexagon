@@ -442,7 +442,7 @@ else
 This multiline spelling is canonical for a conditional wider than 60, for one
 that holds another conditional, and wherever a branch takes more than one line.
 The formatter never collapses it, since it keeps the author's line breaks
-(Canonical Layout §1), and with Spread wide constructs on it writes it for a
+(Canonical Layout §1), and with Apply width limits on it writes it for a
 conditional on one line that is wider than 60 or holds another (Canonical
 Layout §3.5, §15). A block arm's value is its final expression per the standard
 block rule.
