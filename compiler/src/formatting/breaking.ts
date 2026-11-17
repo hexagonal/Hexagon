@@ -64,6 +64,11 @@ interface Plan {
   readonly before: readonly number[];
   /** The breaks whose new line stands at the broken line's own column. */
   readonly level?: ReadonlySet<number>;
+  /**
+   * A trailing comma the plan removes: one after a last item that the plan
+   * makes end in a block, where the grammar has no room for it (§14).
+   */
+  readonly removes?: number;
 }
 
 const MAXIMUM_ROUNDS = 10_000;
@@ -163,6 +168,11 @@ function attempt(
     }
   }
   for (const [line, shift] of shifts) inserts.push({ offset: lines[line]!, remove: 0, text: " ".repeat(shift) });
+  for (const one of plans) {
+    if (one.removes === undefined) continue;
+    const { start, end } = tokens[one.removes]!.span;
+    inserts.push({ offset: start.offset, remove: end.offset - start.offset, text: "" });
+  }
 
   for (const one of plans) {
     const line = tokens[one.line]!.span.start.line;
@@ -189,7 +199,7 @@ function attempt(
   }
 
   const provisional = scan(broken);
-  if (!sameText(original, provisional)) return { kind: "Failed" };
+  if (!sameText(original, provisional, false, false, true)) return { kind: "Failed" };
   if (provisional.syntaxError) return { kind: "Failed" };
   const written = Whitespace.write(provisional, options);
   if (written.kind !== "Written") return { kind: "Failed" };
@@ -283,6 +293,8 @@ interface LongLine {
   readonly last: number;
   /** A union declaration on the line that §15 spreads. */
   readonly union?: Construct;
+  /** A record declaration on the line that §15 spreads. */
+  readonly record?: Construct;
 }
 
 /**
@@ -310,6 +322,7 @@ function linesToBreak(reading: Reading, limit: number, spreading: readonly Const
       known = { first, last };
     }
     if (construct.kind === "union" && known.union === undefined) known = { ...known, union: construct };
+    if (construct.kind === "record declaration" && known.record === undefined) known = { ...known, record: construct };
     byLine.set(line, known);
   }
   return [...byLine.values()].sort((left, right) => left.first - right.first);
@@ -419,6 +432,12 @@ function plan(
     found.length > 0 && tokens[line.last]!.kind === "Comma" && atTop(line.last) && pairs.enclosing[line.last] !== undefined
       ? [...found, line.last]
       : found;
+  // A record declaration that §15 spreads: its braces open where they
+  // stand, the house's `record R = {`, its value kept on the `=`'s line.
+  const record = line.record;
+  if (record !== undefined) {
+    candidates.push({ shape: "record", before: () => brackets(shaping, [record.opens], depth) });
+  }
   // 2. A line holding several items of open brackets opened on an earlier
   // line breaks between them before anything inside them breaks.
   candidates.push({ shape: "items", before: () => betweenItems(tokens, pairs, depth, start, line.last, measure) });
@@ -524,7 +543,18 @@ function plan(
     if (before.length === 0) continue;
     // A chain whose receiver begins its line keeps its links at its level.
     const level = candidate.shape === "chain" && valueStart === line.first ? new Set(before) : undefined;
-    return { line: line.first, shape: candidate.shape, before, ...(level === undefined ? {} : { level }) };
+    // A comma after an item that ends in a block once broken: a separator
+    // begins a line of its own, and a trailing comma, which has no room
+    // there, is removed (§14).
+    const trailing = before.includes(line.last) && tokens[line.last]!.kind === "Comma" &&
+      (closers.has(tokens[line.last + 1]?.kind ?? "") || tokens[line.last + 1]?.kind === "Greater");
+    return {
+      line: line.first,
+      shape: candidate.shape,
+      before: trailing ? before.filter((index) => index !== line.last) : before,
+      ...(level === undefined ? {} : { level }),
+      ...(trailing ? { removes: line.last } : {}),
+    };
   }
   return undefined;
 }

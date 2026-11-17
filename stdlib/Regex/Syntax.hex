@@ -88,11 +88,10 @@ export record Edit = { start: Int, end: Int, text: String }
 
 {-- A rewrite a refusal names, as data (`spec/regex.md` §2.9): what it writes,
     in words, and the edits that write it, in the pattern's order. -}
-export record Rewrite =
-    {
-        title: String,
-        edits: Vector(Edit),
-    }
+export record Rewrite = {
+    title: String,
+    edits: Vector(Edit),
+}
 
 {-- Thrown by `parse`, and by `Regex.parse`, for a pattern the dialect refuses:
     `message` is one sentence naming the fault and the spelling the dialect has
@@ -107,12 +106,11 @@ export exception RegexError(message: String, position: Int, rewrites: Vector(Rew
 -- Why the parser refused a pattern, while it is still reading: the same three
 -- slots as `RegexError`, held as data so that a loop can keep the first one it
 -- meets and stop. `parse` throws it once, at the end.
-record Refusal =
-    {
-        message: String,
-        position: Int,
-        rewrites: Vector(Rewrite),
-    }
+record Refusal = {
+    message: String,
+    position: Int,
+    rewrites: Vector(Rewrite),
+}
 
 -- What a reading step answers: what it read, or why it stopped. The parser's
 -- own two-sided value, so that each step's refusal is data the loop can keep.
@@ -121,13 +119,12 @@ union Outcome(a, e) =
     | Refused(error: e)
 
 -- The flags in force at a point in the pattern (§2.6).
-record Flags =
-    {
-        folded: Bool,
-        multiLine: Bool,
-        dotAll: Bool,
-        extended: Bool,
-    }
+record Flags = {
+    folded: Bool,
+    multiLine: Bool,
+    dotAll: Bool,
+    extended: Bool,
+}
 
 -- What a piece of a sequence was, which decides what a quantifier after it may
 -- do (§2.5). An assertion and a flag setting carry their text for the message.
@@ -139,13 +136,12 @@ union PieceKind =
 
 -- One piece of a sequence: its tree, what it was, where it began, and the
 -- product of the counted repetitions nested in it (§2.5's bound).
-record Piece =
-    {
-        expr: Expr,
-        kind: PieceKind,
-        start: Int,
-        product: Int,
-    }
+record Piece = {
+    expr: Expr,
+    kind: PieceKind,
+    start: Int,
+    product: Int,
+}
 
 -- An open group. The top frame stands for the whole pattern and has no opening.
 record Frame = {
@@ -623,7 +619,6 @@ let loosened(name: String): String =
                         String.toLower(point)
                     else
                         point
-                ,
                 )
     String.join(Iterable.toSeq(chunks), "")
 
@@ -1701,14 +1696,13 @@ let countSequence(
 
 -- A counted repetition as written: its counts, whether it is lazy, and the span
 -- from its `{` up to the codepoint after it.
-record Counted =
-    {
-        low: Int,
-        high: Option(Int),
-        lazy: Bool,
-        start: Int,
-        after: Int,
-    }
+record Counted = {
+    low: Int,
+    high: Option(Int),
+    lazy: Bool,
+    start: Int,
+    after: Int,
+}
 
 -- A count past its bound on the piece `last`, refused with `message` and, where
 -- no group in the atom would be written twice, the rewrite `title` names: a

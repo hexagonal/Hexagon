@@ -84,7 +84,7 @@ export function formatSelection(text: string, selection: FormatRange, options: F
   const result = text.slice(0, region.start) + formatted.text.slice(from, to) + text.slice(region.end);
   if (result !== text) {
     const check = read(result);
-    if (check.syntaxError || !sameText(formatted.original, check, adds(options), true) || !sameTree(formatted.original, check)) {
+    if (check.syntaxError || !sameText(formatted.original, check, adds(options), true, true) || !sameTree(formatted.original, check)) {
       return { kind: "Refused", message: CHECK_FAILED };
     }
   }
@@ -102,7 +102,7 @@ function formatWhole(text: string, options: FormatOptions): Whole {
   if (once.kind !== "Pass") return once;
 
   const after = read(once.text);
-  if (after.syntaxError || !sameText(original, after, adds(options), true) || !sameTree(original, after)) {
+  if (after.syntaxError || !sameText(original, after, adds(options), true, true) || !sameTree(original, after)) {
     return { kind: "Refused", message: CHECK_FAILED };
   }
   // §1's third guarantee: formatting twice changes nothing.
@@ -276,6 +276,7 @@ function alignment(before: string, after: string): Map<number, number> {
       right += 1;
     }
     map.set(left, right);
+    if (removed(before, left, after, right)) continue;
     right += 1;
   }
   map.set(before.length, after.length);
@@ -295,6 +296,15 @@ function added(before: string, left: number, after: string, right: number): bool
 }
 
 /**
+ * Whether the character `before` holds at `left` is a comma Format document
+ * removed (§14): `after` holds something else there. A removed comma stands
+ * directly before a closing bracket, and nothing is added there.
+ */
+function removed(before: string, left: number, after: string, right: number): boolean {
+  return before[left] === "," && after[right] !== ",";
+}
+
+/**
  * The edits that turn `before` into `after`: each replaces a run of
  * whitespace, and takes in any comma or bar Format document added there
  * (see `added`).
@@ -305,10 +315,14 @@ function whitespaceEdits(before: string, after: string): TextEdit[] {
   let right = 0;
   while (left <= before.length || right <= after.length) {
     let leftEnd = left;
-    while (leftEnd < before.length && isWhitespace(before.charCodeAt(leftEnd))) leftEnd += 1;
     let rightEnd = right;
-    while (rightEnd < after.length && (isWhitespace(after.charCodeAt(rightEnd)) ||
-      added(before, leftEnd, after, rightEnd))) rightEnd += 1;
+    for (;;) {
+      while (leftEnd < before.length && isWhitespace(before.charCodeAt(leftEnd))) leftEnd += 1;
+      while (rightEnd < after.length && (isWhitespace(after.charCodeAt(rightEnd)) ||
+        added(before, leftEnd, after, rightEnd))) rightEnd += 1;
+      if (!removed(before, leftEnd, after, rightEnd)) break;
+      leftEnd += 1;
+    }
     const old = before.slice(left, leftEnd);
     const replacement = after.slice(right, rightEnd);
     if (old !== replacement) edits.push({ start: left, end: leftEnd, newText: replacement });

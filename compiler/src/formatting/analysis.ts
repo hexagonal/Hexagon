@@ -60,18 +60,23 @@ export function read(text: string): Reading {
  * Where `commas` allows, `after` may also hold trailing commas `before` does
  * not, each directly before a closing bracket: the ones §14 adds. Where `bars`
  * allows, it may also hold leading bars, each directly after an `=`: the ones
- * §16 adds.
+ * §16 adds. Where `dropped` allows, `after` may lack trailing commas `before`
+ * holds, each directly before a closing bracket: the ones §14 removes after an
+ * item that has come to end in a block. The tree check decides the rest.
  *
  * A comment's text is compared line by line with each later line's leading
  * whitespace set aside, since a comment that spans lines moves as a unit
  * (§8.2) and a line end is a boundary, not text (§1).
  */
-export function sameText(before: Scan, after: Scan, commas = false, bars = false): boolean {
+export function sameText(before: Scan, after: Scan, commas = false, bars = false, dropped = false): boolean {
   const left = before.lexed.tokens;
   const right = after.lexed.tokens;
   let index = 0;
+  const droppable = (at: number): boolean =>
+    dropped && left[at]?.kind === "Comma" && listClosers.has(left[at + 1]?.kind ?? "");
   for (let position = 0; position < right.length; position += 1) {
     const token = right[position]!;
+    if (index < left.length && droppable(index) && tokenKey(left[index]!) !== tokenKey(token)) index += 1;
     if (index < left.length && tokenKey(left[index]!) === tokenKey(token)) {
       index += 1;
       continue;

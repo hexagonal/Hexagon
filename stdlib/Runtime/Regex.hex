@@ -252,12 +252,11 @@ let opJump: Int = 3
 let opSave: Int = 4
 let opAssert: Int = 5
 
-record ClassSpec =
-    {
-        items: Vector(Syntax.ClassItem),
-        negated: Bool,
-        folded: Bool,
-    }
+record ClassSpec = {
+    items: Vector(Syntax.ClassItem),
+    negated: Bool,
+    folded: Bool,
+}
 
 record Code = {
     ops: Vector(Int),
@@ -556,13 +555,12 @@ record Compiled = {
 }
 
 -- One program of instructions, frozen: the forward and reverse scans' own.
-record Machine =
-    {
-        ops: Buffer(Int),
-        first: Buffer(Int),
-        second: Buffer(Int),
-        size: Int,
-    }
+record Machine = {
+    ops: Buffer(Int),
+    first: Buffer(Int),
+    second: Buffer(Int),
+    size: Int,
+}
 
 let frozen(values: Vector(Int)): Buffer(Int) =
     let buffer = create~(Vector.length(values), 0)
@@ -640,13 +638,12 @@ record Thread = { pc: Int, slots: Vector(Int) }
 
 -- Where the scan stands: the position and code-unit offset of the next
 -- codepoint, and the codepoints on either side, -1 at the text's edges.
-record Place =
-    {
-        position: Int,
-        offset: Int,
-        before: Int,
-        after: Int,
-    }
+record Place = {
+    position: Int,
+    offset: Int,
+    before: Int,
+    after: Int,
+}
 
 let width(point: Int): Int = if point > 65_535 then 2 else 1
 

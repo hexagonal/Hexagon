@@ -2124,20 +2124,19 @@ describe("Apply width limits (§3.5, §15)", () => {
     ));
   });
 
-  it("spreads a record literal and a record declaration over 60 (§15.1)", () => {
+  it("spreads a record literal and a record declaration over 60, the declaration's braces opening on its `=`'s line (§15.1)", () => {
     expect(format(lines(
       "module A",
       "record Flags = { folded: Bool, multiLine: Bool, dotAll: Bool, extended: Bool }",
       "let flags = { folded = False, multiLine = False, dotAll = False, extended = False }",
     ), house)).toBe(lines(
       "module A",
-      "record Flags =",
-      "    {",
-      "        folded: Bool,",
-      "        multiLine: Bool,",
-      "        dotAll: Bool,",
-      "        extended: Bool,",
-      "    }",
+      "record Flags = {",
+      "    folded: Bool,",
+      "    multiLine: Bool,",
+      "    dotAll: Bool,",
+      "    extended: Bool,",
+      "}",
       "let flags =",
       "    {",
       "        folded = False,",
@@ -2322,7 +2321,7 @@ describe("Apply width limits (§3.5, §15)", () => {
     ));
   });
 
-  it("puts an author's comma after a conditional it spreads in open brackets on a line of its own (Lexer & Layout §7)", () => {
+  it("removes an author's trailing comma after a conditional it spreads as the last item of open brackets (§14)", () => {
     expect(format(lines(
       "module A",
       "let f(x) =",
@@ -2337,8 +2336,56 @@ describe("Apply width limits (§3.5, §15)", () => {
       "            String.toLower(point)",
       "        else",
       "            point",
-      "    ,",
       "    )",
+    ));
+  });
+
+  it("removes such a comma under every option, and the edits take it in (§14, §3.4)", () => {
+    const text = lines(
+      "module A",
+      "let f(x) =",
+      "    chunks.append(",
+      "        if code >= 65 and code <= 90 then String.toLower(point) else point,",
+      "    )",
+    );
+    const options = { ...house, leaveTrailingCommasAsWritten: true };
+    const result = formatDocument(text, options);
+    expect(result.kind).toBe("Formatted");
+    if (result.kind !== "Formatted") return;
+    expect(result.text).not.toContain("point,");
+    let applied = text;
+    for (const edit of [...result.edits].reverse()) applied = applied.slice(0, edit.start) + edit.newText + applied.slice(edit.end);
+    expect(applied).toBe(result.text);
+    expect(formatSelection(text, { start: text.indexOf("chunks"), end: text.indexOf("chunks") }, options))
+      .toMatchObject({ kind: "Formatted", text: result.text });
+    // Only a trailing comma before a closing bracket may go (§1, §12).
+    const before = read("module A\nlet x = f(a, b,)\n");
+    expect(sameText(before, read("module A\nlet x = f(a, b)\n"), false, false, true)).toBe(true);
+    expect(sameText(before, read("module A\nlet x = f(a, b)\n"))).toBe(false);
+    expect(sameText(read("module A\nlet x = f(a, b)\n"), read("module A\nlet x = f(a b)\n"), false, false, true)).toBe(false);
+  });
+
+  it("keeps a lone alternative's line, or each alternative's, to the line limit: its brackets open (§9, §16)", () => {
+    expect(format(lines(
+      "module A",
+      "union Wrapper =",
+      "    | Wrap(someVeryLongFieldName: Vector(Map(String, Int)), other: Option(String))",
+      "union Pair =",
+      "    | Left(someVeryLongFieldName: Vector(Map(String, Int)), other: Option(String))",
+      "    | Right",
+    ), { ...house, maximumLineLength: 60 })).toBe(lines(
+      "module A",
+      "union Wrapper =",
+      "    | Wrap(",
+      "        someVeryLongFieldName: Vector(Map(String, Int)),",
+      "        other: Option(String),",
+      "    )",
+      "union Pair =",
+      "    | Left(",
+      "        someVeryLongFieldName: Vector(Map(String, Int)),",
+      "        other: Option(String),",
+      "    )",
+      "    | Right",
     ));
   });
 

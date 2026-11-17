@@ -41,21 +41,19 @@ opaque record Regex =
 {-- One match against one subject: the whole match, every capturing group, and
     the group names. Read it with `start`, `length`, `text`, `group`, `named`
     and `groups`. -}
-opaque record Match =
-    {
-        whole: Group,
-        groups: Vector(Option(Group)),
-        names: Vector((String, Int)),
-    }
+opaque record Match = {
+    whole: Group,
+    groups: Vector(Option(Group)),
+    names: Vector((String, Int)),
+}
 
 {-- A captured span: its 1-based codepoint start, its length in codepoints, and
     its text. -}
-export record Group derives (Eq, Show) =
-    {
-        start: Int,
-        length: Int,
-        text: String,
-    }
+export record Group derives (Eq, Show) = {
+    start: Int,
+    length: Int,
+    text: String,
+}
 
 honor Show<Regex> =
     {-- The pattern the regex was compiled from. -}
@@ -197,12 +195,11 @@ export let find(regex: Regex, text: String): Option(Match) = findFrom(regex, tex
 
 -- The enumeration's state: where the next search starts, the cursor it starts
 -- from, and where the previous match ended (-1 before the first).
-record Enumeration =
-    {
-        start: Int,
-        cursor: (Int, Int),
-        previousEnd: Int,
-    }
+record Enumeration = {
+    start: Int,
+    cursor: (Int, Int),
+    previousEnd: Int,
+}
 
 -- The next match of §3.5's enumeration and the state after it: an empty match
 -- abutting the previous match is skipped, and after any empty match the search
