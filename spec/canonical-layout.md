@@ -1,7 +1,7 @@
 # Hexagon Spec: Canonical Layout
 
-**Status:** Decided (November 2026). The layout that Format document and Format selection write (#1561; the formatter's stages are gathered under #1567). Amended 2026-11-16 (#1573): a head, which ends with its closing word, may be broken, though never before that word; a loop's body goes beneath its `do` (§5.3, §7.1, §9.3, §9.4, §10, §11). Amended 2026-11-16 (#1586): brackets whose only item is bracketed open and close with it, a lambda that is a call's last argument, a record's last field or a binding's value keeps its head on its line, and brackets of literals are filled (§5.2, §9.4, §10). Amended 2026-11-16 (#1590): an assignment is laid out as a binding is, its value beneath its `:=` (§5.3, §9.4, §10, §11). Amended 2026-11-16 (#1594): a list whose closing bracket begins its line ends with a comma, which Format document adds unless the third option, Leave trailing commas as written, is on, and a `<…>` list the author spreads opens as other brackets do (§1, §3, §5, §7, §9, §10–§14). Amended 2026-11-17 (#1598): the code inside a string's interpolation holes is spaced as code is anywhere, while a string's text is never changed and a hole is never broken (§1, §4–§7, §9.3, §10, §12, §13).
-**Scope:** What the two formatting commands change and what they refuse (§1–§2); the three options and the test any later option must pass (§3); line ends (§4), indentation (§5), blank lines (§6) and spacing within a line (§7); comments (§8); how a line longer than the Maximum line length is broken (§9); what the formatter leaves to the author (§13); the trailing comma it adds (§14).
+**Status:** Decided (November 2026). The layout that Format document and Format selection write (#1561; the formatter's stages are gathered under #1567). Amended 2026-11-16 (#1573): a head, which ends with its closing word, may be broken, though never before that word; a loop's body goes beneath its `do` (§5.3, §7.1, §9.3, §9.4, §10, §11). Amended 2026-11-16 (#1586): brackets whose only item is bracketed open and close with it, a lambda that is a call's last argument, a record's last field or a binding's value keeps its head on its line, and brackets of literals are filled (§5.2, §9.4, §10). Amended 2026-11-16 (#1590): an assignment is laid out as a binding is, its value beneath its `:=` (§5.3, §9.4, §10, §11). Amended 2026-11-16 (#1594): a list whose closing bracket begins its line ends with a comma, which Format document adds unless the third option, Leave trailing commas as written, is on, and a `<…>` list the author spreads opens as other brackets do (§1, §3, §5, §7, §9, §10–§14). Amended 2026-11-17 (#1598): the code inside a string's interpolation holes is spaced as code is anywhere, while a string's text is never changed and a hole is never broken (§1, §4–§7, §9.3, §10, §12, §13). Amended 2026-11-17 (#1602): each kind of construct has a cap on its width on one line, and a fourth option, Spread wide constructs, spreads a construct over its cap, or a nested conditional or loop, though its line fits (§1, §3, §6.3, §9, §10–§13, §15).
+**Scope:** What the two formatting commands change and what they refuse (§1–§2); the four options and the test any later option must pass (§3); line ends (§4), indentation (§5), blank lines (§6) and spacing within a line (§7); comments (§8); how a line longer than the Maximum line length is broken (§9); what the formatter leaves to the author (§13); the trailing comma it adds (§14); the cap on each kind of construct's width, and the spreading of a construct over it (§15).
 **Not in scope:** Changes to tokens other than adding a trailing comma (§14): removing or adding parentheses, a leading `|` or a degenerate `x: _`, and moving imports. Each waits for a ruling of its own (§13). House style, which is how the standard library and the Book are written where the formatter leaves the author free: `notes/canonical-formatting-and-naming.md`. The editors' commands and settings screens, which are the implementation's (§12).
 **Companions:** Lexer & Layout (blocks, the block-head inventory §2.1, the continuation tokens §2.3, heads and their closing words §2.4, lists and the trailing comma §7), Lexer §2 (line ends, tabs) and §7 (trivia), Comments §2–§4, Doc Comments §3–§4, Operators §3 and §11.3 (the conditional's shapes), Method Syntax §2.1 (the chain's shape), Unions §2, Modules §2–§3 (headers, closers, imports), Ascription §2, `notes/canonical-formatting-and-naming.md` (house style).
 
@@ -9,7 +9,7 @@
 
 ## 1. The ruling
 
-> Format document rewrites the whitespace of a document into its canonical layout, adds the trailing commas of §14, and changes nothing else. It keeps every line break the author wrote in code and never joins two lines of code. It breaks a line of code only where the Maximum line length option is set and the line is longer. Blank lines are §6's.
+> Format document rewrites the whitespace of a document into its canonical layout, adds the trailing commas of §14, and changes nothing else. It keeps every line break the author wrote in code and never joins two lines of code. It breaks a line of code only where the Maximum line length option is set and the line is longer, or where the Spread wide constructs option is on and the line holds a construct that §15 spreads. Blank lines are §6's.
 
 Three guarantees follow, and an implementation checks each of them on every run (§12):
 
@@ -60,12 +60,12 @@ Either way, a missing space is added where §7 calls for one, a space is removed
 
 ### 3.3 The admission test for an option
 
-These are the first three options, not necessarily the last. Any option must pass two tests:
+These are the first four options, not necessarily the last. Any option must pass two tests:
 
 1. **It starts off.** With the option at its default, the formatter writes exactly what it would write without the option.
 2. **Two settings never undo each other.** Take any two settings, A and B. Once a document has been formatted under A and then under B, formatting it again under either A or B changes nothing.
 
-All three pass. Maximum line length only adds line breaks, and no setting removes one. Collapse extra spaces only removes spaces, and no setting adds them back. Leave trailing commas as written only keeps the formatter from adding commas, and no setting removes one. A line's length counts a comma §14 would add whether or not it is written (§9.2), so adding the comma never carries a line past a limit it was formatted to.
+All four pass. Maximum line length only adds line breaks, and no setting removes one. Collapse extra spaces only removes spaces, and no setting adds them back. Leave trailing commas as written only keeps the formatter from adding commas, and no setting removes one. A line's length counts a comma §14 would add whether or not it is written (§9.2), so adding the comma never carries a line past a limit it was formatted to. Spread wide constructs only adds line breaks, as Maximum line length does, together with the trailing commas §14 gives the brackets it opens and the blank line after a union it spreads (§6.3), and no setting removes any of these. A cap measures a construct spaced as Collapse extra spaces on spaces it, and without a trailing comma (§15.2), so the other options never change what it spreads.
 
 An option where one setting adds what another removes fails the second test. Two developers with different settings would rewrite the same lines back and forth on every save. Padding inside record braces is the example: it is a rule (§7.1), not an option.
 
@@ -77,6 +77,15 @@ An option where one setting adds what another removes fails the second test. Two
 - **On:** it adds none.
 
 Either way, it removes none: a comma the author wrote stays where it is.
+
+### 3.5 Spread wide constructs
+
+**Spread wide constructs** is either off or on. The default is off.
+
+- **Off:** a line is broken only where it is longer than the Maximum line length (§9).
+- **On:** Format document also spreads a construct written on one line that is wider than its cap, or that is never written on one line, even where its line fits (§15).
+
+Either way, nothing is joined: a construct within its cap that the author spread stays spread (§13).
 
 ## 4. Line ends
 
@@ -250,7 +259,7 @@ Every other declaration is a **one-liner**, however many lines it takes. A decla
 
 Doc comments and other comments do not count. A documented one-liner is still a one-liner, and how documented one-liners are grouped is the author's choice.
 
-Formatting never creates or removes a line that begins a block's second item or a union's second alternative (§9). So Maximum line length never changes which declarations are multi-line, and a document's grouping is the same under every setting.
+Breaking a long line never creates or removes a line that begins a block's second item or a union's second alternative (§9.3). So Maximum line length never changes which declarations are multi-line, and a document's grouping is the same under every setting of it. Spread wide constructs changes it in one place only: a union it spreads puts each alternative on a line of its own (§15.3), so the union becomes multi-line and a blank line follows it (§6.2). Since the formatter never joins lines, no setting turns a multi-line declaration back into a one-liner.
 
 ## 7. Spacing within a line
 
@@ -344,7 +353,7 @@ A comment after the last code on its line is a **trailing comment**. The gap bef
 
 ### 9.1 When a line is broken
 
-Lines are broken only when Maximum line length is set to a number, and only a line longer than that number. Every other line keeps the breaks it has and gains none. A line broken in two is measured again, and each part that is still too long is broken in turn.
+A line is broken in two cases only: where Maximum line length is set to a number and the line is longer than that number, and where Spread wide constructs is on and the line holds a construct that §15 spreads. Every other line keeps the breaks it has and gains none. A line broken in two is looked at again, and each part that is still too long, or still holds such a construct, is broken in turn.
 
 ### 9.2 The length of a line
 
@@ -355,7 +364,7 @@ Code points are the measure in version one. The measure may later become display
 ### 9.3 What is never broken
 
 - **A string**, its interpolation holes included, and **a comment**. The tokens inside a hole are spaced as code is (§7.4), but no line is broken there.
-- **A union's alternatives** are never split onto lines of their own, since that would change which declarations are multi-line (§6.3).
+- **A union's alternatives** are never split onto lines of their own to shorten a line, since that would change which declarations are multi-line (§6.3). Only Spread wide constructs puts them on lines of their own (§15.3).
 - **Before a closing word.** `then`, `do` and `with` end the last line of their head (Lexer & Layout §2.4), and no break is made before one. A closing word the author wrote at the start of a line stays there, since the formatter never joins lines (§1), but the formatter never puts one there.
 - **Anywhere the program would read differently afterwards.** Every break is made only where the tree stays the same (§1). Where several items share a line, separated by `;`, only the last of them is broken.
 
@@ -363,7 +372,7 @@ A line with nothing left to break stays long, and the formatter does not report 
 
 ### 9.4 How a line is broken
 
-The formatter breaks the **outermost** structure of a too-long line first, and stops as soon as every line fits. It uses the contents shape wherever there is something to open, and carries a line on at two levels only where nothing can be opened. The brackets it opens take a trailing comma where §14 calls for one. Each kind of structure breaks in one shape, except that a lambda or a bare `match` that is a binding's value, a call's last argument or a record's last field first tries keeping its head on its line (rules 1 and 2):
+The formatter breaks the **outermost** structure of a too-long line first, and stops as soon as every line fits. A line that holds a construct §15 spreads is broken in the same way, and breaking stops once that construct is spread as well (§15.3). It uses the contents shape wherever there is something to open, and carries a line on at two levels only where nothing can be opened. The brackets it opens take a trailing comma where §14 calls for one. Each kind of structure breaks in one shape, except that a lambda or a bare `match` that is a binding's value, a call's last argument or a record's last field first tries keeping its head on its line (rules 1 and 2):
 
 1. **A binding, declaration, assignment, arm or lambda.** The value goes beneath its `=`, or the body beneath its `=>`, one level in (§5). An assignment is laid out as a binding is: what §9.4 says of a binding and its `=` holds for an assignment and its `:=`. A value that is a lambda or a bare `match` stays on its `=`'s line, and only the lambda's body goes beneath its `=>`, where a bare `match`'s arms always are. Only where that line, ending with the `=>` or with `match`, is still too long does the value go beneath the `=` instead, and its body is then moved beneath the `=>` only if that line is too long in turn. Any other value ends the same whether the author began it on the header line or beneath it. A header that is itself too long, before its `=`, opens its parameter brackets. A lambda that is a call's last argument, or the value of a record's last field, keeps its head on the line where the brackets open (rule 2). Any other lambda passed as an argument sits inside the call's brackets, which are outside it and so open first.
 2. **Brackets.** Their contents go one item per line, and the closing bracket takes a line of its own at the indentation of the opening bracket's line. A `<…>` list is never opened here (§5.2). Three kinds of brackets take a shape of their own:
@@ -507,7 +516,7 @@ Both are legal. A line indented deeper than its item continues the item whatever
 14. **Formatting on save, on paste, or in the Playground by default.** Nothing formats unasked (§2.4).
 15. **Blank lines added before something**, such as before a doc comment, a multi-line declaration or a module's closer. Also, a fixed number of blank lines between declarations, and recognising a run of aliases by its shape. Each would be the formatter guessing at the author's grouping. Blank lines are added only after something (§6.2).
 16. **Counting physical lines to tell a one-liner from a multi-line declaration.** Maximum line length would then change a document's grouping (§6.3).
-17. **A doc comment making its declaration multi-line.** For the formatter it does not (§6.3). The house style for documented functions is separate.
+17. **A doc comment making its declaration multi-line.** For the formatter it does not (§6.3). House text adds only a blank line on either side of a documented function (`notes/canonical-formatting-and-naming.md` H3).
 18. **A closing word at the start of a line**, as OCaml writes `then` beneath its condition. It is legal (Lexer & Layout §2.4), and an author's stays where it is written (§1), but the formatter ends a head's last line with its closing word, where it shows that the block follows (§9.3).
 19. **Brackets set apart from their only item**, as in `Map.fromVector(` / `[` … `]` / `)`. The outer brackets show nothing that the inner ones do not, so the two extra lines and the extra level carry no meaning (§9.4 rule 2).
 20. **Opening a call's brackets before its last argument's lambda.** It gives the lambda's head a line of its own and its body a second level. A lambda's head stays on the call's line, as JavaScript formatted by Prettier keeps a last-argument function's, and as a Swift trailing closure stands after its call (§9.4 rule 2).
@@ -519,6 +528,14 @@ Both are legal. A line indented deeper than its item continues the item whatever
 26. **A comma that ends a block**, so that a lambda whose body is beneath its `=>` could take its comma on the body's last line. The layout pass would have to close blocks at a comma, and a comma also separates the items of a `<…>` list, which the layout pass does not track as brackets (Lexer & Layout §2.2, §3.2), so it would close blocks that are still open. A list whose last item ends in a block takes no comma instead (§14).
 27. **Leaving an interpolation hole as written.** A hole holds code, and the spaces between its tokens are no part of the string's value, so spacing them changes nothing the program computes. Left as written, `${10 // 12 == 5 // 6}` would disagree with the same code written outside a string, `10//12 == 5//6`. Prettier spaces the code inside a JavaScript template literal's `${…}` in the same way, and keeps it on its line (§7.4).
 28. **A space inside a hole's braces**, as in `${ total }`, as a record's braces take one. A hole's braces enclose one expression, as parentheses do, and Hexagon writes parentheses tight. Swift's hole is a pair of parentheses, `\(total)`. Prettier spaces a JavaScript object's braces and writes a template literal's hole tight, side by side as `${{ x: 1 }.x}` (§7.4).
+29. **Leaving it to the author whether a construct that fits is spread**, as "a genuinely short conditional stays on one line" did. Whoever wrote each line decided what "short" meant, so one file held the same construct in two shapes. Each kind of construct has exactly one rule (§15.1).
+30. **A cap that is a share of Maximum line length**, such as 60 percent of it. A cap describes how much a reader takes in at once, not the width of a window. rustfmt's caps, which its documentation calls ratios, stay fixed at every limit of 100 or less in its source. Where Maximum line length is less than a cap, the line limit is reached first (§15.2).
+31. **Measuring a cap on the whole line**, indentation and the rest of the line included. The same conditional would then be one line at the left margin and spread inside a nested block (§15.2).
+32. **Counting items instead of width**, such as spreading a record of three or more fields. Width tracks what reads as dense more closely, and one unit for every kind is simpler (§15.2).
+33. **A cap for vectors, tuples, one-argument calls, arithmetic and function headers.** A vector of short literals reads as a table at any width, and a dense tuple is dense because of a call inside it, which its own cap spreads. A call with one argument, spread, only moves its argument down a line and adds a line holding `)`. Two sibling functions whose headers are 77 and 86 wide would be laid out unalike for the sake of nine characters (§15.1).
+34. **Never putting a conditional used for its effect on one line**, as rustfmt never puts an `if` without `else` on one line. An `if` without `else` is an `if` with an implied `else ()` (Operators §11.2), and OCaml writes `if c then x := y` on one line. A loop's body is capped in the same way. Only nesting is never on one line (§15.1).
+35. **A cap for nested conditionals**, so that `if a then b else if c then d else e` stays on one line when short. Nesting is where width is the wrong measure: the reader must find which `else` belongs to which `if` (§15.1).
+36. **A tighter cap for a conditional inside an argument, a field or an index.** The call's own cap already spreads most of these, since the conditional makes the argument list wide, and a cap that depends on the seat would be a second number for one kind (§15.1).
 
 ## 11. Edit notes to existing specs
 
@@ -547,23 +564,28 @@ Applied with the assignment's block (#1590): **Lexer & Layout §2.1** lists a li
 
 Applied with the trailing comma (#1594): **Lexer & Layout §7** says that every list in brackets may end with a comma, and gives its limits, with their reports in §5. **Products §3.1** and **Collections Part 3 §2** point to it. **`notes/canonical-formatting-and-naming.md`** gains H8, and its examples carry the comma.
 
+Applied with the caps (#1602): **Operators §11.3** and **`notes/canonical-formatting-plan.md` §5** say that a conditional stays on one line up to its cap of 60, and that an `else if` chain never does. **`notes/canonical-formatting-and-naming.md`** rewords F3 and gains H9, which restates §15.1's table and adds the half the formatter does not do.
+
+On next touch, with the caps (#1602): **spec examples** that write a construct on one line over its cap, or spread within its cap where it could be on one line, take §15's shape when their section is next touched.
+
 ## 12. Conformance
 
 An implementation of the formatter (#1562) must meet these conditions.
 
 1. **It checks the three guarantees of §1 on every run:** identical tokens, those inside interpolation holes included, comments and string text, apart from the trailing commas it adds (§14); an identical tree; and a second run that changes nothing. If any check fails, it refuses the document, returns no edits, and says that formatting failed (§2.3).
-2. **Settings never fight.** Its tests show §3.3's second test for the three options, and that §6.3's grouping is the same under every setting.
+2. **Settings never fight.** Its tests show §3.3's second test for the four options, and that §6.3's grouping is the same under every setting of the first three.
 3. **Mangled input comes back canonical.** A document whose whitespace has been scrambled, without changing its meaning, formats to the same result as the original.
-4. **The standard library is canonical.** Every standard-library file is unchanged by Format document at Maximum line length 100, with Collapse extra spaces on and Leave trailing commas as written off, the house settings (#1563).
+4. **The standard library is canonical.** Every standard-library file is unchanged by Format document at Maximum line length 100, with Collapse extra spaces on, Leave trailing commas as written off and Spread wide constructs on, the house settings (#1563, #1602).
 5. **Format selection agrees with Format document.** It is computed from the whole-document result and returns only the edits inside its region (§2.2).
+6. **It can name every construct in the wrong shape.** A check reports each construct written on one line that §15 spreads, and each construct within its cap that is spread where it could stand on one line (`notes/canonical-formatting-and-naming.md` H9). A test runs it over the standard library, the Playground's tutorials and the Book's samples (#1602).
 
-The language server serves both commands (#1564), and the VS Code extension relies on it (#1565). The Playground offers both commands in its editor, and the three options in its Settings… window (#1566). A `hexc format` command with a check mode belongs to version one with the rest of the command line, and calls the same core. The Book's code samples are written in canonical layout. The Book does not describe formatting.
+The language server serves both commands (#1564), and the VS Code extension relies on it (#1565). The Playground offers both commands in its editor, and the four options in its Settings… window (#1566). A `hexc format` command with a check mode belongs to version one with the rest of the command line, and calls the same core. The Book's code samples are written in canonical layout. The Book does not describe formatting.
 
 ## 13. What the formatter leaves to the author
 
 The formatter deliberately leaves these choices to the author. The house style for the standard library and the Book is written in `notes/canonical-formatting-and-naming.md`.
 
-- **Where lines break**, except in a line longer than the Maximum line length. This covers which line a keyword stands on, such as `match x with` on the header line or on a line of its own. It also covers whether a short conditional is written on one line or several, and whether brackets are open.
+- **Where lines break**, except in a line longer than the Maximum line length, and in a construct that Spread wide constructs spreads (§15). This covers which line a keyword stands on, such as `match x with` on the header line or on a line of its own. It also covers whether a construct within its cap is written on one line or several, and whether brackets are open. While Spread wide constructs is off, it covers a construct over its cap too. House text decides these by its table (`notes/canonical-formatting-and-naming.md` H9).
 - **Grouping by blank lines**, beyond the three places the formatter adds one (§6.2) and the cap of one.
 - **Extra spaces that align columns**, while Collapse extra spaces is off, and a wide gap before a trailing comment.
 - **The tokens:** parentheses, a leading `|` on a union's first alternative, `;` or a new line, a degenerate `x: _`, the fused `fun f(…) = …` or a `fun` block, and the order and place of imports. Each token-level rule that other chapters name for "the formatter" waits for a ruling of its own. Until then, the canonical spelling is the author's to write.
@@ -623,3 +645,84 @@ No comma is added in three cases:
 - **Inside brackets that hold no list**: parentheses that group one item, such as one expression written on a line of its own between `(` and `)`, and the brackets of an index or a slice. With a comma the parentheses would hold a one-item tuple, which Hexagon does not have, and an index holds one expression (Lexer & Layout §7).
 
 The formatter never removes a trailing comma. One on a list whose closing bracket does not begin a line stays, and so does every one while Leave trailing commas as written is on (§13).
+
+## 15. Wide constructs
+
+A construct that fits on its line can still be too dense to read there. Each kind of construct has one rule for whether it may stand on one line: a cap on its width, or never. With Spread wide constructs on (§3.5), Format document spreads a construct written on one line that breaks its rule. The other half of the rule, writing a construct within its cap on one line, is house style, since the formatter never joins lines (§1, §15.4).
+
+### 15.1 The kinds
+
+| Kind | On one line | Spread, it takes |
+|---|---|---|
+| A conditional, with or without `else` | up to 60 | each branch on a line of its own (§9.4 rule 4) |
+| A loop with a one-line body | up to 60 | its body beneath `do` (§9.4 rule 6) |
+| A chain of two or more links, dot calls or `\|>` stages | up to 60 | each link on a line of its own (§9.4 rule 3) |
+| The arguments of a call or constructor, two or more | up to 60 | its brackets open (§9.4 rule 2) |
+| A record literal | up to 60 | its braces open (§9.4 rule 2) |
+| A record declaration | up to 60 | its value beneath its `=`, and its braces open (§9.4 rules 1 and 2) |
+| A union declaration | up to 60 | its alternatives beneath its `=`, one to a line (§15.3) |
+| A lambda | up to 60 | its body beneath its `=>` (§9.4 rule 1) |
+| A match arm | up to 80 | its body beneath its `=>` (§9.4 rule 1) |
+| An `and` or `or` expression | up to 80 | carried on, each of its loosest operators beginning a line (§9.4 rule 5) |
+| An `else if` chain; a conditional that holds another conditional; a loop whose body is a loop or a conditional | never | as a conditional or a loop takes it |
+
+Every other construct has no cap of its own, and the Maximum line length alone decides it: a vector, a tuple, a call or constructor with one argument, arithmetic and `++`, a function header, and any construct this table does not name.
+
+Each construct is held to its own row, wherever it stands. So an arm whose body is a conditional stays on one line only while the arm is within 80 and the conditional within 60. A conditional holds another wherever the other stands inside it: in its condition, in a branch, or deeper, such as in a lambda passed in a branch.
+
+### 15.2 What a cap measures
+
+A cap counts Unicode code points, as a line's length does (§9.2). It measures the construct's own text as it would read on one line, from its first token to its last. That text is spaced as §7 spaces it with Collapse extra spaces on, a comment inside it counts as written, and a trailing comma does not count, since a list on one line takes none (§14). The construct's indentation, and whatever else shares its line, do not count. So the same construct takes the same shape at any depth.
+
+The arguments of a call or constructor are measured alone, from the first token after its `(` to the last before its `)`. The name in front is not what makes a call dense. Every other kind is measured whole: a conditional from its `if`, a loop from its `for` or `while`, a chain from the first token of its receiver, a lambda from its parameters, an arm from its pattern, and a declaration from its first token, `export` included, to its last, its `derives` clause included.
+
+The caps are fixed numbers. They do not change with the Maximum line length: where that length is less than a cap, the line limit is reached first. A construct within its cap on a line longer than the limit is broken by §9 as any such line is.
+
+### 15.3 What Spread wide constructs does
+
+With the option on, Format document **spreads** each construct written wholly on one line that is wider than its cap, or that its row never puts on one line. The line holding it is broken as §9.4 breaks a line that is too long, outermost structure first, until the construct takes the shape its row gives. So a binding's value goes beneath its `=` before a conditional in it is spread, and a lambda that is a call's last argument keeps its head on the call's line while its body goes beneath its `=>` (§9.4 rules 1 and 2). Each line is then looked at again (§9.1), so a construct inside the one just spread is spread in turn where its own row calls for it.
+
+With the limit at 100, for example:
+
+```
+let label = if count > 1000 then "many thousands of items" else "only a few items"
+let total = Vector.fold(values, 0, (sum, value) => sum + value * weight + correction(value))
+```
+
+becomes
+
+```
+let label =
+    if count > 1000 then
+        "many thousands of items"
+    else
+        "only a few items"
+let total =
+    Vector.fold(values, 0, (sum, value) =>
+        sum + value * weight + correction(value)
+    )
+```
+
+Both lines fit within 100. The conditional is 70 wide and `fold`'s arguments are 67, each over its cap of 60, so each is spread, its binding's value first going beneath the `=`. The lambda is 56 wide, within its own cap, and its body goes beneath its `=>` only because that is the shape of the call it ends.
+
+A construct the author wrote over several lines is left as it is, whatever its width: the option spreads only what stands wholly on one line. A construct in a place that §9.3 never breaks, such as a string's interpolation hole, stays on its line too.
+
+A union declaration has no shape in §9.4, since breaking a long line never splits its alternatives (§9.3). Spread, its alternatives go beneath its `=`, one level in and one to a line, each after the first led by its `|`. The formatter adds no `|` before the first alternative, since that token is the author's (§13). House text writes one, as Unions §2 prefers. The union is then multi-line, so a blank line follows it (§6.2, §6.3). With the limit at 100,
+
+```
+union Reason = Shape | Range | Cycle(firstSeen: Vector(Int)) | Other(text: String)
+```
+
+which is 82 wide, becomes
+
+```
+union Reason =
+    Shape
+    | Range
+    | Cycle(firstSeen: Vector(Int))
+    | Other(text: String)
+```
+
+### 15.4 What stays the author's
+
+The formatter never puts a spread construct on one line, even one within its cap, since it never joins lines (§1). House text makes that move by hand, and a test holds it to both halves of the table (`notes/canonical-formatting-and-naming.md` H9; §12). While Spread wide constructs is off, a construct over its cap also stays as the author wrote it (§13).

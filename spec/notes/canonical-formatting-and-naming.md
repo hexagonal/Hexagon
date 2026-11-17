@@ -152,10 +152,12 @@ declarations through this list before considering the segment done.
   add-an-else fixit. (Operators §11.2; canonical-formatting-plan §5 restates)
 - **F3 [canonical]** An effect-position (`Unit`) conditional omits `else`;
   explicit `else ()` is non-canonical ceremony. A value-producing conditional
-  writes both branches. A genuinely short conditional stays on one line;
-  otherwise the multiline form. A chain uses `else if` on one line even in multiline code, aligned
-  with the first `if`; each branch body indents one level.
-  (Operators §11.2–§11.3; canonical-formatting-plan §5 restates)
+  writes both branches. A conditional, with or without `else`, stays on one
+  line up to 60 wide; otherwise the multiline form (H9). An `else if` chain
+  is never on one line, nor is a conditional that holds another. A chain uses
+  `else if` on one line, aligned with the first `if`; each branch body
+  indents one level. (Operators §11.2–§11.3; Canonical Layout §15;
+  canonical-formatting-plan §5 restates)
 - **F4 [canonical, v1 stance]** *(#700.)* The fused `fun f(…) = …` and the
   single-member `fun` block are both legal, and the formatter rewrites
   neither into the other — the fused spelling is idiomatic for one member,
@@ -282,11 +284,69 @@ the Book, the Playground's tutorials and the spec's own examples.
   §14; Lexer & Layout §7)
 
   ```
-  let scaled =
-      create(
-          decimal.unscaled * tenTo(checked - decimal.places),
-          checked,
+  let kept =
+      keepsEverySlot(
+          Node.get(children, index),
+          Node.get(newChildren, index),
+          hashOf,
+          equal,
       )
+  ```
+
+- **H9** House text writes each kind of construct on one line or spread
+  as the table below says. Canonical Layout §15 owns the table and its
+  measure; this restates them. House text is formatted with Spread wide
+  constructs on, so Format document spreads a construct written on one
+  line that is wider than its cap, or that is never on one line. The
+  other half is made by hand, as H5's move is, since the formatter never
+  joins lines: a construct within its cap is written on one line where
+  that line fits, even where it was written spread. A test holds the
+  standard library, the Playground's tutorials and the Book's samples to
+  both halves, and names each construct in the wrong shape (#1602).
+  (Canonical Layout §3.5, §12, §15)
+
+  | Kind | On one line |
+  |---|---|
+  | A conditional, with or without `else` | up to 60 |
+  | A loop with a one-line body | up to 60 |
+  | A chain of two or more links, dot calls or `\|>` stages | up to 60 |
+  | The arguments of a call or constructor, two or more | up to 60 |
+  | A record literal | up to 60 |
+  | A record declaration | up to 60 |
+  | A union declaration | up to 60 |
+  | A lambda | up to 60 |
+  | A match arm | up to 80 |
+  | An `and` or `or` expression | up to 80 |
+  | An `else if` chain; a conditional that holds another conditional; a loop whose body is a loop or a conditional | never |
+  | A vector, a tuple, a call with one argument, arithmetic and `++`, a function header, and anything not named here | no cap: the line limit decides |
+
+  A cap counts the code points of the construct's own text as it would
+  read on one line, with its tokens spaced as §7 of Canonical Layout
+  spaces them and no trailing comma. Its indentation and the rest of its
+  line do not count. A call counts its arguments alone; every other kind
+  counts whole, from its first token to its last, a declaration's
+  `export` and `derives` included. Each construct is held to its own
+  row, so an arm whose body is a conditional stays on one line while the
+  arm is within 80 and the conditional within 60 (H7's example).
+
+  A construct within its cap is still spread where something in it must
+  be: a construct the table spreads, a block of two or more items, a
+  `match` with its arms (H6), a comment that ends its line, or a string
+  written over several lines. So is a lambda that ends a call or record
+  the table spreads, keeping its head on that call's line (H7). An
+  expression the table spreads runs on over further lines, so H5 puts it
+  on a line of its own beneath its `=`, `:=` or `=>`, unless it is a
+  lambda, whose head H7 keeps where it stands. A spread union leads every
+  alternative with `|`, its first included (Unions §2).
+
+  ```
+  let scale = if aligned > 1074 then 1074 else aligned
+
+  let label =
+      if count > 1000 then
+          "many thousands of items"
+      else
+          "only a few items"
   ```
 
 ---
