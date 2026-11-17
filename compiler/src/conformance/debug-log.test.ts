@@ -139,7 +139,7 @@ describe("the probe writes", () => {
     const module = project.modules.find(({ name }) => name === "Hex.Debug");
     const javascript = module!.javascript.text;
     expect(javascript).toMatch(
-      /const log = \(value, (__Show_a)\) => \{\n\s+return writeLine\(\1\.show\(value\)\);/,
+      /const log = \(value, (__Show_a)\) => writeLine\(\1\.show\(value\)\);/,
     );
     expect(javascript).toContain("function logString(value) {\n  return writeLine(value);\n}");
   });
