@@ -14,8 +14,7 @@ honor Show<Person> =
     show(person) = "\${person.name}, age \${person.age}"
 
 -- Interpolation infers Show for this private helper.
-let describe(thing: a) =
-    "Description: \${thing}"
+let describe(thing: a) = "Description: \${thing}"
 
 let ada = Person({ name = "Ada", age = 36 })
 

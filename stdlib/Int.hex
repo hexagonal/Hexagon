@@ -255,8 +255,7 @@ export let checkedAdd(left: Int, right: Int): Option(Int) =
 
 {-- `left` minus `right`, or `None` when the result is one an `Int` cannot hold
     exactly, where `-` would round it without saying so. -}
-export let checkedSub(left: Int, right: Int): Option(Int) =
-    checkedAdd(left, -right)
+export let checkedSub(left: Int, right: Int): Option(Int) = checkedAdd(left, -right)
 
 {-- `left` times `right`, or `None` when the result is one an `Int` cannot hold
     exactly, where `*` would round it without saying so. -}

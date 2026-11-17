@@ -124,8 +124,7 @@ export let isEmpty(s: Set(a)): Bool = size(s) == 0
 -- because a set has no replacing insert of its own (and needs none: `add` is
 -- idempotent precisely so that the common direction is the cheap one). The
 -- removal is what evicts the resident representative; the add installs this one.
-let replaceMember<a: Hash>(s: Set(a), element: a): Set(a) =
-    add(remove(s, element), element)
+let replaceMember<a: Hash>(s: Set(a), element: a): Set(a) = add(remove(s, element), element)
 
 -- `union` is a **contextual** keyword rather than a reserved one (#373): it
 -- introduces a declaration only where a type name follows it, and is an
@@ -187,12 +186,10 @@ export let isSubsetOf<a: Hash>(left: Set(a), right: Set(a)): Bool =
 {-- The elements of `elements` collected into a set. A duplicated element keeps
     the first representative it was inserted under. It forces the whole
     sequence, so it does not terminate on an infinite one. -}
-export let fromSeq<a: Hash>(elements: Seq(a)): Set(a) =
-    elements.fold(empty, add)
+export let fromSeq<a: Hash>(elements: Seq(a)): Set(a) = elements.fold(empty, add)
 
 {-- The elements of `values` collected into a set, left to right. -}
-export let fromVector<a: Hash>(values: Vector(a)): Set(a) =
-    fromSeq(values.toSeq())
+export let fromVector<a: Hash>(values: Vector(a)): Set(a) = fromSeq(values.toSeq())
 
 {-- The images of the elements of `s` under `transform`, as a set. Equal images
     are one element, and of two that are distinguishable, such as `0.0` and

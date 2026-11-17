@@ -131,8 +131,7 @@ export let readText(path: String): String =
 {-- The whole file at `path` as text, as `readText` reads it, except that each
     ill-formed sequence becomes U+FFFD instead of refusing the file. For a file
     that may hold stray bytes a program would rather see than stop at. -}
-export let readTextLossy(path: String): String =
-    lossyText!(path, bytesOf!(path))
+export let readTextLossy(path: String): String = lossyText!(path, bytesOf!(path))
 
 {-- Writes `text` to the file at `path` as UTF-8, creating the file or
     replacing what it held. It adds no byte-order mark and no newline, and it

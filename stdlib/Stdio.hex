@@ -67,8 +67,7 @@ let refuseLoneSurrogate(text: String): Unit =
 
 -- Ends the program with `status`. Node's `exit` doesn't return, and it throws
 -- nothing for a status in range.
-let end(status: Int): Unit =
-    assume exit!(process, status)
+let end(status: Int): Unit = assume exit!(process, status)
 
 -- The error's code, or "" where it has none.
 let codeOf(error: JsValue): String =
@@ -123,28 +122,23 @@ let writeAll(descriptor: Int, text: String): Unit =
                     "EAGAIN" => pause~(1000)
                     "EPIPE" => end~(141)
                     _ => failed~(descriptor, error)
-            other =>
-                assume throw^(other)
+            other => assume throw^(other)
 
 {-- Writes `text` to standard output as UTF-8, adding nothing. If the output
     can't take it, the program ends: quietly with status 141 when the reader
     has gone, otherwise with one line on standard error and status 1. -}
-export let write(text: String): Unit =
-    writeAll~(1, text)
+export let write(text: String): Unit = writeAll~(1, text)
 
 {-- Writes `text` and one line feed to standard output, as `write` does. The
     line feed is added even when `text` already ends with a newline. -}
-export let writeLine(text: String): Unit =
-    writeAll~(1, "${text}\n")
+export let writeLine(text: String): Unit = writeAll~(1, "${text}\n")
 
 {-- Writes `text` to standard error as UTF-8, adding nothing. If standard error
     can't take it, the program ends, as `write` says. -}
-export let writeError(text: String): Unit =
-    writeAll~(2, text)
+export let writeError(text: String): Unit = writeAll~(2, text)
 
 {-- Writes `text` and one line feed to standard error, as `writeError` does. -}
-export let writeErrorLine(text: String): Unit =
-    writeAll~(2, "${text}\n")
+export let writeErrorLine(text: String): Unit = writeAll~(2, "${text}\n")
 
 -- Section 4.5's failure: one line on stderr, then status 1. The program ends
 -- inside the call, under Node and in the playground alike, so the "" is never
@@ -183,8 +177,7 @@ let inputBytes(): JsValue =
                     _ =>
                         let _ = unreadable~(described~(error))
                         reading := False
-            other =>
-                assume throw^(other)
+            other => assume throw^(other)
     input~(used)
 
 -- The text of the input's bytes, or `None` where they aren't UTF-8. A
@@ -197,8 +190,7 @@ let strictText(bytes: JsValue): Option(String) =
         JsError(error) =>
             let _ = unreadable~(described~(error))
             None
-        other =>
-            assume throw^(other)
+        other => assume throw^(other)
 
 let lossyText(bytes: JsValue): String =
     try
@@ -220,5 +212,4 @@ export let readText(): String =
 {-- All of standard input, as `readText` reads it, except that each ill-formed
     sequence becomes U+FFFD instead of ending the program. For input that may
     hold stray bytes a program would rather see than stop at. -}
-export let readTextLossy(): String =
-    lossyText~(inputBytes~())
+export let readTextLossy(): String = lossyText~(inputBytes~())
