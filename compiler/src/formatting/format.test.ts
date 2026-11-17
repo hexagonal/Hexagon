@@ -2342,6 +2342,42 @@ describe("Apply width limits (§3.5, §15)", () => {
     ));
   });
 
+  it("puts a lambda's body beneath its `=>` before a comma, the comma on a line of its own (§15.1)", () => {
+    expect(format(lines(
+      "module A",
+      "let r = fold(0, (sum, value) => combineTheseTwoThingsIntoOneThingWithAVeryLongNameIndeedYes, values)",
+    ), house)).toBe(lines(
+      "module A",
+      "let r =",
+      "    fold(",
+      "        0,",
+      "        (sum, value) =>",
+      "            combineTheseTwoThingsIntoOneThingWithAVeryLongNameIndeedYes",
+      "    ,",
+      "        values,",
+      "    )",
+    ));
+  });
+
+  it("leaves a construct in an item before a `;` on its line, and breaks nothing else for it (§9.3)", () => {
+    const text = lines(
+      "module A",
+      "fun f() =",
+      `    let a = g(${"a".repeat(28)}, ${"b".repeat(39)}); let b = h(1)`,
+      "    a",
+    );
+    expect(format(text, house)).toBe(text);
+  });
+
+  it("leaves a lone alternative beneath its `=` as it stands, however wide (§15.2, §16)", () => {
+    const text = lines(
+      "module A",
+      "union Wrapper =",
+      "    | Wrap(someVeryLongFieldName: Vector(Map(String, Int)), other: Option(String))",
+    );
+    expect(format(text, house)).toBe(text);
+  });
+
   it("makes a document it spreads canonical: twice changes nothing, and other settings leave it (§3.3)", () => {
     const text = lines(
       "module A",

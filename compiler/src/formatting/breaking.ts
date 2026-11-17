@@ -304,12 +304,27 @@ function linesToBreak(reading: Reading, limit: number, spreading: readonly Const
       let last = construct.opens;
       while (tokens[last + 1] !== undefined && tokens[last + 1]!.kind !== "Eof" &&
         tokens[last + 1]!.span.start.line === line) last += 1;
+      // Where several items share a line, only the last is broken (§9.3), so
+      // a construct in an earlier one stays on its line (§15.3).
+      if (construct.opens < lastItemStart(tokens, first, last)) continue;
       known = { first, last };
     }
     if (construct.kind === "union" && known.union === undefined) known = { ...known, union: construct };
     byLine.set(line, known);
   }
   return [...byLine.values()].sort((left, right) => left.first - right.first);
+}
+
+/**
+ * The first token of the last of the items a line holds, separated by `;`,
+ * which stands only between the items of a block, never inside brackets.
+ */
+function lastItemStart(tokens: readonly Lexed.Token[], first: number, last: number): number {
+  let start = first;
+  for (let index = first; index <= last; index += 1) {
+    if (tokens[index]!.kind === "Semicolon") start = index + 1;
+  }
+  return start;
 }
 
 /**
@@ -396,6 +411,14 @@ function plan(
       },
     });
   }
+  // A body, conditional or loop that ends an item of open brackets
+  // ends in a block once it is broken, and a comma the author wrote after it
+  // would be read inside the block: it begins a line of its own, the one place
+  // it can stand (Lexer & Layout §7).
+  const comma = (found: number[]): number[] =>
+    found.length > 0 && tokens[line.last]!.kind === "Comma" && atTop(line.last) && pairs.enclosing[line.last] !== undefined
+      ? [...found, line.last]
+      : found;
   // 2. A line holding several items of open brackets opened on an earlier
   // line breaks between them before anything inside them breaks.
   candidates.push({ shape: "items", before: () => betweenItems(tokens, pairs, depth, start, line.last, measure) });
@@ -413,14 +436,6 @@ function plan(
 
   const heads = headsOn(tokens, start, line.last, depth);
   const blocked = insideHeads(heads, line.last);
-  // A conditional or loop that ends an item of open brackets ends in a block
-  // once it is broken, and a comma the author wrote after it would be read
-  // inside the block: it begins a line of its own, the one place it can stand
-  // (Lexer & Layout §7).
-  const comma = (found: number[]): number[] =>
-    found.length > 0 && tokens[line.last]!.kind === "Comma" && atTop(line.last) && pairs.enclosing[line.last] !== undefined
-      ? [...found, line.last]
-      : found;
   if (value.length > 0) {
     // 4. A conditional.
     candidates.push({ shape: "conditional", before: () => comma(conditional(tokens, value, line.last)) });
@@ -490,6 +505,13 @@ function plan(
       shape: "head brackets plainly",
       before: () => inHead(brackets(plainly, own, depth, top)),
     });
+  }
+
+  // Last of all, a body that ends an item of open brackets before a comma
+  // goes beneath its `=>`, the comma on a line of its own, where nothing else
+  // on the line could be broken.
+  if (head !== undefined && head < line.last && tokens[head]!.kind === "FatArrow") {
+    candidates.push({ shape: "body before a comma", before: () => comma([head + 1]).length > 1 ? comma([head + 1]) : [] });
   }
 
   for (const candidate of candidates) {

@@ -147,7 +147,7 @@ export function constructs(reading: Reading): readonly Construct[] {
 const notExpressions = new Set([
   "pattern", "annotation", "returnAnnotation", "parameters", "typeParameters", "destructurings", "slots",
   "constructors", "declaredParameters", "derives", "impliedTypes", "subject", "constraint", "baseConstraints",
-  "name", "field", "qualifier", "components", "result", "delegate", "module", "alias", "span",
+  "name", "field", "qualifier", "result", "delegate", "module", "alias", "span",
   "widens", "group", "block", "keyword", "markSpan", "arrowSpan", "foreign",
 ]);
 
@@ -259,9 +259,15 @@ class Finder {
     if (this.#text(head) !== "union") return;
     const constructors = item["constructors"] as readonly Node[];
     const alternatives = constructors.map((one) => this.#range(one));
-    const opens = alternatives[0]?.[0];
+    let opens = alternatives[0]?.[0];
     const closes = alternatives.at(-1)?.[1];
     if (opens === undefined || closes === undefined) return;
+    // A lone alternative beneath the `=`, which begins its line, already
+    // stands as a spread union stands (§16): it is measured from the `=`.
+    const lead = this.#tokens[opens - 1]?.kind === "Bar" ? opens - 1 : opens;
+    if (alternatives.length === 1 && this.#tokens[lead - 1]!.span.end.line < this.#tokens[lead]!.span.start.line) {
+      opens = lead - 1;
+    }
     this.#add({ kind: "union", first, last, opens, closes, whole: [first, last], never: false });
   }
 

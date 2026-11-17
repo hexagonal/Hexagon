@@ -108,6 +108,14 @@ describe("A construct on one line that its row spreads (§15.1; H9)", () => {
     ))).toEqual(["5 arguments spread 61"]);
   });
 
+  it("reads a record's fields and a fraction's sides", () => {
+    expect(named(lines(
+      "module A",
+      "let a = { n = if a then 1 else if b then 2 else 3 }",
+      "let b = (if a then 1 else if b then 2 else 3) // 4",
+    ))).toEqual(["2 conditional spread 35", "3 conditional spread 35"]);
+  });
+
   it("leaves a construct in an interpolation hole alone", () => {
     expect(named(lines("module A", `let a = "\${if c then ${"x".repeat(60)} else y}"`))).toEqual([]);
   });
