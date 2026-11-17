@@ -71,8 +71,7 @@ When the next step already returns an `Option`, use `flatMap` to keep one layer 
 possible absence:
 
 ```hexagon
-let findGuest(id: Int): Option(String) =
-    if id == 42 then Some("Mira") else None
+let findGuest(id: Int): Option(String) = if id == 42 then Some("Mira") else None
 
 let requestedId: Option(Int) = Some(42)
 let guestName = requestedId |> Option.flatMap(findGuest)
@@ -115,10 +114,9 @@ available after the dot when its first parameter is headed by the type.
 Suppose the module declaring `Parcel` also exports:
 
 ```hexagon
-record Parcel = {tracking: String, delivered: Bool}
+record Parcel = { tracking: String, delivered: Bool }
 
-export let status(parcel: Parcel): String =
-    if parcel.delivered then "delivered" else "in transit"
+export let status(parcel: Parcel): String = if parcel.delivered then "delivered" else "in transit"
 ```
 
 For a `Parcel` value, these calls are equivalent:
@@ -206,7 +204,7 @@ not gain companion operations.
 A nominal record can have a field and a companion operation with the same name:
 
 ```hexagon
-record Box = {size: Int}
+record Box = { size: Int }
 
 export let size(box: Box): Int = box.size
 ```

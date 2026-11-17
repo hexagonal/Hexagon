@@ -56,8 +56,7 @@ emit as function declarations:
 ```hexagon
 let double(x: Int): Int = x * 2
 
-fun factorial(n: Int): Int =
-    if n == 0 then 1 else n * factorial(n - 1)
+fun factorial(n: Int): Int = if n == 0 then 1 else n * factorial(n - 1)
 ```
 
 ```js
@@ -102,8 +101,8 @@ const position = [3.0, 4.0];
 Tuples are ordinary arrays. Structural records are ordinary objects:
 
 ```hexagon
-let guest = {name = "Mira", seats = 3}
-let expanded = {guest with seats = 4}
+let guest = { name = "Mira", seats = 3 }
+let expanded = { guest with seats = 4 }
 ```
 
 ```js
@@ -115,8 +114,8 @@ A nominal record is also the plain object at runtime. Applying its constructor
 directly records a source-level identity but needs no wrapper:
 
 ```hexagon
-record Point = {x: Float, y: Float}
-let point = Point({x = 3.0, y = 4.0})
+record Point = { x: Float, y: Float }
+let point = Point({ x = 3.0, y = 4.0 })
 ```
 
 ```js
@@ -134,7 +133,7 @@ plain object. Consider:
 
 ```hexagon
 export union Delivery =
-    Waiting
+    | Waiting
     | Sent(tracking: String)
     | Arrived
 

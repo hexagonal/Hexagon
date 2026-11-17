@@ -137,10 +137,7 @@ belongs in `match`.
 easy to read:
 
 ```hexagon
-let scores = Map.fromVector([
-    ("Mira", 18),
-    ("Niko", 24),
-])
+let scores = Map.fromVector([("Mira", 18), ("Niko", 24)])
 ```
 
 The inferred type is `Map(String, Int)`. A map update inserts a new key or replaces the
@@ -204,8 +201,7 @@ Maps and sets are hash-backed. Operations that inspect or place keys therefore r
 the key type to honor `Hash`:
 
 ```hexagon
-let remember<k: Hash>(cache: Map(k, v), key: k, value: v): Map(k, v) =
-    Map.set(cache, key, value)
+let remember<k: Hash>(cache: Map(k, v), key: k, value: v): Map(k, v) = Map.set(cache, key, value)
 ```
 
 `Hash` has `Eq` as a base constraint. Equal keys must have equal hash values; unequal
@@ -213,7 +209,7 @@ keys may still collide. Primitive values and structural products receive lawful 
 behavior from Hexagon. A nominal key type opts in through derivation:
 
 ```hexagon
-record GuestId derives (Eq, Hash) = {value: Int}
+record GuestId derives (Eq, Hash) = { value: Int }
 ```
 
 User code cannot hand-write `Hash`. Derivation ties it to structural equality, so a
@@ -257,7 +253,7 @@ abstract over every possible collection representation.
 `Iterable` and thereby work with `for`:
 
 ```hexagon
-record Bag(a) = {items: Vector(a)}
+record Bag(a) = { items: Vector(a) }
 
 honor Iterable<Bag(a)> =
     type Item = a
@@ -267,10 +263,9 @@ honor Iterable<Bag(a)> =
 Now ordinary loop syntax works:
 
 ```hexagon
-let bag = Bag({items = [2, 3, 3]})
+let bag = Bag({ items = [2, 3, 3] })
 
-for number in bag do
-    Debug.log(number)
+for number in bag do Debug.log(number)
 ```
 
 For now, read `type Item = a` as “iterating `Bag(a)` produces `a`.” The `toSeq`

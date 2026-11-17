@@ -5,13 +5,15 @@
  *
  * Format document at the house settings makes the half of H9 that spreads;
  * the other half, a construct within its width limit written on one line, is
- * made by hand. Until the house pass makes it (#1602, stage 4), the
- * constructs still in the wrong shape are recorded in
- * `house-shapes.baseline.txt`, one to a line, by file, what it should be,
- * kind and text, and not by line number, so that an edit above one does not
- * move it. The test fails on a construct in the wrong shape that the baseline
- * does not hold, and on one the baseline holds that is now in its shape, so the
- * baseline only shrinks, and the house pass empties it.
+ * made by hand. The house pass has made it (#1602), and what is left in
+ * `house-shapes.baseline.txt` is the Book's samples whose layout is what the
+ * prose beside them teaches: a condition carried on to its `then` (chapter 5),
+ * and the loops shown with their body beneath `do` before the chapter brings
+ * in the body on the head's line (chapter 17). They are recorded one to a
+ * line, by file, what the shape would be, kind and text, and not by line
+ * number, so that an edit above one does not move it. The test fails on a
+ * construct in the wrong shape that the baseline does not hold, and on one the
+ * baseline holds that is now in its shape, so the baseline never grows unseen.
  *
  * Run with `HOUSE_SHAPES_UPDATE=1` to write the baseline afresh.
  */

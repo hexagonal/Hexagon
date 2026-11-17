@@ -37,7 +37,7 @@ types. Division `/` belongs to types honoring `Frac`, including `Float` and exac
 
 ```hexagon
 let average = 7.5 / 3.0
-let threeHalves = (1 // 2) / (1 // 3)
+let threeHalves = (1//2) / (1//3)
 ```
 
 If both values are `Float`, this is IEEE 754 division and follows the same infinity and
@@ -48,25 +48,25 @@ no `/` operator: use `divide` or `divideEven` with the required decimal places.
 
 ## A fraction is written with `//`
 
-The second line above wrote two fractions before dividing them. `top // bottom`
+The second line above wrote two fractions before dividing them. `top//bottom`
 writes an exact fraction, a `Rat`:
 
 ```hexagon
-let half = 1 // 2
-let share = seats // guests
+let half = 1//2
+let share = seats//guests
 ```
 
 Both sides are integers: `Nat`, `Int`, and `BigInt` values all serve. The result is
-always in lowest terms with a positive bottom, so `6 // 10` and `3 // 5` are the same
-value, and so are `1 // -3` and `-1 // 3`. A fraction shows itself with a single
-slash: `"${6 // 10}"` is `3/5`.
+always in lowest terms with a positive bottom, so `6//10` and `3//5` are the same
+value, and so are `1//-3` and `-1//3`. A fraction shows itself with a single
+slash: `"${6//10}"` is `3/5`.
 
 `//` is not division. It does not compute a quotient and round it. It writes down the
 number that the two integers name, exactly. Dividing is `/`, and the compiler keeps
 the two apart. A side that is already a fraction is refused:
 
 ```hexagon
-let quarter = half // 2   -- error
+let quarter = half//2   -- error
 ```
 
 > a fraction's top and bottom are integers, and `half` is a `Rat` — to divide, write
@@ -79,19 +79,19 @@ Because `//` writes a number rather than performing a step of arithmetic, it bin
 tighter than `*` and `/`. A fraction in the middle of a product reads as one operand:
 
 ```hexagon
-half * 1 // 2         -- half * (1 // 2), which is 1/4
-1 // 2 * 3 // 4       -- (1 // 2) * (3 // 4), which is 3/8
-half / 2 // 3         -- half / (2 // 3), which is 3/4
+half * 1//2       -- half * (1//2), which is 1/4
+1//2 * 3//4       -- (1//2) * (3//4), which is 3/8
+half / 2//3       -- half / (2//3), which is 3/4
 ```
 
 Unary minus and `**` bind tighter still, so each side can carry a sign or a power:
-`-1 // 3` is `(-1) // 3`, and `2 ** 3 // 4` is `(2 ** 3) // 4`, which is `2/1`. For
-anything larger, parenthesize the side: `(a + b) // 2`.
+`-1//3` is `(-1)//3`, and `2 ** 3//4` is `(2 ** 3)//4`, which is `2/1`. For
+anything larger, parenthesize the side: `(a + b)//2`.
 
 A fraction has one top and one bottom, so `//` does not chain:
 
 ```hexagon
-let sixth = 1 // 2 // 3   -- error
+let sixth = 1//2//3   -- error
 ```
 
 > `//` does not chain; a fraction has one top and one bottom — to divide one, write
@@ -103,7 +103,7 @@ every decimal is a fraction and nothing is lost:
 
 ```hexagon
 let price: Dec = 1.50d
-let third = price * 1 // 3            -- 1/2
+let third = price * 1//3              -- 1/2
 let ratio: Rat = price / 0.25d        -- 6/1
 ```
 
@@ -375,8 +375,7 @@ same kind of redirect.
 An inline conditional has both branches and produces the value of the selected one:
 
 ```hexagon
-let shippingLabel =
-    if international then "International" else "Domestic"
+let shippingLabel = if international then "International" else "Domestic"
 ```
 
 The condition must be `Bool`, and both branches must produce the same type. A
@@ -488,7 +487,7 @@ From tightest to loosest, the operator groups are:
 Most of this is the familiar mathematical order. The two rules most worth remembering
 are that exponentiation binds inside unary minus on its left, and `not` applies to a
 comparison before it applies to surrounding logic. `//` sits just above multiplication
-because a fraction is a number being written, not a step of arithmetic: `x * 1 // 2`
+because a fraction is a number being written, not a step of arithmetic: `x * 1//2`
 multiplies by a half. The binary bitwise words sit between
 arithmetic and comparison, `band` tightest, so `flags band mask == 0` compares the
 masked value with zero, as it reads. `bnot`, like a call, binds tighter than everything
@@ -510,7 +509,7 @@ The entire pipe is the lambda body, and the entire conditional is the right oper
   the algebraic and comparison operators.
 - `/` is fractional division. Integer division and remainder use named operations whose
   names distinguish Euclidean `div`/`mod` from truncated `quot`/`rem`.
-- `top // bottom` writes an exact fraction from two integers. It is not division, it
+- `top//bottom` writes an exact fraction from two integers. It is not division, it
   binds tighter than `*` and `/`, and it does not chain.
 - Strings concatenate with `++`, not numeric `+`.
 - Comparison chains are directional, short-circuiting, and single-evaluation.

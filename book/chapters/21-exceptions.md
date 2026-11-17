@@ -6,7 +6,9 @@ When a result is a program's own description of what it found, return a union of
 program's own:
 
 ```hexagon
-union PortCheck = Valid(port: Int) | Invalid(problem: String)
+union PortCheck =
+    | Valid(port: Int)
+    | Invalid(problem: String)
 
 let checkPort(text: String): PortCheck = ...
 ```
@@ -308,7 +310,10 @@ too:
 
 ```hexagon
 JsError(error) =>
-    if canRecover(error) then fallback else throw(JsError(error))
+    if canRecover(error) then
+        fallback
+    else
+        throw(JsError(error))
 ```
 
 This wrapping is virtual in the common catch and rethrow paths; Hexagon need not
@@ -328,8 +333,7 @@ when anything is thrown — Hexagon or foreign; a foreign throwable arrives as
 `Err(JsError(…))`:
 
 ```hexagon
-let loaded: Result(Configuration, Exn) =
-    Result.attempt!(() => readConfiguration!(path))
+let loaded: Result(Configuration, Exn) = Result.attempt!(() => readConfiguration!(path))
 ```
 
 Both `->?` are the same variable, as always: `attempt` is a conduit, exactly as

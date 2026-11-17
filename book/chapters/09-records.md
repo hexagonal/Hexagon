@@ -4,11 +4,7 @@ The tuple `("Mira", 3)` is convenient while both positions are obvious. As the d
 grows, names become more valuable than brevity:
 
 ```hexagon
-let reservation = {
-    guest = "Mira",
-    seats = 3,
-    confirmed = False
-}
+let reservation = { guest = "Mira", seats = 3, confirmed = False }
 ```
 
 This is a **record**: one value whose components are identified by field names. More
@@ -27,7 +23,7 @@ A record type gives each field a type with `:`; a record literal binds each fiel
 `=`:
 
 ```hexagon
-let origin: {x: Float, y: Float} = {x = 0.0, y = 0.0}
+let origin: { x: Float, y: Float } = { x = 0.0, y = 0.0 }
 ```
 
 One line, both tokens: `:` on the left says "is of type", `=` on the right says "binds".
@@ -41,8 +37,8 @@ direction, `{x = 1}` is a JavaScript *destructuring default*, so a reader arrivi
 JavaScript should read Hexagon's `=` as a binding, not a fallback. The emitted
 JavaScript is unaffected: it is still `{x: 1}`, because that is JavaScript's separator.
 
-Field order does not change the type. `{x: Float, y: Float}` and
-`{y: Float, x: Float}` describe the same structure, although emitted JavaScript keeps
+Field order does not change the type. `{ x: Float, y: Float }` and
+`{ y: Float, x: Float }` describe the same structure, although emitted JavaScript keeps
 the literal's written order. A field name may appear only once in a literal or type.
 
 The empty record is `{}` in both value and type position. This pays off the rule from
@@ -65,8 +61,8 @@ An unannotated function may infer a flexible record requirement:
 ```hexagon
 let guestName(reservation) = reservation.guest
 
-let first = guestName({guest = "Mira", seats = 3})
-let second = guestName({guest = "Noah", confirmed = True})
+let first = guestName({ guest = "Mira", seats = 3 })
+let second = guestName({ guest = "Noah", confirmed = True })
 ```
 
 Both calls work. `guestName` requires a record containing a `guest` field of one
@@ -87,17 +83,15 @@ and it does not turn nominal types into structural ones.
 Write `...` when an annotation should permit additional fields:
 
 ```hexagon
-let guestName(reservation: {guest: String, ...}): String =
-    reservation.guest
+let guestName(reservation: { guest: String, ... }): String = reservation.guest
 ```
 
 Without `...`, the annotation is exact:
 
 ```hexagon
-let exactGuest(reservation: {guest: String}): String =
-    reservation.guest
+let exactGuest(reservation: { guest: String }): String = reservation.guest
 
-exactGuest({guest = "Mira", seats = 3}) -- error: extra field seats
+exactGuest({ guest = "Mira", seats = 3 }) -- error: extra field seats
 ```
 
 The compiler can suggest `...` when the extra fields were probably intentional.
@@ -115,11 +109,8 @@ Very occasionally, two annotations must preserve the same unknown remainder. A n
 tail expresses that relationship:
 
 ```hexagon
-let renameGuest(
-    reservation: {guest: String, ...r},
-    guest: String
-): {guest: String, ...r} =
-    {reservation with guest = guest}
+let renameGuest(reservation: { guest: String, ...r }, guest: String): { guest: String, ...r } =
+    { reservation with guest = guest }
 ```
 
 The `r` means that every additional input field is also present in the result. Most
@@ -131,14 +122,14 @@ Records are immutable. An update makes a shallow copy and replaces selected fiel
 naming the record it starts from and then the overrides:
 
 ```hexagon
-let confirmedReservation = {reservation with confirmed = True}
+let confirmedReservation = { reservation with confirmed = True }
 ```
 
 Every overridden field must already exist and keep its field type:
 
 ```hexagon
-{reservation with seats = 4}         -- same record type
-{reservation with table = "window"} -- error: update cannot add a field
+{ reservation with seats = 4 }         -- same record type
+{ reservation with table = "window" } -- error: update cannot add a field
 ```
 
 That last error is the point of the spelling. This is deliberately an update
@@ -152,21 +143,21 @@ want comes out of a call, bind it first:
 
 ```hexagon
 let base = defaultReservation(party)
-let booked = {base with seats = 4}
+let booked = { base with seats = 4 }
 ```
 
-A dotted head updates the record it names, and nothing else. `{p.position with x = 3.0}`
+A dotted head updates the record it names, and nothing else. `{ p.position with x = 3.0 }`
 builds a new *position*; there is no form that reaches into a nested field and hands
 back a new `p`.
 
 `with` is a contextual word rather than a reserved one, so nothing becomes
-unspellable: a field may be called `with`, and so may a binding. `{with = 3}` is a
-field, `{with}` is a pun, and `{with with x = 3}` is an update whose record happens to
+unspellable: a field may be called `with`, and so may a binding. `{ with = 3 }` is a
+field, `{ with }` is a pun, and `{ with with x = 3 }` is an update whose record happens to
 be named `with`.
 
 ## Copying without changing anything
 
-`{...reservation}` — spread, no overrides — is the shallow copy. For a structural
+`{ ...reservation }` — spread, no overrides — is the shallow copy. For a structural
 record it is exactly that and nothing more; later in this chapter, the same spelling
 gains an additional role for nominal records.
 
@@ -180,8 +171,8 @@ update instead. Writing the JavaScript shape gets you a compile error pointing a
 `with`:
 
 ```hexagon
-{...reservation, seats = 4} -- error: records update with `with`
-{...a, ...b}                -- error: Hexagon has no record merge
+{ ...reservation, seats = 4 } -- error: records update with `with`
+{ ...a, ...b }                -- error: Hexagon has no record merge
 ```
 
 The emitted JavaScript is unaffected either way. An update compiles to the same spread
@@ -196,10 +187,10 @@ When a field and its source binding share a name, the shorter form is available:
 ```hexagon
 let guest = "Ari"
 let seats = 2
-let reservation = {guest, seats, confirmed = False}
+let reservation = { guest, seats, confirmed = False }
 ```
 
-Here `{guest, seats}` means `{guest = guest, seats = seats}`. The punned form is spelled
+Here `{ guest, seats }` means `{ guest = guest, seats = seats }`. The punned form is spelled
 exactly like JavaScript's object shorthand; only the expansion differs. The explicit
 form remains useful when the names differ.
 
@@ -207,15 +198,15 @@ Punning composes with update, where it is at its most useful — rebuilding a re
 around a binding that already carries the field's name:
 
 ```hexagon
-let reseat(reservation, seats) = {reservation with seats}
+let reseat(reservation, seats) = { reservation with seats }
 ```
 
-`{reservation with seats}` means `{reservation with seats = seats}`.
+`{ reservation with seats }` means `{ reservation with seats = seats }`.
 
 A simple record pattern uses the same visual idea to bind fields:
 
 ```hexagon
-let {guest, seats} = reservation
+let { guest, seats } = reservation
 ```
 
 This binds the `guest` and `seats` fields and ignores the unmentioned `confirmed`
@@ -227,7 +218,7 @@ literals, and guards.
 Structural records require no wrapper:
 
 ```hexagon
-export let origin: {x: Float, y: Float} = {x = 0.0, y = 0.0}
+export let origin: { x: Float, y: Float } = { x = 0.0, y = 0.0 }
 ```
 
 ```js
@@ -248,16 +239,16 @@ JavaScript objects often use words Hexagon reserves as field names: an event's
 after a dot, where nothing else could stand, so a keyword is an ordinary name there:
 
 ```hexagon
-let click = {type = "click", x = 10}
+let click = { type = "click", x = 10 }
 let kind = click.type
 ```
 
-Punning is the one exception. `{type}` means `{type = type}`, which needs a variable
+Punning is the one exception. `{ type }` means `{ type = type }`, which needs a variable
 written bare as `type`, and a bare `type` is always the keyword. Write the field out
 instead:
 
 ```hexagon
-let {type = kind} = click
+let { type = kind } = click
 ```
 
 ## A declaration gives a record identity
@@ -267,8 +258,8 @@ promise: two values should remain different even when their underlying fields ha
 to look alike.
 
 ```hexagon
-record UserId = {value: Int}
-record OrderId = {value: Int}
+record UserId = { value: Int }
+record OrderId = { value: Int }
 ```
 
 `UserId` and `OrderId` are **nominal records**. Their types come from their
@@ -289,18 +280,18 @@ Construct a nominal record by calling its uppercase constructor with the exact
 structural record it declares:
 
 ```hexagon
-let userId = UserId({value = 42})
+let userId = UserId({ value = 42 })
 ```
 
 The constructor is an ordinary one-argument function. All declared fields are
 required, extra fields are rejected, and its result has type `UserId` rather than
-`{value: Int}`.
+`{ value: Int }`.
 
 Once constructed, ordinary record operations remain available:
 
 ```hexagon
 let rawValue = userId.value
-let nextUserId = {userId with value = userId.value + 1}
+let nextUserId = { userId with value = userId.value + 1 }
 ```
 
 The update preserves nominal identity: `nextUserId` is still `UserId`. The compiler
@@ -313,17 +304,17 @@ A nominal record does not silently become a structural record, even when it visi
 has the required fields:
 
 ```hexagon
-record Point = {x: Float, y: Float}
+record Point = { x: Float, y: Float }
 
-let xCoordinate(point: {x: Float, ...}): Float = point.x
-let point = Point({x = 3.0, y = 4.0})
+let xCoordinate(point: { x: Float, ... }): Float = point.x
+let point = Point({ x = 3.0, y = 4.0 })
 
-xCoordinate(point)      -- error: Point is nominal
-xCoordinate({...point}) -- accepted
+xCoordinate(point)        -- error: Point is nominal
+xCoordinate({ ...point }) -- accepted
 ```
 
-The copy `{...point}` deliberately crosses from `Point` to its structural definition,
-`{x: Float, y: Float}`. Nothing crosses implicitly, so inference never has to guess
+The copy `{ ...point }` deliberately crosses from `Point` to its structural definition,
+`{ x: Float, y: Float }`. Nothing crosses implicitly, so inference never has to guess
 whether a value should retain or discard its identity.
 
 The direction into the nominal type is equally explicit: call `Point(...)`.
@@ -335,14 +326,14 @@ structural record --Point(...)--> Point --{...point}--> structural record
 ## Nominal records can have type parameters
 
 ```hexagon
-record Box(a) = {value: a}
+record Box(a) = { value: a }
 
-let numberBox = Box({value = 42})
-let wordBox = Box({value = "hello"})
+let numberBox = Box({ value = 42 })
+let wordBox = Box({ value = "hello" })
 ```
 
 The inferred types are `Box(Int)` and `Box(String)`. `Box(a)` remains nominal: it does
-not unify with `{value: a}` or with another record declaration that happens to contain
+not unify with `{ value: a }` or with another record declaration that happens to contain
 the same field.
 
 ## An exported nominal record stays an ordinary object
@@ -351,7 +342,7 @@ An exported record exposes its type and constructor. Its JavaScript value is sti
 object itself:
 
 ```hexagon
-export record Point = {x: Float, y: Float}
+export record Point = { x: Float, y: Float }
 ```
 
 ```ts
@@ -371,9 +362,9 @@ keeping the external representation honest.
 - row polymorphism is the name for flexibility over unmentioned fields;
 - record annotations are closed unless they contain `...`;
 - spread updates replace existing fields and produce a new record;
-- `{field}` is shorthand for `{field = field}` in value and pattern positions;
+- `{ field }` is shorthand for `{ field = field }` in value and pattern positions;
 - `record` creates a nominal type with an uppercase constructor;
-- nominal-record updates preserve identity, while `{...value}` explicitly crosses to
+- nominal-record updates preserve identity, while `{ ...value }` explicitly crosses to
   a structural record; and
 - structural and nominal records are both plain JavaScript objects at runtime.
 
