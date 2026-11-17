@@ -259,7 +259,7 @@ Every other declaration is a **one-liner**, however many lines it takes. A decla
 
 Doc comments and other comments do not count. A documented one-liner is still a one-liner, and how documented one-liners are grouped is the author's choice.
 
-Breaking a long line never creates or removes a line that begins a block's second item or a union's second alternative (§9.3). So Maximum line length never changes which declarations are multi-line, and a document's grouping is the same under every setting of it. Apply width limits changes it in one place only: a union it spreads puts each alternative on a line of its own (§15.3), so the union becomes multi-line and a blank line follows it (§6.2). Since the formatter never joins lines, no setting turns a multi-line declaration back into a one-liner.
+Breaking a long line never creates or removes a line that begins a block's second item or a union's second alternative (§9.3). So Maximum line length never changes which declarations are multi-line, and a document's grouping is the same under every setting of it. Apply width limits changes it in one place only: a union of two or more alternatives that it spreads puts each alternative on a line of its own (§15.3), so the union becomes multi-line and a blank line follows it (§6.2). Since the formatter never joins lines, no setting turns a multi-line declaration back into a one-liner.
 
 ## 7. Spacing within a line
 
@@ -731,7 +731,7 @@ The conditional is 73 wide. The call's brackets open first, since the call is th
 
 A construct that is not on one line is left as it is, whatever its width: the option spreads only what stands on one line. So brackets the author opened stay as they are, while a record declaration with its braces closed on the line beneath its `=` is spread as one written whole on one line is. A construct in a place that §9.3 never breaks, such as a string's interpolation hole, stays on its line too.
 
-A union declaration has no shape in §9.4, since breaking a long line never splits its alternatives (§9.3). Spread, its alternatives go beneath its `=`, one level in and one to a line, and §16 leads the first with a `|` as the others are led. The union is then multi-line, so a blank line follows it (§6.2, §6.3). With the limit at 100,
+A union declaration has no shape in §9.4, since breaking a long line never splits its alternatives (§9.3). Spread, its alternatives go beneath its `=`, one level in and one to a line, and §16 leads the first with a `|` as the others are led. Where it has two or more alternatives, the union is then multi-line, so a blank line follows it (§6.2, §6.3). With the limit at 100,
 
 ```
 union Reason = Shape | Range | Cycle(firstSeen: Vector(Int)) | Other(text: String)
@@ -753,7 +753,7 @@ The formatter never puts a spread construct on one line, even one within its wid
 
 ## 16. A union's leading bar
 
-Format document writes a `|` before the first alternative of a union whose alternatives stand one to a line beneath its `=`: each begins a line of its own, the first on a line beneath the `=`. What decides it is where the alternatives stand, not how many there are, so a lone alternative written beneath the `=` takes the bar too. Every alternative then begins with its `|`, as Unions §2 writes a multi-line union, so adding, removing or moving an alternative changes only its own lines:
+Format document writes a `|` before the first alternative of a union whose alternatives stand one to a line beneath its `=`, each beginning a line of its own. What decides it is where the alternatives stand, not how many there are, so a lone alternative written beneath the `=` takes the bar too. Every alternative then begins with its `|`, as Unions §2 writes a multi-line union, so adding, removing or moving an alternative changes only its own lines:
 
 ```
 union Reason =
