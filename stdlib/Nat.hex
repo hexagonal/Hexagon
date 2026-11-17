@@ -129,10 +129,7 @@ honor Real<Nat> =
     No function is needed to go the other way: a `Nat` can be used wherever an
     `Int` is wanted. -}
 export let fromInt(value: Int): Option(Nat) =
-    if value < 0 then
-        None
-    else
-        Some(fromIntUnchecked(value))
+    if value < 0 then None else Some(fromIntUnchecked(value))
 
 -- `parse`'s two crossings (`spec/numeric-parsing.md`): the scan of the text,
 -- which is the host's conversion and cannot be Hexagon at this seat, before

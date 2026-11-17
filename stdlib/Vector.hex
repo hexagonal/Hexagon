@@ -175,8 +175,7 @@ export let map(values: Vector(a), transform: a ->! b): Vector(b) =
 export let filter(values: Vector(a), keep: a ->! Bool): Vector(a) =
     var result: Vector(a) = []
     for value in values do
-        if keep!(value) then
-            result := append(result, value)
+        if keep!(value) then result := append(result, value)
     result
 
 {-- A new vector made by calling the function `transform` on each element and
@@ -233,8 +232,7 @@ export let indexOf<a: Eq>(values: Vector(a), element: a): Option(Int) =
 {-- A new vector with the elements in the opposite order. -}
 export let reverse(values: Vector(a)): Vector(a) =
     var result: Vector(a) = []
-    for value in values do
-        result := prepend(result, value)
+    for value in values do result := prepend(result, value)
     result
 
 {-- A new vector that pairs each element with its position, counting from 1:\

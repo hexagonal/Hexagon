@@ -258,8 +258,7 @@ export let ceil(value: Rat): BigInt =
 -- linear in it — the exponents here reach into the thousands.
 let bitLength(value: BigInt): Int =
     var high: Int = 1
-    while (2 ** high) <= value do
-        high := high * 2
+    while (2 ** high) <= value do high := high * 2
     var low: Int = if high == 1 then 0 else high.quot(2)
     while high - low > 1 do
         let middle = (low + high).quot(2)
@@ -289,11 +288,7 @@ let alignedScale(numerator: BigInt, denominator: BigInt): Int =
 -- The one rounding: the scaled quotient, carried up when the discarded
 -- remainder is past half, and on an exact half only when carrying is what
 -- leaves the significand even.
-let roundedSignificand(
-    numerator: BigInt,
-    denominator: BigInt,
-    scale: Int,
-): BigInt =
+let roundedSignificand(numerator: BigInt, denominator: BigInt, scale: Int): BigInt =
     let dividend = scaledTop(numerator, scale)
     let divisor = scaledBottom(denominator, scale)
     let quotient = dividend.quot(divisor)
@@ -384,8 +379,7 @@ let quoted(text: String): String =
         count := count + 1
     let shown = if count > 40 then head ++ "\u{2026}" else text
     var written = "\""
-    for point in shown do
-        written := written ++ escaped(point)
+    for point in shown do written := written ++ escaped(point)
     written ++ "\""
 
 let notRat(text: String): Exn = NumberFormatError(quoted(text) ++ " is not a Rat")

@@ -114,9 +114,7 @@ record Refusal = {
 
 -- What a reading step answers: what it read, or why it stopped. The parser's
 -- own two-sided value, so that each step's refusal is data the loop can keep.
-union Outcome(a, e) =
-    | Read(value: a)
-    | Refused(error: e)
+union Outcome(a, e) = Read(value: a) | Refused(error: e)
 
 -- The flags in force at a point in the pattern (§2.6).
 record Flags = {
@@ -2042,9 +2040,7 @@ let parseText(pattern: String, text: Vector(String)): Outcome(Pattern, Refusal) 
                                 spans := spans.append(Span({ start = position, length = 0 }))
                                 names := Map.set(names, name, count)
                                 frames :=
-                                    frames.append(
-                                        frameOf(position, Some(count), Some(name), flags),
-                                    )
+                                    frames.append(frameOf(position, Some(count), Some(name), flags))
                                 position := next
             else if isQuantifier(point) then
                 match quantify(pattern, text, frames, position, flags) with
@@ -2072,10 +2068,7 @@ let parseText(pattern: String, text: Vector(String)): Outcome(Pattern, Refusal) 
                         position := next
                     Read((EscapedItems(items, negated), next)) =>
                         frames :=
-                            withPiece(
-                                frames,
-                                atom(Class(items, negated, flags.folded), position),
-                            )
+                            withPiece(frames, atom(Class(items, negated, flags.folded), position))
                         position := next
                     Read((EscapedAnchor(kind, written), next)) =>
                         let piece =

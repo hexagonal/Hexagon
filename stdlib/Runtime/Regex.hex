@@ -223,8 +223,7 @@ let itemSet(item: Syntax.ClassItem): Vector((Int, Int)) =
 -- `(?i)[^a]` not match `A`.
 let classSet(items: Vector(Syntax.ClassItem), negated: Bool, folded: Bool): Vector((Int, Int)) =
     var set: Vector((Int, Int)) = []
-    for item in items do
-        set := unionOf(set, itemSet(item))
+    for item in items do set := unionOf(set, itemSet(item))
     let closed = if folded then foldedSet(set) else set
     if negated then complementOf(closed) else closed
 
@@ -371,13 +370,11 @@ fun nullable(expr: Syntax.Expr): Bool =
         Syntax.Anchor(_) => True
         Syntax.Concat(parts) =>
             var all = True
-            for part in parts do
-                all := all and nullable(part)
+            for part in parts do all := all and nullable(part)
             all
         Syntax.Alternate(branches) =>
             var any = False
-            for branch in branches do
-                any := any or nullable(branch)
+            for branch in branches do any := any or nullable(branch)
             any
         Syntax.Repeat(body, min, _, _) => min == 0 or nullable(body)
         Syntax.Capture(body, _, _) => nullable(body)
@@ -448,8 +445,7 @@ fun emitExpr(code: Code, expr: Syntax.Expr, backward: Bool): Code =
                 index := index + 1
             current := emitExpr(current, branches[count], backward)
             let end = counter(current)
-            for jump in jumps do
-                current := setFirst(current, jump, end)
+            for jump in jumps do current := setFirst(current, jump, end)
             current
         Syntax.Repeat(body, min, max, greedy) =>
             var current = code
@@ -988,8 +984,7 @@ let reach(
 
 let keyOf(list: Vector(Int), edge: Int): String =
     var parts: Vector(String) = [show(edge)]
-    for pc in list do
-        parts := parts.append(show(pc))
+    for pc in list do parts := parts.append(show(pc))
     String.join(Iterable.toSeq(parts), ",")
 
 -- The id of the state for `list` and `edge` in `dfa`, added where it is new.

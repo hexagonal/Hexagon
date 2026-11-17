@@ -473,8 +473,8 @@ describe("§5.3 the `Map(k, v)` claim, verified against the representation", () 
     // construction site now has to supply.
     const sabotaged = "fun sink<a>(value: a): Int = 0\n\n" +
       trieSource
-        .replace("    root: Root(k, v),\n}", "    root: Root(k, v),\n    consume: v -> Int,\n}")
-        .replaceAll("HashTrie({", "HashTrie({\n        consume = sink,") +
+        .replace("root: Root(k, v) }", "root: Root(k, v), consume: v -> Int }")
+        .replaceAll("HashTrie({", "HashTrie({ consume = sink,") +
       EXPANSIVE;
     expect(sabotaged).not.toBe(trieSource);
 
