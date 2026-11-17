@@ -182,8 +182,7 @@ for generic iteration:
 ```hexagon
 let count(values: Seq(a)): Int =
     var total = 0
-    for _ in values do
-        total := total + 1
+    for _ in values do total := total + 1
     total
 ```
 

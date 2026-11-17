@@ -34,8 +34,7 @@ therefore infers a function that works for types supporting numeric addition. Ad
 used earlier:
 
 ```hexagon
-let orderTotal(subtotal: Int, delivery: Int): Int =
-    subtotal + delivery
+let orderTotal(subtotal: Int, delivery: Int): Int = subtotal + delivery
 ```
 
 Inference and annotation cooperate. The body still has to satisfy the written type;
@@ -214,8 +213,7 @@ exponent selects `Float` directly, while `n` selects `BigInt` and `d` selects `D
 Annotations are useful when they communicate intent:
 
 ```hexagon
-export let circleArea(radius: Float): Float =
-    3.14 * radius ** 2
+export let circleArea(radius: Float): Float = 3.14 * radius ** 2
 ```
 
 They also resolve an otherwise ambiguous producer or deliberately restrict a more
@@ -315,10 +313,10 @@ obligation by hand. Both of those attach to a *named* variable. A hole can carry
 obligation too — and it is written right where the hole is:
 
 ```hexagon
-let padded(entries: Vector(_ : Num)): Vector(Int) = entries.append(0)
+let padded(entries: Vector(_: Num)): Vector(Int) = entries.append(0)
 ```
 
-Read `_ : Num` as "some type, inference's to find, that honors `Num`." The written
+Read `_: Num` as "some type, inference's to find, that honors `Num`." The written
 constraint is a requirement the filled type must satisfy: here inference fills the hole
 with `Int`, `Int` honors `Num`, and the claim holds. It is a floor, not a ceiling — the
 body stays free to demand more, exactly as `increment`'s body did.
@@ -327,7 +325,7 @@ body stays free to demand more, exactly as `increment`'s body did.
 
 ```hexagon
 entries: Vector(a)          -- every element type — refused: this body delivers only Int
-entries: Vector(_ : Num)    -- some numeric element type — the strongest true claim
+entries: Vector(_: Num)     -- some numeric element type — the strongest true claim
 entries: Vector(_)          -- some element type — true, but says less
 ```
 
@@ -417,7 +415,7 @@ the JavaScript boundary.
   beside it, and it never collapses to one concrete type;
 - a **type hole** `_` leaves one position of a written annotation to inference —
   written is claimed, unwritten is inferred;
-- a hole may carry a written constraint — `Vector(_ : Num)` — a floor its filled type
+- a hole may carry a written constraint — `Vector(_: Num)` — a floor its filled type
   must satisfy: named variables take their constraints at the binder, holes take
   theirs inline, and each form lives exactly where the other cannot; and
 - recursive calls within one recursive knot keep one consistent type, and a `fun`

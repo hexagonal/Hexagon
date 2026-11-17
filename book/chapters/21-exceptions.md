@@ -6,7 +6,9 @@ When a result is a program's own description of what it found, return a union of
 program's own:
 
 ```hexagon
-union PortCheck = Valid(port: Int) | Invalid(problem: String)
+union PortCheck =
+    | Valid(port: Int)
+    | Invalid(problem: String)
 
 let checkPort(text: String): PortCheck = ...
 ```
@@ -204,9 +206,10 @@ let narrow(input: String): Output =
 
 -- The window is everything: a ParseError from `generate` is caught here.
 let wide(input: String): Output =
-    try match parse(input) with
-        Ok(ast) => generate(ast)
-        Err(reason) => report(reason)
+    try
+        match parse(input) with
+            Ok(ast) => generate(ast)
+            Err(reason) => report(reason)
     catch
         ParseError(line, message) => reportAt(line, message)
 ```
@@ -272,9 +275,10 @@ the lambda out and give it a `try`:
 
 ```hexagon
 Vector.map(options, option =>
-    try match option with
-        Some(value) => decode(value)
-        None => fallback
+    try
+        match option with
+            Some(value) => decode(value)
+            None => fallback
     catch
         ParseError(line, message) => reportAt(line, message)
 )
@@ -308,7 +312,10 @@ too:
 
 ```hexagon
 JsError(error) =>
-    if canRecover(error) then fallback else throw(JsError(error))
+    if canRecover(error) then
+        fallback
+    else
+        throw(JsError(error))
 ```
 
 This wrapping is virtual in the common catch and rethrow paths; Hexagon need not
@@ -328,8 +335,7 @@ when anything is thrown — Hexagon or foreign; a foreign throwable arrives as
 `Err(JsError(…))`:
 
 ```hexagon
-let loaded: Result(Configuration, Exn) =
-    Result.attempt!(() => readConfiguration!(path))
+let loaded: Result(Configuration, Exn) = Result.attempt!(() => readConfiguration!(path))
 ```
 
 Both `->?` are the same variable, as always: `attempt` is a conduit, exactly as

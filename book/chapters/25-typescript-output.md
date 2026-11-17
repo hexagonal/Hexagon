@@ -77,8 +77,7 @@ export declare const notify: (message: string) => void;
 N-ary Hexagon functions become ordinary fixed-parameter TypeScript functions:
 
 ```hexagon
-export let between(value: Int, lower: Int, upper: Int): Bool =
-    lower <= value <= upper
+export let between(value: Int, lower: Int, upper: Int): Bool = lower <= value <= upper
 ```
 
 ```ts
@@ -122,7 +121,7 @@ export declare const dimensions: [number, number];
 A structural record becomes the object type a TypeScript author would expect:
 
 ```hexagon
-export let guest: {name: String, seats: Int} = {name = "Mira", seats = 3}
+export let guest: { name: String, seats: Int } = { name = "Mira", seats = 3 }
 ```
 
 ```ts
@@ -168,7 +167,7 @@ An ordinary exported nominal record crosses with its structural representation a
 supported constructor:
 
 ```hexagon
-export record Point = {x: Float, y: Float}
+export record Point = { x: Float, y: Float }
 ```
 
 ```ts
@@ -191,7 +190,7 @@ A mixed or payload-carrying union becomes the familiar `tag` shape:
 
 ```hexagon
 export union Delivery =
-    Waiting
+    | Waiting
     | Sent(tracking: String)
     | Arrived
 ```
@@ -234,9 +233,9 @@ An opaque export must not reveal in TypeScript what Hexagon hid from other Hexag
 modules:
 
 ```hexagon
-opaque record UserId = {value: Int}
+opaque record UserId = { value: Int }
 
-export let fromInt(value: Int): UserId = UserId({value})
+export let fromInt(value: Int): UserId = UserId({ value })
 export let value(userId: UserId): Int = userId.value
 ```
 

@@ -148,7 +148,7 @@ was declared with `var`:
 
 ```hexagon
 var currentPoint = startingPoint
-currentPoint := {currentPoint with x = 10}
+currentPoint := { currentPoint with x = 10 }
 ```
 
 There are no reference cells hiding behind `var`. Passing `currentPoint` to another

@@ -4,7 +4,7 @@ Earlier chapters have already used small patterns:
 
 ```hexagon
 let (guest, seats) = reservationPair
-let {name, confirmed} = reservation
+let { name, confirmed } = reservation
 
 match status with
     Pending => "waiting"
@@ -33,11 +33,13 @@ name does not express equality.
 Constructor, tuple, and record patterns may contain other patterns:
 
 ```hexagon
-union Booking = Booked(party: (String, Int)) | Refused(reason: {message: String})
+union Booking =
+    | Booked(party: (String, Int))
+    | Refused(reason: { message: String })
 
 match booking with
     Booked((name, seats)) => "${name}: ${seats}"
-    Refused({message}) => message
+    Refused({ message }) => message
 ```
 
 The `Booked` pattern opens a union constructor and then a tuple. The `Refused` pattern
@@ -48,33 +50,33 @@ always open and mention only the fields they need.
 
 ```hexagon
 match reservation with
-    {confirmed = True, guest} => "Confirmed for ${guest}"
-    {guest} => "Awaiting confirmation for ${guest}"
+    { confirmed = True, guest } => "Confirmed for ${guest}"
+    { guest } => "Awaiting confirmation for ${guest}"
 ```
 
 The second arm does not say that `guest` is the record's only field. It binds `guest`
 and ignores every unmentioned field. Record patterns never write `...`; openness is
 automatic in pattern position.
 
-Punning remains the short form: `{guest}` means `{guest = guest}`. Rename a field by
+Punning remains the short form: `{ guest }` means `{ guest = guest }`. Rename a field by
 writing the full slot:
 
 ```hexagon
-{guest = name} => "Hello, ${name}"
+{ guest = name } => "Hello, ${name}"
 ```
 
 A nominal record must cross through its constructor pattern:
 
 ```hexagon
-record Point = {x: Float, y: Float}
+record Point = { x: Float, y: Float }
 
 let distanceFromOrigin(point: Point): Float =
     match point with
-        Point({x, y}) => Float.pow(x ** 2 + y ** 2, 0.5)
+        Point({ x, y }) => Float.pow(x ** 2 + y ** 2, 0.5)
 ```
 
-`Point({x, y})` is the pattern-side counterpart of constructing with `Point({...})`.
-A bare `{x, y}` pattern would describe a structural record, not the nominal `Point`.
+`Point({ x, y })` is the pattern-side counterpart of constructing with `Point({ ... })`.
+A bare `{ x, y }` pattern would describe a structural record, not the nominal `Point`.
 
 ## Literals match particular values
 
@@ -203,7 +205,10 @@ An **or-pattern** tries its alternatives from left to right. If the alternatives
 names, every alternative must bind the same names at compatible types:
 
 ```hexagon
-union Notice = Warning(message: String) | Failure(message: String) | Quiet
+union Notice =
+    | Warning(message: String)
+    | Failure(message: String)
+    | Quiet
 
 match notice with
     Warning(message) | Failure(message) => message
@@ -290,7 +295,7 @@ the requested shape:
 
 ```hexagon
 let (x, y) = coordinates
-let {guest, seats} = reservation
+let { guest, seats } = reservation
 ```
 
 `Some(value)` is refutable for `Option(a)` because the value might be `None`:
@@ -302,7 +307,7 @@ let Some(value) = possibleValue -- error: this pattern can fail: `None`; use `ma
 A constructor pattern for a single-constructor nominal record is irrefutable:
 
 ```hexagon
-let Point({x, y}) = point
+let Point({ x, y }) = point
 ```
 
 The same rule applies to function parameters. Top-level commas still separate
@@ -311,7 +316,7 @@ parameters, preserving ordinary n-ary functions:
 ```hexagon
 (x, y) => x + y       -- two parameters
 ((x, y)) => x + y     -- one tuple-destructured parameter
-{guest, seats} => "${guest}: ${seats}" -- one record-destructured parameter
+{ guest, seats } => "${guest}: ${seats}" -- one record-destructured parameter
 ```
 
 The extra parentheses in `((x, y))` matter: the outer pair is the parameter list, and
@@ -373,9 +378,10 @@ One seat it does not have: a `fun`. A `fun` always shows its header, so a recurs
 matcher names its parameter and scrutinizes it —
 
 ```hexagon
-fun size(shape) = match shape with
-    Leaf => 0
-    Node(left, _, right) => 1 + size(left) + size(right)
+fun size(shape) =
+    match shape with
+        Leaf => 0
+        Node(left, _, right) => 1 + size(left) + size(right)
 ```
 
 — the ordinary scrutinee form, the parameter named once in the header and once after
@@ -478,15 +484,15 @@ whole value; a pattern faces its parts.
 
 ## A fraction comes apart with `//`
 
-The operators chapter wrote an exact fraction as `top // bottom`. The same spelling
+The operators chapter wrote an exact fraction as `top//bottom`. The same spelling
 is a pattern that takes a `Rat` apart:
 
 ```hexagon
-let fraction = 6 // 10
-let top // bottom = fraction
+let fraction = 6//10
+let top//bottom = fraction
 ```
 
-In the expression, `6 // 10` writes a fraction. In the binding, `top // bottom` reads
+In the expression, `6//10` writes a fraction. In the binding, `top//bottom` reads
 its top and bottom, each a `BigInt`. They are `3n` and `5n`: a fraction is always held
 in lowest terms with a positive bottom, and that is the only form a pattern sees.
 
@@ -495,21 +501,21 @@ Each side is itself a pattern, so a match can ask about either one:
 ```hexagon
 let describe(value: Rat): String =
     match value with
-        0 // _ => "zero"
-        n // 1 => "the whole number ${n}"
-        n // d => "${n} over ${d}"
+        0//_ => "zero"
+        n//1 => "the whole number ${n}"
+        n//d => "${n} over ${d}"
 ```
 
 The bare integer patterns are checked at `BigInt`. Every `Rat` has one top and one
-bottom, so `n // d` is irrefutable, which permits the `let` binding above and a lambda
-head such as `n // d => d // n`. Like the operator, the pattern does not chain.
+bottom, so `n//d` is irrefutable, which permits the `let` binding above and a lambda
+head such as `n//d => d//n`. Like the operator, the pattern does not chain.
 
 Because the pattern sees lowest terms only, some fraction patterns can never match,
 and the compiler refuses them as dead cases:
 
 ```hexagon
 match value with
-    2 // 6 => "a third"   -- error
+    2//6 => "a third"   -- error
     _ => "something else"
 ```
 
@@ -658,7 +664,7 @@ dialects.
 
 - patterns describe static shapes and may bind names to their pieces;
 - constructor, tuple, record, fraction, and declared patterns can nest;
-- `top // bottom` takes a `Rat` apart in lowest terms, and a case that could never
+- `top//bottom` takes a `Rat` apart in lowest terms, and a case that could never
   match is refused;
 - a declared pattern exposes a pure view and optionally supplies construction;
 - record patterns are open and support punning and renaming;

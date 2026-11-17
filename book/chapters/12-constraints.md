@@ -35,8 +35,7 @@ Write an explicit binder when the capability is important documentation or when 
 signature should deliberately be no more general:
 
 ```hexagon
-export let smaller<a: Ord>(left: a, right: a): a =
-    if left < right then left else right
+export let smaller<a: Ord>(left: a, right: a): a = if left < right then left else right
 ```
 
 Several obligations use the familiar parenthesized list:
@@ -55,7 +54,7 @@ strengthen. If a body uses `value.hash()`, `<a: Eq>` is rejected because `Eq` do
 provide `Hash`; the canonical repair is `<a: Hash>`. In the other direction,
 `<a: Hash>` already provides `Eq` through its base constraint, so equality needs no
 repeated `Eq` entry. (The one written constraint list that *is* a starting point is a
-type hole's — the polymorphism chapter's `Vector(_ : Num)` — a floor inference may
+type hole's — the polymorphism chapter's `Vector(_: Num)` — a floor inference may
 build past, because a hole claims no scheme for a contract to complete.)
 
 ## A constraint declares the required operations
@@ -87,8 +86,7 @@ here is that the constraint, not the instance, decides the mark.
 Use either operation like an ordinary function:
 
 ```hexagon
-let reportArea(shape: a) =
-    describeArea(shape)
+let reportArea(shape: a) = describeArea(shape)
 ```
 
 The default calls the `area` operation from whichever instance is in use. Call
@@ -102,7 +100,7 @@ the dot finds them.
 Suppose a program declares a nominal rectangle:
 
 ```hexagon
-record Rectangle = {width: Float, height: Float}
+record Rectangle = { width: Float, height: Float }
 
 honor Area<Rectangle> =
     area(rectangle) = rectangle.width * rectangle.height
@@ -286,7 +284,7 @@ is defined (chapter 3). Code below the honor can use the instance; code above it
 cannot:
 
 ```hexagon
-record Point = {x: Int, y: Int}
+record Point = { x: Int, y: Int }
 
 let early(point: Point): String = "${point}"
 -- error: `Show<Point>` is used here, and its honor is declared below it;
@@ -312,9 +310,10 @@ the instance being defined:
 union Tree = Leaf | Node(Tree, Int, Tree)
 
 honor Show<Tree> =
-    show(tree) = match tree with
-        Leaf => "."
-        Node(left, value, right) => "(${left} ${value} ${right})"
+    show(tree) =
+        match tree with
+            Leaf => "."
+            Node(left, value, right) => "(${left} ${value} ${right})"
 ```
 
 Interpolating `left` and `right` uses `Show<Tree>` inside its own honor. Like a `fun`,
@@ -326,18 +325,20 @@ together in an **honor group**: `honor` on a line of its own, with the instances
 indented below it and written without the keyword:
 
 ```hexagon
-record Ping = {label: Int, next: Option(Pong)}
-record Pong = {label: Int, back: Option(Ping)}
+record Ping = { label: Int, next: Option(Pong) }
+record Pong = { label: Int, back: Option(Ping) }
 
 honor
     Show<Ping> =
-        show(ping) = match ping.next with
-            Some(pong) => "Ping(${ping.label} ${pong})"
-            None => "Ping(${ping.label})"
+        show(ping) =
+            match ping.next with
+                Some(pong) => "Ping(${ping.label} ${pong})"
+                None => "Ping(${ping.label})"
     Show<Pong> =
-        show(pong) = match pong.back with
-            Some(ping) => "Pong(${pong.label} ${ping})"
-            None => "Pong(${pong.label})"
+        show(pong) =
+            match pong.back with
+                Some(ping) => "Pong(${pong.label} ${ping})"
+                None => "Pong(${pong.label})"
 ```
 
 Inside the group each instance sees the other, in either order, as the members of a

@@ -1,28 +1,5 @@
-book/chapters/03-functions.md · one line · lambda · (subtotal, delivery) => subtotal + delivery
-book/chapters/03-functions.md · one line · lambda · subtotal => orderTotal(subtotal, 5)
-book/chapters/03-functions.md · one line · conditional · if n > 0 then isOdd(n - 1) else isOdd(n + 1)
-book/chapters/03-functions.md · one line · conditional · if n > 0 then isEven(n - 1) else isEven(n + 1)
 book/chapters/05-layout.md · one line · and/or · delayed and hours > 24
-book/chapters/09-records.md · one line · record · { guest = "Mira", seats = 3, confirmed = False }
-book/chapters/09-records.md · one line · header · let renameGuest(reservation: { guest: String, ...r }, guest: String): { guest: String, ...r } =
-book/chapters/10-unions.md · spread · union · union PortCheck = Valid(port: Int) | Invalid(problem: String)
-book/chapters/11-patterns.md · spread · union · union Booking = Booked(party: (String, Int)) | Refused(reason: { message: String })
-book/chapters/11-patterns.md · spread · union · union Notice = Warning(message: String) | Failure(message: String) | Quiet
-book/chapters/13-derivation.md · spread · record declaration · record Version derives (Eq, Ord, Show) = { major: Int, minor: Int }
-book/chapters/13-derivation.md · spread · record declaration · record ProductCode derives (Eq, Hash) = { department: Int, item: Int }
 book/chapters/17-loops-and-ranges.md · one line · loop · for number in 1..5 do Debug.log("Number ${number}")
 book/chapters/17-loops-and-ranges.md · one line · loop · for number in 1..limit do total := total + number
 book/chapters/17-loops-and-ranges.md · one line · loop · for pattern in source do body
 book/chapters/17-loops-and-ranges.md · one line · loop · for number in 1..5 do number * number
-book/chapters/17-loops-and-ranges.md · one line · loop · for Some(value) in possibilities do Debug.log("${value}")
-book/chapters/17-loops-and-ranges.md · one line · loop · for item in source do item |> ignore
-book/chapters/17-loops-and-ranges.md · one line · loop · for number in 1..limit do total := total + number
-book/chapters/17-loops-and-ranges.md · one line · loop · for row in 1..rowCount(table) do total := total + row
-book/chapters/18-sequences.md · one line · loop · for _ in values do total := total + 1
-book/chapters/19-effects.md · spread · record declaration · export record Button = { label: String, onClick: () ->! Unit }
-book/chapters/21-exceptions.md · spread · conditional · if canRecover(error) then fallback else throw(JsError(error))
-book/chapters/22-collections.md · one line · call · [("Mira", 18), ("Niko", 24)]
-book/chapters/22-collections.md · one line · vector · [("Mira", 18), ("Niko", 24)]
-book/chapters/22-collections.md · one line · loop · for number in bag do Debug.log(number)
-book/chapters/23-implied-types.md · one line · loop · for (key, value) in scores do Debug.log("${key}: ${value}")
-book/chapters/23-implied-types.md · one line · loop · for value in bag do Debug.log(value)

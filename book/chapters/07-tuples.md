@@ -119,8 +119,7 @@ will be safer.
 Tuples can also carry intermediate state without mutation:
 
 ```hexagon
-let nextPosition(x: Int, y: Int): (Int, Int) =
-    (x + 1, y + 1)
+let nextPosition(x: Int, y: Int): (Int, Int) = (x + 1, y + 1)
 ```
 
 ## One tuple is not several arguments

@@ -3,7 +3,7 @@
 Consider a coordinate that should compare and display by its two fields:
 
 ```hexagon
-record Point derives (Eq, Show) = {x: Float, y: Float}
+record Point derives (Eq, Show) = { x: Float, y: Float }
 ```
 
 The `derives` clause asks Hexagon to generate lawful `Eq<Point>` and `Show<Point>`
@@ -19,7 +19,7 @@ ordering, or display.
 The concise declaration above means the same as writing:
 
 ```hexagon
-record Point = {x: Float, y: Float}
+record Point = { x: Float, y: Float }
 
 honor Eq<Point> = derive
 honor Show<Point> = derive
@@ -36,7 +36,7 @@ does for a hand-written instance that supplies only `equals`.
 A single capability needs no parentheses:
 
 ```hexagon
-record Ticket derives Eq = {number: Int}
+record Ticket derives Eq = { number: Int }
 ```
 
 Only `Eq`, `Ord`, `Show`, and `Hash` have derivable forms. Capabilities such as `Num` and `Signed`
@@ -49,7 +49,7 @@ behavior automatically when all their components support the requested capabilit
 
 ```hexagon
 let samePosition = (3, 4) == (3, 4)
-let sameGuest = {name = "Mira", seats = 2} == {seats = 2, name = "Mira"}
+let sameGuest = { name = "Mira", seats = 2 } == { seats = 2, name = "Mira" }
 ```
 
 Neither value declares a new identity. Its type is its structure, so structural
@@ -69,7 +69,7 @@ field comparisons must succeed:
 record Reservation derives (Eq, Show) = {
     guest: String,
     seats: Int,
-    confirmed: Bool
+    confirmed: Bool,
 }
 ```
 
@@ -81,7 +81,10 @@ Derived `Ord` visits fields in field-name order and compares their values
 lexicographically. Because `Ord` has `Eq` as a base constraint, request both:
 
 ```hexagon
-record Version derives (Eq, Ord, Show) = {major: Int, minor: Int}
+record Version derives (Eq, Ord, Show) = {
+    major: Int,
+    minor: Int,
+}
 ```
 
 If an earlier field decides the ordering, later fields are not consulted. This is
@@ -118,7 +121,7 @@ A parameterized type can derive a capability whenever its contained types provid
 same capability:
 
 ```hexagon
-record Box(a) derives (Eq, Show) = {value: a}
+record Box(a) derives (Eq, Show) = { value: a }
 ```
 
 This generates the equivalent of parameterized instances: `Box(a)` has `Eq` when `a`
@@ -142,7 +145,10 @@ equal must produce the same hash. Hexagon makes that relationship difficult to b
 by allowing user `Hash` instances only through derivation:
 
 ```hexagon
-record ProductCode derives (Eq, Hash) = {department: Int, item: Int}
+record ProductCode derives (Eq, Hash) = {
+    department: Int,
+    item: Int,
+}
 ```
 
 Deriving `Hash` requires `Eq`, and that equality must itself be derived. A hand-written `Eq`
@@ -170,8 +176,8 @@ for one and `-Infinity` for the other, so `Float.same(0.0, -0.0)` is false. A de
 compares field by field, or constructor and payload, using each part's own `same`:
 
 ```hexagon
-let a = ProductCode({department = 3, item = 7})
-a.same(ProductCode({department = 3, item = 7}))   -- True
+let a = ProductCode({ department = 3, item = 7 })
+a.same(ProductCode({ department = 3, item = 7 }))   -- True
 ```
 
 `same` is what `Function.memoize` uses to decide whether a remembered answer fits a new
@@ -187,7 +193,7 @@ capability. Sometimes it does not:
 record User = {
     id: Int,
     displayName: String,
-    cachedGreeting: String
+    cachedGreeting: String,
 }
 ```
 
@@ -225,12 +231,12 @@ declarations it abbreviates, so whatever they rely on stands above it (chapter 1
 record whose field has a hand-written instance comes below that instance:
 
 ```hexagon
-record Label = {text: String}
+record Label = { text: String }
 
 honor Show<Label> =
     show(label) = "«${label.text}»"
 
-record Badge derives Show = {label: Label, rank: Int}   -- below `Show<Label>`: fine
+record Badge derives Show = { label: Label, rank: Int }   -- below `Show<Label>`: fine
 ```
 
 The instances of one clause see each other, so `derives (Eq, Ord)` works whichever

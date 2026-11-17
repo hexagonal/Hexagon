@@ -50,8 +50,7 @@ The standard instances follow this pattern:
 This is why a map loop receives tuples without another annotation:
 
 ```hexagon
-for (key, value) in scores do
-    Debug.log("${key}: ${value}")
+for (key, value) in scores do Debug.log("${key}: ${value}")
 ```
 
 The compiler finds `Iterable<Map(String, Int)>`, whose `Item` is `(String, Int)`, and
@@ -91,14 +90,13 @@ by its instance. Neither type is independently selected on each call to `convert
 An `honor` body supplies the type with the same `type` keyword followed by `=`:
 
 ```hexagon
-record ParsePort = {fallback: Int}
+record ParsePort = { fallback: Int }
 
 honor Conversion<ParsePort> =
     type Input = String
     type Output = Option(Int)
 
-    convert(parser, text) =
-        parsePort(text, parser.fallback)
+    convert(parser, text) = parsePort(text, parser.fallback)
 ```
 
 For this instance, `convert` has the effective type:
@@ -260,8 +258,7 @@ the ordinary function selected by the instance.
 At a loop whose source type is known, instance selection is static:
 
 ```hexagon
-for value in bag do
-    Debug.log(value)
+for value in bag do Debug.log(value)
 ```
 
 has the same general output shape as calling `Bag.toSeq(bag)` and iterating the

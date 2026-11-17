@@ -13,12 +13,11 @@ Suppose a file contains:
 ```hexagon
 module Geometry
 
-export record Point = {x: Float, y: Float}
+export record Point = { x: Float, y: Float }
 
-export let distanceFromOrigin(point: Point): Float =
-    Float.pow(point.x ** 2 + point.y ** 2, 0.5)
+export let distanceFromOrigin(point: Point): Float = Float.pow(point.x ** 2 + point.y ** 2, 0.5)
 
-let origin = Point({x = 0.0, y = 0.0})
+let origin = Point({ x = 0.0, y = 0.0 })
 ```
 
 `Point` and `distanceFromOrigin` are public. `origin` is private to this module. Privacy
@@ -46,7 +45,7 @@ the last is closed by `end module` and its name before the next header begins:
 ```hexagon
 module Geometry
 
-export record Point = {x: Float, y: Float}
+export record Point = { x: Float, y: Float }
 
 end module Geometry
 
@@ -54,7 +53,7 @@ module Shapes
 
 import Geometry
 
-export let unit(): Geometry.Point = Geometry.Point({x = 0.0, y = 0.0})
+export let unit(): Geometry.Point = Geometry.Point({ x = 0.0, y = 0.0 })
 
 end module Shapes
 ```
@@ -84,7 +83,7 @@ point of naming modules rather than paths.
 export let answer: Int = 42
 export let double(x: Int): Int = x * 2
 export type Coordinates = (Float, Float)
-export record Point = {x: Float, y: Float}
+export record Point = { x: Float, y: Float }
 export union Direction = North | East | South | West
 export exception ParseError(line: Int)
 ```
@@ -110,7 +109,7 @@ no form that imports a single function, type, or constructor by name.
 ```hexagon
 import Geometry
 
-let point = Geometry.Point({x = 3.0, y = 4.0})
+let point = Geometry.Point({ x = 3.0, y = 4.0 })
 let distance = Geometry.distanceFromOrigin(point)
 ```
 
@@ -215,10 +214,10 @@ A user-defined type can follow the same pattern. Name the module after the type:
 ```hexagon
 module Point
 
-export record Point = {x: Float, y: Float}
+export record Point = { x: Float, y: Float }
 
 export let translate(point: Point, dx: Float, dy: Float): Point =
-    {point with x = point.x + dx, y = point.y + dy}
+    { point with x = point.x + dx, y = point.y + dy }
 ```
 
 A consumer then imports it under that name, which is the default:
@@ -226,7 +225,7 @@ A consumer then imports it under that name, which is the default:
 ```hexagon
 import Point
 
-let start: Point = Point({x = 1.0, y = 2.0})
+let start: Point = Point({ x = 1.0, y = 2.0 })
 let moved = Point.translate(start, 3.0, 4.0)
 ```
 
@@ -258,9 +257,9 @@ representation of a type nobody else can see would assert nothing, so the one wo
 already says both *exported* and *hidden*.
 
 ```hexagon
-opaque record UserId = {value: Int}
+opaque record UserId = { value: Int }
 
-export let fromInt(value: Int): UserId = UserId({value})
+export let fromInt(value: Int): UserId = UserId({ value })
 export let value(userId: UserId): Int = userId.value
 ```
 
@@ -277,7 +276,7 @@ Opaque unions hide all their constructors in the same way:
 
 ```hexagon
 opaque union Handle =
-    FileHandle(descriptor: Int)
+    | FileHandle(descriptor: Int)
     | NetworkHandle(socket: Int)
 ```
 
@@ -295,9 +294,9 @@ Hiding the representation hides something callers were relying on without knowin
 Consider a sequence type whose parameter appears only in what it hands out:
 
 ```hexagon
-opaque record Box(a) = {open: () -> Option(a)}
+opaque record Box(a) = { open: () -> Option(a) }
 
-export let emptyBox(): Box(a) = Box({open = () => None})
+export let emptyBox(): Box(a) = Box({ open = () => None })
 ```
 
 Inside this module the compiler can see that a `Box` only ever produces an `a`. Outside
@@ -314,12 +313,12 @@ outside world is told, a `Box` might be holding an `a` already.
 Write a `+` on the parameter and the promise crosses the boundary:
 
 ```hexagon
-opaque record Box(+a) = {open: () -> Option(a)}
+opaque record Box(+a) = { open: () -> Option(a) }
 ```
 
 Now `empty` above is reusable at any element type, in every module. `+a` says *this
 type only produces `a`*; `-a` says the opposite, *it only consumes one*, which is the
-right claim for a type like `Sink(-a) = {accept: a -> Unit}`. A bare parameter claims
+right claim for a type like `Sink(-a) = { accept: a -> Unit }`. A bare parameter claims
 nothing, which is why the first version behaved as it did.
 
 The direction a parameter is used in is its **variance**. `+a` is *covariant*, `-a` is
@@ -333,7 +332,7 @@ see through.
 The compiler checks the claim against the representation, at the declaration:
 
 ```hexagon
-opaque record Sink(+a) = {accept: a -> Unit}   -- error
+opaque record Sink(+a) = { accept: a -> Unit }   -- error
 ```
 
 > `a` cannot be declared covariant in `Sink`: field `accept` uses `a` in argument
@@ -360,8 +359,7 @@ write every independent constraint:
 ```hexagon
 export let defaultLimit: Int = 100
 
-export let smaller<a: Ord>(left: a, right: a): a =
-    if left < right then left else right
+export let smaller<a: Ord>(left: a, right: a): a = if left < right then left else right
 ```
 
 A function bound as a value may write its whole type on its name instead, and
@@ -392,7 +390,7 @@ and constraints.
 An exported function cannot mention a private nominal type:
 
 ```hexagon
-record Token = {text: String}
+record Token = { text: String }
 
 export let parse(source: String): Token = ... -- error
 ```
@@ -406,9 +404,9 @@ are all part of the module's public face, and a private type can hide in any of 
 as easily as in a signature:
 
 ```hexagon
-record Token = {text: String}
+record Token = { text: String }
 
-export record Cursor = {at: Int, token: Token} -- error, at the field
+export record Cursor = { at: Int, token: Token } -- error, at the field
 ```
 
 The compiler points at the mention itself — here the `token` field — and, here as in
@@ -534,7 +532,7 @@ module Origin
 
 import Point
 
-export let origin: Point = Point({x = 0.0, y = 0.0})
+export let origin: Point = Point({ x = 0.0, y = 0.0 })
 let label = "origin"
 ```
 

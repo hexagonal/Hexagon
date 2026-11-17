@@ -22,8 +22,7 @@ reserved for functions that need recursion.
 The header form gives a name, parameters, and a body:
 
 ```hexagon
-let orderTotal(subtotal, delivery) =
-    subtotal + delivery
+let orderTotal(subtotal, delivery) = subtotal + delivery
 ```
 
 Hexagon infers the types from the body and its uses. Annotations can make the intended
@@ -33,8 +32,7 @@ to make the compiler understand a function.
 The header is convenient syntax for binding a lambda:
 
 ```hexagon
-let orderTotal = (subtotal, delivery) =>
-    subtotal + delivery
+let orderTotal = (subtotal, delivery) => subtotal + delivery
 ```
 
 These definitions mean exactly the same thing. They are not two subtly different kinds
@@ -87,8 +85,7 @@ compatible arguments and returns a displayable result.
 Anonymous functions are especially useful for small adaptations:
 
 ```hexagon
-let withStandardDelivery = subtotal =>
-    orderTotal(subtotal, 5)
+let withStandardDelivery = subtotal => orderTotal(subtotal, 5)
 
 let total = withStandardDelivery(80)
 ```
@@ -156,15 +153,13 @@ Parameter annotations appear beside parameters, and a result annotation follows 
 parameter list:
 
 ```hexagon
-let orderTotal(subtotal: Int, delivery: Int): Int =
-    subtotal + delivery
+let orderTotal(subtotal: Int, delivery: Int): Int = subtotal + delivery
 ```
 
 Any subset may be annotated. Inference fills the remainder:
 
 ```hexagon
-let orderTotal(subtotal: Int, delivery) =
-    subtotal + delivery
+let orderTotal(subtotal: Int, delivery) = subtotal + delivery
 ```
 
 Annotations are checked against the body. They can document a public boundary or
@@ -250,8 +245,7 @@ let describeOrder(order) = "Order ${order}"
 Like every `let`, the function name is not in scope inside its own right-hand side:
 
 ```hexagon
-let factorial(n: Int): Int =
-    if n <= 1 then 1 else n * factorial(n - 1)
+let factorial(n: Int): Int = if n <= 1 then 1 else n * factorial(n - 1)
 ```
 
 This is an error even though the self-reference sits inside the function body. `let` is
@@ -266,8 +260,7 @@ recursive knot, so they receive ordinary sequential `let` scope and emit as ordi
 Change the binding word when self-reference is part of the definition:
 
 ```hexagon
-fun factorial(n: Int): Int =
-    if n <= 1 then 1 else n * factorial(n - 1)
+fun factorial(n: Int): Int = if n <= 1 then 1 else n * factorial(n - 1)
 ```
 
 Unlike `let`, `fun` never takes a right-hand side of its own. There is no
@@ -311,19 +304,13 @@ fun
         if n == 0 then
             True
         else
-            if n > 0 then
-                isOdd(n - 1)
-            else
-                isOdd(n + 1)
+            if n > 0 then isOdd(n - 1) else isOdd(n + 1)
 
     isOdd(n: Int): Bool =
         if n == 0 then
             False
         else
-            if n > 0 then
-                isEven(n - 1)
-            else
-                isEven(n + 1)
+            if n > 0 then isEven(n - 1) else isEven(n + 1)
 ```
 
 Inside the block, every member's body sees every member, earlier and later alike. This
@@ -365,8 +352,7 @@ Some recursive functions ask for the same answer again and again. This `fib` com
 time roughly doubles with each step of `n`:
 
 ```hexagon
-fun fib(n: Int): Int =
-    if n <= 1 then n else fib(n - 1) + fib(n - 2)
+fun fib(n: Int): Int = if n <= 1 then n else fib(n - 1) + fib(n - 2)
 ```
 
 The cure is to remember each answer the first time it is computed. You can't build that
@@ -375,8 +361,7 @@ lambda cannot capture a `var` (chapter 16). So the prelude provides it. Write th
 to take "itself" as its first parameter, and hand it to `Function.memoizeRecursive`:
 
 ```hexagon
-let fibOpen(self: (Int) -> Int, n: Int): Int =
-    if n <= 1 then n else self(n - 1) + self(n - 2)
+let fibOpen(self: (Int) -> Int, n: Int): Int = if n <= 1 then n else self(n - 1) + self(n - 2)
 
 let fib = Function.memoizeRecursive(fibOpen)
 ```
@@ -409,8 +394,7 @@ JavaScript form.
 ```hexagon
 let orderTotal(subtotal, delivery) = subtotal + delivery
 
-fun factorial(n: Int): Int =
-    if n <= 1 then 1 else n * factorial(n - 1)
+fun factorial(n: Int): Int = if n <= 1 then 1 else n * factorial(n - 1)
 ```
 
 emits in this shape:

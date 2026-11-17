@@ -186,7 +186,10 @@ effectful `action` gets an effectful one.
 It fits where an effect is declared:
 
 ```hexagon
-export record Button = { label: String, onClick: () ->! Unit }
+export record Button = {
+    label: String,
+    onClick: () ->! Unit,
+}
 
 export let comingSoon: Button = Button({ label = "Soon", onClick = () => () })
 ```

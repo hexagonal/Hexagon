@@ -139,9 +139,8 @@ A loop pattern must match every possible element. A refutable pattern is an erro
 
 ```hexagon
 let logPresent(possibilities: Seq(Option(Int))): Unit =
-    for Some(value) in possibilities do
-        Debug.log("${value}")
-    -- error: an element might be None; use match in the body
+    for Some(value) in possibilities do Debug.log("${value}")
+-- error: an element might be None; use match in the body
 ```
 
 Use a simple binder and perform an explicit `match` when some elements need different
@@ -166,8 +165,7 @@ Sequences chapter shows the conversion that place performs:
 
 ```hexagon
 let consume(source: Seq(a)): Unit =
-    for item in source do
-        item |> ignore
+    for item in source do item |> ignore
 ```
 
 How library authors make their own types iterable is a separate, more advanced topic.
@@ -179,8 +177,7 @@ loops.
 A syntactic range loop emits as a native counting loop:
 
 ```hexagon
-for number in 1..limit do
-    total := total + number
+for number in 1..limit do total := total + number
 ```
 
 ```js
@@ -194,8 +191,7 @@ as a call, arithmetic, or a `var` the body might change, is evaluated once, into
 `const` before the loop:
 
 ```hexagon
-for row in 1..rowCount(table) do
-    total := total + row
+for row in 1..rowCount(table) do total := total + row
 ```
 
 ```js

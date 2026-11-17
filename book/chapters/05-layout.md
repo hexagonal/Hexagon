@@ -109,8 +109,7 @@ That is not a block. In Hexagon, `{` always begins a record. The compiler can th
 give one direct correction:
 
 ```hexagon
-let greet(name) =
-    Debug.log("Hello ${name}")
+let greet(name) = Debug.log("Hello ${name}")
 ```
 
 There is no context where braces switch back to block delimiters. Later, when records

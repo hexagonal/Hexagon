@@ -127,8 +127,7 @@ union Option(a) = Some(value: a) | None
 Use `Some(value)` when a value exists and `None` when it does not:
 
 ```hexagon
-let findGuest(id: Int): Option(String) =
-    if id == 42 then Some("Mira") else None
+let findGuest(id: Int): Option(String) = if id == 42 then Some("Mira") else None
 ```
 
 The caller must handle both cases:
@@ -162,7 +161,9 @@ A failure that is a program's own data, such as a check that explains what it fo
 a union of its own, and ordinary matching takes it apart:
 
 ```hexagon
-union PortCheck = Valid(port: Int) | Invalid(problem: String)
+union PortCheck =
+    | Valid(port: Int)
+    | Invalid(problem: String)
 
 let validatePort(port: Int): PortCheck =
     if 1 <= port <= 65535 then
