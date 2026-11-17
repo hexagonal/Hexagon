@@ -126,7 +126,9 @@ export fun zipWith(left: Seq(a), right: Seq(b), combine: (a, b) -> c): Seq(c) =
     `[1, 2, 3].toSeq().zip(["a", "b"])` produces `(1, "a")`, `(2, "b")`.\
     The result ends as soon as either of the two runs out. -}
 export let zip(left: Seq(a), right: Seq(b)): Seq((a, b)) =
-    zipWith(left, right, (leftValue, rightValue) => (leftValue, rightValue))
+    zipWith(left, right, (leftValue, rightValue) =>
+        (leftValue, rightValue)
+    )
 
 {-- A new sequence with the elements of the sequence followed by the elements of
     the sequence `second`. Where the first has no end, the elements of `second`
@@ -388,7 +390,11 @@ export let min<a: Ord>(source: Seq(a)): Option(a) = minUsing(source, Ord.compare
     If `key` returns the largest value for several elements, the result is the
     last of them. -}
 export let maxBy<b: Ord>(source: Seq(a), key: a ->! b): Option(a) =
-    unranked(fold!(source, None, (best, value) => laterBy(best, (key!(value), value))))
+    unranked(
+        fold!(source, None, (best, value) =>
+            laterBy(best, (key!(value), value))
+        ),
+    )
 
 {-- The element for which the function `key` returns the smallest value, or
     `None` when the sequence is empty:\
@@ -396,7 +402,11 @@ export let maxBy<b: Ord>(source: Seq(a), key: a ->! b): Option(a) =
     If `key` returns the smallest value for several elements, the result is the
     first of them. -}
 export let minBy<b: Ord>(source: Seq(a), key: a ->! b): Option(a) =
-    unranked(fold!(source, None, (best, value) => earlierBy(best, (key!(value), value))))
+    unranked(
+        fold!(source, None, (best, value) =>
+            earlierBy(best, (key!(value), value))
+        ),
+    )
 
 {-- The elements added together. -}
 export let sum<a: Num>(source: Seq(a)): a = fold(source, 0, Num.add)

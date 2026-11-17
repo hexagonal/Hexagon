@@ -72,9 +72,10 @@ describe("curated playground examples", () => {
 
   /**
    * The tutorials are house text (`spec/notes/canonical-formatting-and-naming.md`
-   * §5): written at Maximum line length 100 with Collapse extra spaces on, so
-   * Format document at those settings has nothing left to change in any of
-   * them. Leave trailing commas as written is off, as the house has it (H8).
+   * §5): written at Maximum line length 100 with Collapse extra spaces and
+   * Apply width limits on, so Format document at those settings has nothing
+   * left to change in any of them. Leave trailing commas as written is off, as
+   * the house has it (H8).
    */
   test.each(playgroundExamples.map(({ id, source }) => [id, source] as const))(
     "leave the %s tutorial as it is when formatted at the house settings",
@@ -83,6 +84,7 @@ describe("curated playground examples", () => {
         maximumLineLength: 100,
         collapseExtraSpaces: true,
         leaveTrailingCommasAsWritten: false,
+        applyWidthLimits: true,
       });
       expect(formatted.kind).toBe("formatted");
       if (formatted.kind !== "formatted") return;

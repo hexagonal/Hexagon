@@ -55,6 +55,7 @@ const defaultFormatOptions: PlaygroundFormatOptions = {
   maximumLineLength: undefined,
   collapseExtraSpaces: false,
   leaveTrailingCommasAsWritten: false,
+  applyWidthLimits: false,
 };
 
 globalThis.MonacoEnvironment = {

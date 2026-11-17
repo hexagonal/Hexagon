@@ -61,7 +61,7 @@ describe("inlay hints", () => {
 });
 
 describe("formatting", () => {
-  test("three settings, all off until set, and nothing formats unasked", async () => {
+  test("four settings, all off until set, and nothing formats unasked", async () => {
     const manifest = JSON.parse(await readFile(fileURLToPath(
       new URL("../package.json", import.meta.url),
     ), "utf8")) as {
@@ -76,6 +76,7 @@ describe("formatting", () => {
       .toMatchObject({ type: ["integer", "null"], minimum: 1, default: null });
     expect(properties["hexagon.format.collapseExtraSpaces"]).toMatchObject({ type: "boolean", default: false });
     expect(properties["hexagon.format.leaveTrailingCommasAsWritten"]).toMatchObject({ type: "boolean", default: false });
+    expect(properties["hexagon.format.applyWidthLimits"]).toMatchObject({ type: "boolean", default: false });
     // Canonical Layout §2.4: no format on save, on paste or while typing.
     const defaults = manifest.contributes.configurationDefaults["[hexagon]"] ?? {};
     for (const name of ["editor.formatOnSave", "editor.formatOnPaste", "editor.formatOnType"]) {

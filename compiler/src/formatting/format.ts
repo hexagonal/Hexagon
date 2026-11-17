@@ -1,18 +1,19 @@
 /**
  * Format document and Format selection (spec/canonical-layout.md).
  *
- * Both are pure functions of a document's text and the three options. They
- * rewrite whitespace and add §14's trailing commas, and nothing else, and check
- * that on every run: the output's tokens and comments are the input's apart
- * from those commas, those inside interpolation holes included, every string's
- * text is the input's as written, it parses to the same tree, and formatting
- * it again changes nothing (§1, §12). A document with a syntax
+ * Both are pure functions of a document's text and the four options. They
+ * rewrite whitespace and add §14's trailing commas and §16's leading bars, and
+ * nothing else, and check that on every run: the output's tokens and comments
+ * are the input's apart from those commas and bars, those inside interpolation
+ * holes included, every string's text is the input's as written, it parses to
+ * the same tree, and formatting it again changes nothing (§1, §12). A document with a syntax
  * error is refused without a report of the formatter's own (§2.3), since the
  * error is already reported.
  */
 
 import { read, sameText, sameTree, type Reading } from "./analysis.js";
 import { breakLines } from "./breaking.js";
+import { addBars } from "./bars.js";
 import { addCommas } from "./commas.js";
 import * as Whitespace from "./whitespace.js";
 
@@ -26,6 +27,12 @@ export interface FormatOptions {
   readonly collapseExtraSpaces?: boolean;
   /** Whether Format document adds no trailing commas (§3.4). Off by default. */
   readonly leaveTrailingCommasAsWritten?: boolean;
+  /**
+   * Whether Format document also spreads a construct on one line that is
+   * wider than its width limit, or whose kind is never on one line, though
+   * its line fits (§3.5, §15). Off by default.
+   */
+  readonly applyWidthLimits?: boolean;
 }
 
 /** A replacement of `[start, end)` of the original text, in UTF-16 offsets. */
@@ -40,7 +47,7 @@ export type FormatResult =
     readonly kind: "Formatted";
     /** The whole document after formatting. */
     readonly text: string;
-    /** The edits that turn the original into `text`: runs of whitespace, and the commas added (§14). */
+    /** The edits that turn the original into `text`: runs of whitespace, and the commas and bars added (§14, §16). */
     readonly edits: readonly TextEdit[];
   }
   /** The document has a syntax error, which is already reported (§2.3). */
@@ -77,7 +84,7 @@ export function formatSelection(text: string, selection: FormatRange, options: F
   const result = text.slice(0, region.start) + formatted.text.slice(from, to) + text.slice(region.end);
   if (result !== text) {
     const check = read(result);
-    if (check.syntaxError || !sameText(formatted.original, check, adds(options)) || !sameTree(formatted.original, check)) {
+    if (check.syntaxError || !sameText(formatted.original, check, adds(options), true) || !sameTree(formatted.original, check)) {
       return { kind: "Refused", message: CHECK_FAILED };
     }
   }
@@ -95,7 +102,7 @@ function formatWhole(text: string, options: FormatOptions): Whole {
   if (once.kind !== "Pass") return once;
 
   const after = read(once.text);
-  if (after.syntaxError || !sameText(original, after, adds(options)) || !sameTree(original, after)) {
+  if (after.syntaxError || !sameText(original, after, adds(options), true) || !sameTree(original, after)) {
     return { kind: "Refused", message: CHECK_FAILED };
   }
   // §1's third guarantee: formatting twice changes nothing.
@@ -118,10 +125,14 @@ function pass(reading: Reading, options: FormatOptions):
   // not it is written (§9.2), and the commas go in once the brackets are open.
   let text = written.text;
   const limit = options.maximumLineLength;
-  if (limit !== undefined && limit !== "unlimited") {
-    text = breakLines(reading, text, limit, settings);
+  const widths = options.applyWidthLimits === true;
+  if ((limit !== undefined && limit !== "unlimited") || widths) {
+    const length = limit === undefined || limit === "unlimited" ? Infinity : limit;
+    text = breakLines(reading, text, length, settings, widths);
   }
   if (adds(options)) text = addCommas(text);
+  // A union's leading bar, which no option turns off (§16).
+  text = addBars(text);
   return { kind: "Pass", text, layout: written.layout };
 }
 
@@ -254,17 +265,16 @@ function isWhitespace(code: number): boolean {
 
 /**
  * Each non-whitespace character's offset in `before`, mapped to its offset in
- * `after`. A comma `after` holds where `before` holds something else is one
- * §14 added, and is passed over: it is never followed by a comma of the
- * author's, since it stands directly before a closing bracket.
+ * `after`. A comma or bar Format document added is passed over (`added`).
  */
 function alignment(before: string, after: string): Map<number, number> {
   const map = new Map<number, number>();
   let right = 0;
   for (let left = 0; left < before.length; left += 1) {
     if (isWhitespace(before.charCodeAt(left))) continue;
-    while (right < after.length && (isWhitespace(after.charCodeAt(right)) ||
-      (after[right] === "," && before[left] !== ","))) right += 1;
+    while (right < after.length && (isWhitespace(after.charCodeAt(right)) || added(before, left, after, right))) {
+      right += 1;
+    }
     map.set(left, right);
     right += 1;
   }
@@ -273,8 +283,21 @@ function alignment(before: string, after: string): Map<number, number> {
 }
 
 /**
+ * Whether the character `after` holds at `right` is one Format document
+ * added where `before` holds something else at `left`: a comma §14 added,
+ * which stands directly before a closing bracket and so is never followed by
+ * a comma of the author's, or a bar §16 added, which stands directly before an
+ * alternative's first token and so is never followed by a bar of the author's.
+ */
+function added(before: string, left: number, after: string, right: number): boolean {
+  const character = after[right];
+  return (character === "," || character === "|") && before[left] !== character;
+}
+
+/**
  * The edits that turn `before` into `after`: each replaces a run of
- * whitespace, and takes in any comma §14 added there (see `alignment`).
+ * whitespace, and takes in any comma or bar Format document added there
+ * (see `added`).
  */
 function whitespaceEdits(before: string, after: string): TextEdit[] {
   const edits: TextEdit[] = [];
@@ -285,7 +308,7 @@ function whitespaceEdits(before: string, after: string): TextEdit[] {
     while (leftEnd < before.length && isWhitespace(before.charCodeAt(leftEnd))) leftEnd += 1;
     let rightEnd = right;
     while (rightEnd < after.length && (isWhitespace(after.charCodeAt(rightEnd)) ||
-      (after[rightEnd] === "," && before[leftEnd] !== ","))) rightEnd += 1;
+      added(before, leftEnd, after, rightEnd))) rightEnd += 1;
     const old = before.slice(left, leftEnd);
     const replacement = after.slice(right, rightEnd);
     if (old !== replacement) edits.push({ start: left, end: leftEnd, newText: replacement });

@@ -796,13 +796,14 @@ asked, and are never preferred.
 
 ## Formatting
 
-Format document and Format selection answer `textDocument/formatting` and `textDocument/rangeFormatting` with the compiler's `formatDocument` and `formatSelection` (`spec/canonical-layout.md`; `src/formatting.ts` translates). Every edit is a run of whitespace, and may take in a trailing comma Format document adds (§14). A selection widens to the top-level items it touches, and the text there is exactly what Format document writes (§2.2). A client that takes a registration gets formatting registered for Hexagon files alone, so `hexagon.json`, which the client also sends, keeps the editor's own JSON formatter; a request for a manifest is answered with nothing.
+Format document and Format selection answer `textDocument/formatting` and `textDocument/rangeFormatting` with the compiler's `formatDocument` and `formatSelection` (`spec/canonical-layout.md`; `src/formatting.ts` translates). Every edit is a run of whitespace, and may take in a trailing comma or a union's leading bar Format document adds (§14, §16). A selection widens to the top-level items it touches, and the text there is exactly what Format document writes (§2.2). A client that takes a registration gets formatting registered for Hexagon files alone, so `hexagon.json`, which the client also sends, keeps the editor's own JSON formatter; a request for a manifest is answered with nothing.
 
-Three settings, read from `hexagon.format` at each request, all off until the dev sets them (§3):
+Four settings, read from `hexagon.format` at each request, all off until the dev sets them (§3):
 
 - `hexagon.format.maximumLineLength`: a whole number of characters, counted in code points, or no number for Unlimited, under which no line is broken.
 - `hexagon.format.collapseExtraSpaces`: whether a gap wider than the one space §7 calls for becomes one.
 - `hexagon.format.leaveTrailingCommasAsWritten`: whether Format document adds no trailing commas (§3.4, §14). A comma already written is kept either way.
+- `hexagon.format.applyWidthLimits`: whether Format document also spreads a construct on one line that is wider than its width limit, or never stands on one line, though its line fits (§3.5, §15).
 
 The request's own `FormattingOptions`, the editor's tab size and spaces, are not read: indentation is four spaces to a level whatever the editor's settings (§5.1).
 

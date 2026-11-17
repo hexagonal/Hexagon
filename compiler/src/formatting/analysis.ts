@@ -58,13 +58,15 @@ export function read(text: string): Reading {
  * the same comments, and the same text in every string as the author wrote
  * it, in the same order.
  * Where `commas` allows, `after` may also hold trailing commas `before` does
- * not, each directly before a closing bracket: the ones §14 adds.
+ * not, each directly before a closing bracket: the ones §14 adds. Where `bars`
+ * allows, it may also hold leading bars, each directly after an `=`: the ones
+ * §16 adds.
  *
  * A comment's text is compared line by line with each later line's leading
  * whitespace set aside, since a comment that spans lines moves as a unit
  * (§8.2) and a line end is a boundary, not text (§1).
  */
-export function sameText(before: Scan, after: Scan, commas = false): boolean {
+export function sameText(before: Scan, after: Scan, commas = false, bars = false): boolean {
   const left = before.lexed.tokens;
   const right = after.lexed.tokens;
   let index = 0;
@@ -74,8 +76,9 @@ export function sameText(before: Scan, after: Scan, commas = false): boolean {
       index += 1;
       continue;
     }
-    const added = commas && token.kind === "Comma" && listClosers.has(right[position + 1]?.kind ?? "");
-    if (!added) return false;
+    const comma = commas && token.kind === "Comma" && listClosers.has(right[position + 1]?.kind ?? "");
+    const bar = bars && token.kind === "Bar" && right[position - 1]?.kind === "Equal";
+    if (!comma && !bar) return false;
   }
   if (index !== left.length) return false;
   const leftComments = before.lexed.comments;

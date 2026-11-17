@@ -122,7 +122,8 @@ fun readInternal(trie: TrieVector(a), internal: Int): a =
         match node with
             Leaf(values) => Node.get(values, remaining)
             -- Unreachable for a populated path (the loop always lands on a leaf).
-            Branch(_) => throw(TrieCorruptionFault("readInternal: descent did not reach a leaf"))
+            Branch(_) =>
+                throw(TrieCorruptionFault("readInternal: descent did not reach a leaf"))
 
 -- Reads the element at 0-based logical `index`; the internal index is
 -- `index + origin`. Callers guarantee `0 <= index < size`.
@@ -191,7 +192,11 @@ fun insertLeaf(node: Tree(a), height: Int, p: Int, leaf: Tree(a)): Tree(a) =
             else
                 let child = Node.get(children, childIndex)
                 Branch(
-                    Node.set(children, childIndex, insertLeaf(child, height - 1, childPos, leaf)),
+                    Node.set(
+                        children,
+                        childIndex,
+                        insertLeaf(child, height - 1, childPos, leaf),
+                    ),
                 )
 
 -- Flushes a full tail (as `Leaf(tail)`) into `root`, returning the new root and
@@ -204,7 +209,14 @@ fun flushLeaf(root: Tree(a), height: Int, treeExtent: Int, leaf: Tree(a)): (Tree
     if leafPos == capacity then
         -- Root is full: a new level whose slot 0 is the old root and slot 1 is a
         -- fresh spine down to the new leaf.
-        let grown = Branch(Node.set(Node.set(Node.empty(), 0, root), 1, newPath(height - 1, leaf)))
+        let grown =
+            Branch(
+                Node.set(
+                    Node.set(Node.empty(), 0, root),
+                    1,
+                    newPath(height - 1, leaf),
+                ),
+            )
         (grown, height + 1)
     else
         (insertLeaf(root, height, leafPos, leaf), height)
@@ -267,7 +279,11 @@ fun writeValue(node: Tree(a), height: Int, index: Int, value: a): Tree(a) =
             else
                 let child = Node.get(children, childIndex)
                 Branch(
-                    Node.set(children, childIndex, writeValue(child, height - 1, childPos, value)),
+                    Node.set(
+                        children,
+                        childIndex,
+                        writeValue(child, height - 1, childPos, value),
+                    ),
                 )
 
 fun prepend(trie: TrieVector(a), value: a): TrieVector(a) =

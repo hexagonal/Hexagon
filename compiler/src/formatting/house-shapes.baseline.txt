@@ -1,0 +1,95 @@
+stdlib/Array.hex · one line · loop · for value in values do collected := collected.append(value)
+stdlib/BigInt.hex · one line · conditional · if remainder < 0 then remainder + right.abs() else remainder
+stdlib/Dec.hex · one line · record declaration · opaque record Dec = { unscaled: BigInt, places: Int }
+stdlib/Dec.hex · one line · arguments · decimal.unscaled * tenTo(checked - decimal.places), checked
+stdlib/Dec.hex · one line · arguments · decimal.unscaled, tenTo(decimal.places - checked), even
+stdlib/Dec.hex · one line · loop · while (2 ** high) <= value do high := high * 2
+stdlib/Nat.hex · one line · conditional · if value < 0 then None else Some(fromIntUnchecked(value))
+stdlib/Rat.hex · one line · loop · while (2 ** high) <= value do high := high * 2
+stdlib/Rat.hex · one line · header · let roundedSignificand(numerator: BigInt, denominator: BigInt, scale: Int): BigInt =
+stdlib/Rat.hex · one line · loop · for point in shown do written := written ++ escaped(point)
+stdlib/Regex/Syntax.hex · one line · union · union Outcome(a, e) = Read(value: a) | Refused(error: e)
+stdlib/Regex/Syntax.hex · one line · call · frameOf(position, Some(count), Some(name), flags)
+stdlib/Regex/Syntax.hex · one line · arguments · frames, atom(Class(items, negated, flags.folded), position)
+stdlib/Result.hex · one line · union · export union Result(a) = Ok(value: a) | Err(error: Exn)
+stdlib/Runtime/HashTrie.hex · one line · record declaration · record HashTrie(k, v) = { size: Int, root: Root(k, v) }
+stdlib/Runtime/HashTrie.hex · one line · call · { size = 0, root = NoRoot }
+stdlib/Runtime/HashTrie.hex · one line · record · { size = 0, root = NoRoot }
+stdlib/Runtime/HashTrie.hex · one line · call · { size = 1, root = Sole(key, value) }
+stdlib/Runtime/HashTrie.hex · one line · record · { size = 1, root = Sole(key, value) }
+stdlib/Runtime/HashTrie.hex · one line · arm · Sole(soleKey, soleValue) => if soleKey == key then Some(soleValue) else None
+stdlib/Runtime/HashTrie.hex · one line · arm · Sole(soleKey, _) => if soleKey == key then Some(soleKey) else None
+stdlib/Runtime/HashTrie.hex · one line · call · { size = 1, root = Sole(soleKey, value) }
+stdlib/Runtime/HashTrie.hex · one line · record · { size = 1, root = Sole(soleKey, value) }
+stdlib/Runtime/HashTrie.hex · one line · call · { size = if grew then 2 else 1, root = Rooted(settled) }
+stdlib/Runtime/HashTrie.hex · one line · record · { size = if grew then 2 else 1, root = Rooted(settled) }
+stdlib/Runtime/HashTrie.hex · one line · arm · Sole(soleKey, _) => if soleKey == key then empty else trie
+stdlib/Runtime/HashTrie.hex · one line · call · { size = trie.size - 1, root = Rooted(replacement) }
+stdlib/Runtime/HashTrie.hex · one line · record · { size = trie.size - 1, root = Rooted(replacement) }
+stdlib/Runtime/HashTrie.hex · one line · arm · Entry(_, key, value) => if keep!(key, value) then Whole(1) else Emptied
+stdlib/Runtime/HashTrie.hex · one line · conditional · if childRepeated then repeated := True
+stdlib/Runtime/HashTrie.hex · one line · arm · Rebuilt(tree, count) => HashTrie({ size = count, root = Rooted(tree) })
+stdlib/Runtime/HashTrie.hex · one line · call · { size = count, root = Rooted(tree) }
+stdlib/Runtime/HashTrie.hex · one line · record · { size = count, root = Rooted(tree) }
+stdlib/Runtime/HashTrie.hex · one line · arm · Sole(soleKey, soleValue) => if keep!((soleKey, soleValue)) then trie else empty
+stdlib/Runtime/HashTrie.hex · one line · call · HashTrie({ size = trie.size, root = Rooted(shadow) })
+stdlib/Runtime/HashTrie.hex · one line · call · { size = trie.size, root = Rooted(shadow) }
+stdlib/Runtime/HashTrie.hex · one line · record · { size = trie.size, root = Rooted(shadow) }
+stdlib/Runtime/HashTrie.hex · one line · call · HashTrie({ size = trie.size, root = Rooted(placed) })
+stdlib/Runtime/HashTrie.hex · one line · call · { size = trie.size, root = Rooted(placed) }
+stdlib/Runtime/HashTrie.hex · one line · record · { size = trie.size, root = Rooted(placed) }
+stdlib/Runtime/HashTrie.hex · one line · conditional · if not inserted then repeated := True
+stdlib/Runtime/HashTrie.hex · one line · arm · Some(placed) => Some(HashTrie({ size = trie.size, root = Rooted(placed) }))
+stdlib/Runtime/HashTrie.hex · one line · call · HashTrie({ size = trie.size, root = Rooted(placed) })
+stdlib/Runtime/HashTrie.hex · one line · call · { size = trie.size, root = Rooted(placed) }
+stdlib/Runtime/HashTrie.hex · one line · record · { size = trie.size, root = Rooted(placed) }
+stdlib/Runtime/HashTrie.hex · one line · arm · Sole(soleKey, _) => if matches!(soleKey) then Some(soleKey) else None
+stdlib/Runtime/HashTrie.hex · one line · arm · Sole(soleKey, _) => if keep!(soleKey) then s else emptySet
+stdlib/Runtime/HashTrie.hex · one line · call · { trie = HashTrie({ size = count, root = Rooted(kept) }) }
+stdlib/Runtime/HashTrie.hex · one line · record · { trie = HashTrie({ size = count, root = Rooted(kept) }) }
+stdlib/Runtime/Regex.hex · one line · loop · for item in items do set := unionOf(set, itemSet(item))
+stdlib/Runtime/Regex.hex · one line · loop · for part in parts do all := all and nullable(part)
+stdlib/Runtime/Regex.hex · one line · loop · for branch in branches do any := any or nullable(branch)
+stdlib/Runtime/Regex.hex · one line · loop · for jump in jumps do current := setFirst(current, jump, end)
+stdlib/Runtime/Regex.hex · one line · loop · for pc in list do parts := parts.append(show(pc))
+stdlib/Runtime/VectorTrie.hex · one line · loop · for step in 1..exponent do result := result * radix
+stdlib/Runtime/VectorTrie.hex · one line · arm · Leaf(_) => throw(TrieCorruptionFault("trimHeight: a leaf above height 1"))
+stdlib/Runtime/VectorTrie.hex · one line · conditional · if low >= high then empty else slice(trie, low, high)
+stdlib/Sign.hex · one line · union · export union Sign = Negative | Zero | Positive
+stdlib/String.hex · one line · loop · for point in text do result := result.append(point)
+stdlib/String.hex · one line · loop · while text[high..high] != "" do high := high * 2
+stdlib/Vector.hex · one line · conditional · if keep!(value) then result := append(result, value)
+stdlib/Vector.hex · one line · loop · for value in values do result := prepend(result, value)
+playground tutorial hello-world · one line · union · union Suit = Clubs | Diamonds | Hearts | Spades
+playground tutorial hello-world · one line · conditional · if n <= 1 then 1 else n * factorial(n - 1)
+playground tutorial recursion · one line · conditional · if n <= 1 then 1 else n * factorial(n - 1)
+playground tutorial patterns · one line · union · union Direction derives (Show) = North | East | South | West
+playground tutorial sequences · one line · loop · for number in selected do Debug.log("${number}")
+book/chapters/03-functions.md · one line · lambda · (subtotal, delivery) => subtotal + delivery
+book/chapters/03-functions.md · one line · lambda · subtotal => orderTotal(subtotal, 5)
+book/chapters/03-functions.md · one line · conditional · if n > 0 then isOdd(n - 1) else isOdd(n + 1)
+book/chapters/03-functions.md · one line · conditional · if n > 0 then isEven(n - 1) else isEven(n + 1)
+book/chapters/05-layout.md · one line · and/or · delayed and hours > 24
+book/chapters/09-records.md · one line · record · { guest = "Mira", seats = 3, confirmed = False }
+book/chapters/09-records.md · one line · header · let renameGuest(reservation: { guest: String, ...r }, guest: String): { guest: String, ...r } =
+book/chapters/10-unions.md · spread · union · union PortCheck = Valid(port: Int) | Invalid(problem: String)
+book/chapters/11-patterns.md · spread · union · union Booking = Booked(party: (String, Int)) | Refused(reason: { message: String })
+book/chapters/11-patterns.md · spread · union · union Notice = Warning(message: String) | Failure(message: String) | Quiet
+book/chapters/13-derivation.md · spread · record declaration · record Version derives (Eq, Ord, Show) = { major: Int, minor: Int }
+book/chapters/13-derivation.md · spread · record declaration · record ProductCode derives (Eq, Hash) = { department: Int, item: Int }
+book/chapters/17-loops-and-ranges.md · one line · loop · for number in 1..5 do Debug.log("Number ${number}")
+book/chapters/17-loops-and-ranges.md · one line · loop · for number in 1..limit do total := total + number
+book/chapters/17-loops-and-ranges.md · one line · loop · for pattern in source do body
+book/chapters/17-loops-and-ranges.md · one line · loop · for number in 1..5 do number * number
+book/chapters/17-loops-and-ranges.md · one line · loop · for Some(value) in possibilities do Debug.log("${value}")
+book/chapters/17-loops-and-ranges.md · one line · loop · for item in source do item |> ignore
+book/chapters/17-loops-and-ranges.md · one line · loop · for number in 1..limit do total := total + number
+book/chapters/17-loops-and-ranges.md · one line · loop · for row in 1..rowCount(table) do total := total + row
+book/chapters/18-sequences.md · one line · loop · for _ in values do total := total + 1
+book/chapters/19-effects.md · spread · record declaration · export record Button = { label: String, onClick: () ->! Unit }
+book/chapters/21-exceptions.md · spread · conditional · if canRecover(error) then fallback else throw(JsError(error))
+book/chapters/22-collections.md · one line · call · [("Mira", 18), ("Niko", 24)]
+book/chapters/22-collections.md · one line · vector · [("Mira", 18), ("Niko", 24)]
+book/chapters/22-collections.md · one line · loop · for number in bag do Debug.log(number)
+book/chapters/23-implied-types.md · one line · loop · for (key, value) in scores do Debug.log("${key}: ${value}")
+book/chapters/23-implied-types.md · one line · loop · for value in bag do Debug.log(value)

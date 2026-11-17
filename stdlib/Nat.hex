@@ -154,5 +154,6 @@ extern from "hex:intrinsic"
 export let parse(text: String): Nat =
     match scanText(text) with
         Some(Some(value)) => value
-        Some(None) => throw^(NumberFormatError(formatMessage(text, "is out of range for Nat")))
+        Some(None) =>
+            throw^(NumberFormatError(formatMessage(text, "is out of range for Nat")))
         None => throw^(NumberFormatError(formatMessage(text, "is not a Nat")))

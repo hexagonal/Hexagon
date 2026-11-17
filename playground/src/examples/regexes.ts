@@ -56,7 +56,8 @@ Debug.log("is 1999-12-31 a date? \${isoDate.isMatch("1999-12-31")}")
 -- the call answers an Option: None for text that is not a pattern.
 let tryPattern(pattern: String) =
     match Regex.parse?(pattern) with
-        Some(regex) => Debug.log("\${pattern} is a pattern; on abc it says \${regex.isMatch("abc")}")
+        Some(regex) =>
+            Debug.log("\${pattern} is a pattern; on abc it says \${regex.isMatch("abc")}")
         None => Debug.log("\${pattern} is not a pattern")
 
 tryPattern("a.c")

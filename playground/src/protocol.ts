@@ -325,6 +325,7 @@ export interface PlaygroundFormatOptions {
   readonly maximumLineLength: number | undefined;
   readonly collapseExtraSpaces: boolean;
   readonly leaveTrailingCommasAsWritten: boolean;
+  readonly applyWidthLimits: boolean;
 }
 
 /** Format document, or, with `range`, Format selection (Canonical Layout §2). */

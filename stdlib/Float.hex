@@ -218,7 +218,10 @@ export let ceil(value: Float): Int =
     Throws `IntRangeFault` when the result is too large or too small for an
     `Int`. To test for that first, use `roundsToInt`. -}
 export let trunc(value: Float): Int =
-    checkedRoundedInt("Float.trunc: result does not fit in Int", nativeTrunc(value))
+    checkedRoundedInt(
+        "Float.trunc: result does not fit in Int",
+        nativeTrunc(value),
+    )
 
 {-- The nearest `Int` to the float. A float exactly halfway between two
     integers goes to the even one:\

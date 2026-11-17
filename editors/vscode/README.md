@@ -60,6 +60,7 @@ none of them describes the project:
 | `hexagon.format.maximumLineLength` | The longest a line of code may be before Format Document and Format Selection break it, in code points. Empty (`null` in `settings.json`) for Unlimited, the default. |
 | `hexagon.format.collapseExtraSpaces` | Make every gap where the layout calls for one space exactly one space. Off until turned on. |
 | `hexagon.format.leaveTrailingCommasAsWritten` | Add no trailing commas. Off, formatting adds one after the last item of every list whose closing bracket begins its line; either way, a written comma is kept. |
+| `hexagon.format.applyWidthLimits` | Also spread a construct on one line that is wider than its width limit, or never stands on one line, though its line fits. Off until turned on. |
 | `hexagon.trace.server` | Log the traffic between extension and server. |
 
 Format Document and Format Selection are VS Code's own commands, served by the

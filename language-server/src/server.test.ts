@@ -1020,6 +1020,32 @@ describe("the Hexagon language server", () => {
       }
     });
 
+    test("spreads a construct over its width limit only where the client applies width limits", async () => {
+      let settings: unknown = {};
+      const hex = await harness({ "main.hex": MESSY }, { workspace: { configuration: true } });
+      hex.client.onRequest("workspace/configuration", () => [settings]);
+      const short = ["module Main", "", "let size = if ready then 1 else if waiting then 2 else 3", ""].join("\n");
+      try {
+        await open(hex, short);
+        expect(await formatting(hex)).toEqual([]);
+        settings = { applyWidthLimits: true };
+        expect(apply(short, await formatting(hex))).toBe([
+          "module Main",
+          "",
+          "let size =",
+          "    if ready then",
+          "        1",
+          "    else if waiting then",
+          "        2",
+          "    else",
+          "        3",
+          "",
+        ].join("\n"));
+      } finally {
+        await hex.dispose();
+      }
+    });
+
     test("formats a selection's top-level items and nothing else", async () => {
       const hex = await harness({ "main.hex": MESSY });
       try {

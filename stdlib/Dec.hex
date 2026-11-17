@@ -204,7 +204,11 @@ let fromWhole(value: BigInt): Dec = create(value, 0)
 
 honor Num<Dec> =
     add(left, right) =
-        let retained = if left.places > right.places then left.places else right.places
+        let retained =
+            if left.places > right.places then
+                left.places
+            else
+                right.places
         create(align(left, retained) + align(right, retained), retained)
 
     multiply(left, right) =
@@ -218,7 +222,11 @@ honor Num<Dec> =
 
 honor Signed<Dec> =
     subtract(left, right) =
-        let retained = if left.places > right.places then left.places else right.places
+        let retained =
+            if left.places > right.places then
+                left.places
+            else
+                right.places
         create(align(left, retained) - align(right, retained), retained)
 
     negate(decimal) = create(-decimal.unscaled, decimal.places)
@@ -264,15 +272,25 @@ honor Ord<Dec> =
         if left.unscaled == 0 and right.unscaled == 0 then
             Ordering.Equal
         else if left.unscaled == 0 then
-            if right.unscaled < 0 then Ordering.Greater else Ordering.Less
+            if right.unscaled < 0 then
+                Ordering.Greater
+            else
+                Ordering.Less
         else if right.unscaled == 0 then
-            if left.unscaled < 0 then Ordering.Less else Ordering.Greater
+            if left.unscaled < 0 then
+                Ordering.Less
+            else
+                Ordering.Greater
         else if left.unscaled < 0 and right.unscaled > 0 then
             Ordering.Less
         else if left.unscaled > 0 and right.unscaled < 0 then
             Ordering.Greater
         else
-            let retained = if left.places > right.places then left.places else right.places
+            let retained =
+                if left.places > right.places then
+                    left.places
+                else
+                    right.places
             let leftValue = align(left, retained)
             let rightValue = align(right, retained)
             if leftValue < rightValue then
@@ -328,7 +346,10 @@ honor Show<Dec> =
                     zeroes := "${zeroes}0"
                     count := count - 1
                 "0.${zeroes}${digits}"
-        if negative and decimal.unscaled != 0 then "-${rendered}" else rendered
+        if negative and decimal.unscaled != 0 then
+            "-${rendered}"
+        else
+            rendered
 
 -- The exact binary64 conversion is shared in shape with `Rat.toFloat`: compute
 -- the correctly rounded significand using integers, then assemble one Float.
@@ -339,7 +360,10 @@ let bitLength(value: BigInt): Int =
     var low: Int = if high == 1 then 0 else high.quot(2)
     while high - low > 1 do
         let middle = (low + high).quot(2)
-        if (2 ** middle) <= value then low := middle else high := middle
+        if (2 ** middle) <= value then
+            low := middle
+        else
+            high := middle
     high
 
 let scaledTop(value: BigInt, scale: Int): BigInt = if scale > 0 then value * (2 ** scale) else value
@@ -416,7 +440,10 @@ let fromFloatRounded(value: Float, requested: Int, even: Bool, operation: String
         if shift <= 0 then
             create(signed * (2n ** (-shift)) * tenTo(checked), checked)
         else
-            create(roundedRatio(signed * tenTo(checked), 2n ** shift, even), checked)
+            create(
+                roundedRatio(signed * tenTo(checked), 2n ** shift, even),
+                checked,
+            )
 
 {-- The float `value` as a decimal with `places` digits after the point,
     rounded to the nearest, with a half rounded away from zero:\

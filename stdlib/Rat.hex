@@ -224,14 +224,20 @@ export let trunc(value: Rat): BigInt = value.top.quot(value.bottom)
     `(-5 // 2).floor()` is `-3n`. -}
 export let floor(value: Rat): BigInt =
     let truncated = value.top.quot(value.bottom)
-    if value.top < 0 and value.top.rem(value.bottom) != 0 then truncated - 1 else truncated
+    if value.top < 0 and value.top.rem(value.bottom) != 0 then
+        truncated - 1
+    else
+        truncated
 
 {-- The fraction rounded up to a `BigInt`, which is the nearest integer that is
     not smaller:\
     `(-5 // 2).ceil()` is `-2n`. -}
 export let ceil(value: Rat): BigInt =
     let truncated = value.top.quot(value.bottom)
-    if value.top > 0 and value.top.rem(value.bottom) != 0 then truncated + 1 else truncated
+    if value.top > 0 and value.top.rem(value.bottom) != 0 then
+        truncated + 1
+    else
+        truncated
 
 -- -- `toFloat`, and the exact integer arithmetic the single rounding needs. --
 --
@@ -386,7 +392,10 @@ let notRat(text: String): Exn = NumberFormatError(quoted(text) ++ " is not a Rat
 
 -- A bottom is an integer without a sign: the sign is the top's.
 let unsignedPart(part: String): Option(BigInt) =
-    if part.startsWith("+") or part.startsWith("-") then None else BigInt.parse?(part)
+    if part.startsWith("+") or part.startsWith("-") then
+        None
+    else
+        BigInt.parse?(part)
 
 {-- Reads `text` as a fraction:\
     `Rat.parse^("6/4")` is `Rat.create(3, 2)`.\

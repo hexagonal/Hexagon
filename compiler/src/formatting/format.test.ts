@@ -194,7 +194,7 @@ describe("Indentation (§5)", () => {
     ));
   });
 
-  it("measures a first alternative written without `|` from its own line", () => {
+  it("measures a first alternative written without `|` from its own line, and leads it with one (§16)", () => {
     expect(format(lines(
       "module Example",
       "union Shape =",
@@ -204,7 +204,7 @@ describe("Indentation (§5)", () => {
     ))).toBe(lines(
       "module Example",
       "union Shape =",
-      "    Circle(radius: Float,",
+      "    | Circle(radius: Float,",
       "            centre: Float)",
       "    | Square(side: Float)",
     ));
@@ -1942,6 +1942,501 @@ describe("Trailing commas (§14)", () => {
 });
 
 // -----------------------------------------------------------------------------
+// Wide constructs (§3.5, §15)
+
+/** Format document at the house settings: 100, Collapse extra spaces on, Apply width limits on. */
+const house: FormatOptions = { maximumLineLength: 100, collapseExtraSpaces: true, applyWidthLimits: true };
+
+describe("Apply width limits (§3.5, §15)", () => {
+  it("spreads a conditional and a call's arguments over their width limits, though the lines fit (§15.3)", () => {
+    expect(format(lines(
+      "module A",
+      "let label = if count > 1000 then \"many thousands of items\" else \"only a few items\"",
+      "let total = Vector.fold(values, 0, (sum, value) => sum + value * weight + correction(value))",
+    ), house)).toBe(lines(
+      "module A",
+      "let label =",
+      "    if count > 1000 then",
+      "        \"many thousands of items\"",
+      "    else",
+      "        \"only a few items\"",
+      "let total =",
+      "    Vector.fold(values, 0, (sum, value) =>",
+      "        sum + value * weight + correction(value)",
+      "    )",
+    ));
+  });
+
+  it("is off by default, and leaves the same lines alone (§3.5)", () => {
+    const text = lines(
+      "module A",
+      "let label = if count > 1000 then \"many thousands of items\" else \"only a few items\"",
+    );
+    expect(format(text, { maximumLineLength: 100, collapseExtraSpaces: true })).toBe(text);
+    expect(format(text)).toBe(text);
+  });
+
+  it("works with the line length Unlimited (§15.2)", () => {
+    expect(format(lines(
+      "module A",
+      "let label = if count > 1000 then \"many thousands of items\" else \"only a few items\"",
+    ), { applyWidthLimits: true })).toBe(lines(
+      "module A",
+      "let label =",
+      "    if count > 1000 then",
+      "        \"many thousands of items\"",
+      "    else",
+      "        \"only a few items\"",
+    ));
+  });
+
+  it("breaks what stands around the construct first, outermost first (§15.3)", () => {
+    expect(format(lines(
+      "module A",
+      "print(if total > 100 then \"large enough for the yearly report\" else \"too small\")",
+    ), house)).toBe(lines(
+      "module A",
+      "print(",
+      "    if total > 100 then",
+      "        \"large enough for the yearly report\"",
+      "    else",
+      "        \"too small\"",
+      ")",
+    ));
+  });
+
+  it("holds a conditional to 60: at 60 it stays, at 61 it is spread (§15.1)", () => {
+    const at60 = "if ready then \"" + "x".repeat(19) + "\" else \"" + "y".repeat(17) + "\"";
+    const at61 = "if ready then \"" + "x".repeat(19) + "\" else \"" + "y".repeat(18) + "\"";
+    expect([...at60].length).toBe(60);
+    expect([...at61].length).toBe(61);
+    const kept = lines("module A", `let a = ${at60}`);
+    expect(format(kept, house)).toBe(kept);
+    expect(format(lines("module A", `let a = ${at61}`), house)).toBe(lines(
+      "module A",
+      "let a =",
+      "    if ready then",
+      `        "${"x".repeat(19)}"`,
+      "    else",
+      `        "${"y".repeat(18)}"`,
+    ));
+  });
+
+  it("spreads an `else if` chain however short, keeping each `else` with its `if` (§15.1)", () => {
+    expect(format(lines("module A", "let size = if a then 1 else if b then 2 else 3"), house)).toBe(lines(
+      "module A",
+      "let size =",
+      "    if a then",
+      "        1",
+      "    else if b then",
+      "        2",
+      "    else",
+      "        3",
+    ));
+  });
+
+  it("spreads a conditional that holds another, in its condition or a branch (§15.1)", () => {
+    expect(format(lines(
+      "module A",
+      "let f(a: Bool, b: Bool) =",
+      "    if a then (if b then 1 else 2) else 3",
+    ), house)).toBe(lines(
+      "module A",
+      "let f(a: Bool, b: Bool) =",
+      "    if a then",
+      "        (if b then 1 else 2)",
+      "    else",
+      "        3",
+    ));
+  });
+
+  it("spreads a loop whose body is a conditional or a loop, and one over 60 (§15.1)", () => {
+    expect(format(lines(
+      "module A",
+      "fun f(items: Vector(Int)) =",
+      "    for item in items do if item > 0 then print(item)",
+      "    while ready() do for item in items do print(item)",
+      "    for item in items do print(describeTheItemAtLength(item, \"with a label\"))",
+    ), house)).toBe(lines(
+      "module A",
+      "fun f(items: Vector(Int)) =",
+      "    for item in items do",
+      "        if item > 0 then print(item)",
+      "    while ready() do",
+      "        for item in items do print(item)",
+      "    for item in items do",
+      "        print(describeTheItemAtLength(item, \"with a label\"))",
+    ));
+  });
+
+  it("spreads a chain over 60, and leaves one within it (§15.1)", () => {
+    const kept = lines("module A", "let y = xs.map(x => x + 1).filter(x => x > 2)");
+    expect(format(kept, house)).toBe(kept);
+    expect(format(lines(
+      "module A",
+      "let y = xs.map(x => x + 1).filter(x => x > 2).map(x => x * 2).filter(x => x > 2000)",
+    ), house)).toBe(lines(
+      "module A",
+      "let y =",
+      "    xs",
+      "    .map(x => x + 1)",
+      "    .filter(x => x > 2)",
+      "    .map(x => x * 2)",
+      "    .filter(x => x > 2000)",
+    ));
+  });
+
+  it("spreads a pipeline of two or more stages over 60 (§15.1)", () => {
+    expect(format(lines(
+      "module A",
+      "let y = numbers |> Vector.map(double) |> Vector.filter(isLarge) |> Vector.take(5)",
+    ), house)).toBe(lines(
+      "module A",
+      "let y =",
+      "    numbers",
+      "    |> Vector.map(double)",
+      "    |> Vector.filter(isLarge)",
+      "    |> Vector.take(5)",
+    ));
+  });
+
+  it("measures a call by its arguments alone, and leaves a call of one argument to the line limit (§15.2)", () => {
+    const kept = lines(
+      "module A",
+      "let a = describeEverythingAboutThisValueInGreatDetail(firstName, lastName, middle)",
+      "let b = print(\"one argument, which no width limit holds however long it may be, to 100\")",
+    );
+    expect(format(kept, house)).toBe(kept);
+    expect(format(lines(
+      "module A",
+      "let a = f(firstArgument, secondArgument, thirdArgument, fourthArgument)",
+      "let b = f(firstArgument, secondArgument, thirdArgument, fourthArguments)",
+    ), house)).toBe(lines(
+      "module A",
+      "let a = f(firstArgument, secondArgument, thirdArgument, fourthArgument)",
+      "let b =",
+      "    f(",
+      "        firstArgument,",
+      "        secondArgument,",
+      "        thirdArgument,",
+      "        fourthArguments,",
+      "    )",
+    ));
+  });
+
+  it("spreads a record literal and a record declaration over 60 (§15.1)", () => {
+    expect(format(lines(
+      "module A",
+      "record Flags = { folded: Bool, multiLine: Bool, dotAll: Bool, extended: Bool }",
+      "let flags = { folded = False, multiLine = False, dotAll = False, extended = False }",
+    ), house)).toBe(lines(
+      "module A",
+      "record Flags =",
+      "    {",
+      "        folded: Bool,",
+      "        multiLine: Bool,",
+      "        dotAll: Bool,",
+      "        extended: Bool,",
+      "    }",
+      "let flags =",
+      "    {",
+      "        folded = False,",
+      "        multiLine = False,",
+      "        dotAll = False,",
+      "        extended = False,",
+      "    }",
+    ));
+  });
+
+  it("spreads a record declaration whose braces stand on one line beneath its `=` (§15.3)", () => {
+    expect(format(lines(
+      "module A",
+      "record Flags =",
+      "    { folded: Bool, multiLine: Bool, dotAll: Bool, extended: Bool }",
+    ), house)).toBe(lines(
+      "module A",
+      "record Flags =",
+      "    {",
+      "        folded: Bool,",
+      "        multiLine: Bool,",
+      "        dotAll: Bool,",
+      "        extended: Bool,",
+      "    }",
+    ));
+  });
+
+  it("spreads a lambda over 60, its body beneath its `=>` (§15.1)", () => {
+    expect(format(lines(
+      "module A",
+      "let describe = (person: Person) => \"${person.firstName} ${person.lastName}, aged ${person.age}\"",
+    ), house)).toBe(lines(
+      "module A",
+      "let describe = (person: Person) =>",
+      "    \"${person.firstName} ${person.lastName}, aged ${person.age}\"",
+    ));
+  });
+
+  it("holds an arm to 80, and the conditional in it to 60 (§15.1)", () => {
+    // The two `None` arms are 80 and 81 wide.
+    expect(format(lines(
+      "module A",
+      "let f(x: Option(Int)) =",
+      "    match x with",
+      "        Some(value) => if value > 1000 then \"many\" else \"few\"",
+      `        None => ${"d".repeat(69)}(x)`,
+      "    match x with",
+      `        None => ${"d".repeat(70)}(x)`,
+      "        Some(value) => value",
+    ), house)).toBe(lines(
+      "module A",
+      "let f(x: Option(Int)) =",
+      "    match x with",
+      "        Some(value) => if value > 1000 then \"many\" else \"few\"",
+      `        None => ${"d".repeat(69)}(x)`,
+      "    match x with",
+      "        None =>",
+      `            ${"d".repeat(70)}(x)`,
+      "        Some(value) => value",
+    ));
+  });
+
+  it("carries on an `and` or `or` over 80 at its loosest operator (§15.1)", () => {
+    expect(format(lines(
+      "module A",
+      "let ok = alpha > 0 and beta > 0 and gamma > 0 and delta > 0 and epsilon > 0 and zetas > 0",
+      "let no = alpha > 0 and beta > 0 and gamma > 0 and delta > 0 and epsilon > 0 and zetass > 0",
+    ), house)).toBe(lines(
+      "module A",
+      "let ok = alpha > 0 and beta > 0 and gamma > 0 and delta > 0 and epsilon > 0 and zetas > 0",
+      "let no =",
+      "    alpha > 0",
+      "            and beta > 0",
+      "            and gamma > 0",
+      "            and delta > 0",
+      "            and epsilon > 0",
+      "            and zetass > 0",
+    ));
+  });
+
+  it("spreads a union over 60, its alternatives beneath its `=`, each led by `|` (§15.3, §16)", () => {
+    expect(format(lines(
+      "module A",
+      "union Reason = Shape | Range | Cycle(firstSeen: Vector(Int)) | Other(text: String)",
+      "let a = 1",
+    ), house)).toBe(lines(
+      "module A",
+      "union Reason =",
+      "    | Shape",
+      "    | Range",
+      "    | Cycle(firstSeen: Vector(Int))",
+      "    | Other(text: String)",
+      "",
+      "let a = 1",
+    ));
+  });
+
+  it("spreads a union whose alternatives stand on one line beneath its `=` (§15.2)", () => {
+    expect(format(lines(
+      "module A",
+      "union Kind =",
+      "    GeneralCategory | Script | ScriptExtensions | Binary | Any | Ascii | Assigned",
+    ), house)).toBe(lines(
+      "module A",
+      "union Kind =",
+      "    | GeneralCategory",
+      "    | Script",
+      "    | ScriptExtensions",
+      "    | Binary",
+      "    | Any",
+      "    | Ascii",
+      "    | Assigned",
+    ));
+  });
+
+  it("measures a construct as Collapse extra spaces spaces it, without a trailing comma (§15.2)", () => {
+    // 58 wide spaced as §7 spaces it, though written wider.
+    const text = lines("module A", "let a = f(firstArgument,     secondArgument,     thirdArgument1)");
+    expect(format(text, { applyWidthLimits: true })).toBe(text);
+    const record = lines("module A", "let r = {", "    a = 1,", "    b = 2,", "}");
+    expect(format(record, house)).toBe(record);
+  });
+
+  it("never joins: a construct within its width limit that the author spread stays spread (§3.5)", () => {
+    const text = lines(
+      "module A",
+      "let a =",
+      "    if ready then",
+      "        1",
+      "    else",
+      "        2",
+      "let b = f(",
+      "    1,",
+      "    2,",
+      ")",
+    );
+    expect(format(text, house)).toBe(text);
+  });
+
+  it("leaves a construct in an interpolation hole on its line (§9.3, §15.3)", () => {
+    const text = lines(
+      "module A",
+      "let a = \"${if count > 1000 then \"many thousands of items\" else \"only a few items\"}\"",
+    );
+    expect(format(text, house)).toBe(text);
+  });
+
+  // The conditional ends in a block once spread, so the comma after it begins
+  // a line of its own (Lexer & Layout §7).
+  it("gives a lambda that ends a call its kept head only where that line holds nothing to spread (§15.3)", () => {
+    expect(format(lines(
+      "module A",
+      "let a = foo(if first > second then firstValue else secondValueThatIsLonger, x => x + 1)",
+    ), house)).toBe(lines(
+      "module A",
+      "let a =",
+      "    foo(",
+      "        if first > second then",
+      "            firstValue",
+      "        else",
+      "            secondValueThatIsLonger",
+      "    ,",
+      "        x => x + 1,",
+      "    )",
+    ));
+  });
+
+  it("puts an author's comma after a conditional it spreads in open brackets on a line of its own (Lexer & Layout §7)", () => {
+    expect(format(lines(
+      "module A",
+      "let f(x) =",
+      "    chunks.append(",
+      "        if code >= 65 and code <= 90 then String.toLower(point) else point,",
+      "    )",
+    ), house)).toBe(lines(
+      "module A",
+      "let f(x) =",
+      "    chunks.append(",
+      "        if code >= 65 and code <= 90 then",
+      "            String.toLower(point)",
+      "        else",
+      "            point",
+      "    ,",
+      "    )",
+    ));
+  });
+
+  it("makes a document it spreads canonical: twice changes nothing, and other settings leave it (§3.3)", () => {
+    const text = lines(
+      "module A",
+      "union Reason = Shape | Range | Cycle(firstSeen: Vector(Int)) | Other(text: String)",
+      "let x = if a then 1 else if b then 2 else 3",
+      "let total = Vector.fold(values, 0, (sum, value) => sum + value * weight + correction(value))",
+    );
+    const spread = format(text, house);
+    expect(format(spread, house)).toBe(spread);
+    for (const other of [{}, { collapseExtraSpaces: true }, { maximumLineLength: 40 }, { leaveTrailingCommasAsWritten: true }]) {
+      const again = format(spread, other);
+      expect(format(again, house)).toBe(again);
+      expect(format(again, other)).toBe(again);
+    }
+  });
+});
+
+describe("A union's leading bar (§16)", () => {
+  it("leads the first alternative of a union written one alternative to a line beneath its `=`", () => {
+    expect(format(lines(
+      "module A",
+      "union Reason =",
+      "    Shape",
+      "    | Range",
+      "    | Cycle(firstSeen: Vector(Int))",
+    ))).toBe(lines(
+      "module A",
+      "union Reason =",
+      "    | Shape",
+      "    | Range",
+      "    | Cycle(firstSeen: Vector(Int))",
+    ));
+  });
+
+  it("leads a lone alternative beneath its `=` too", () => {
+    expect(format(lines("module A", "union Id =", "    Wrap(Int)"))).toBe(lines("module A", "union Id =", "    | Wrap(Int)"));
+  });
+
+  it("adds no bar to a union on one line, nor where alternatives share a line or one stands on the `=` line", () => {
+    const text = lines(
+      "module A",
+      "union Tree = Leaf | Node(Tree, Int, Tree)",
+      "union Pair =",
+      "    Left | Right",
+      "union Reason = Shape",
+      "    | Range",
+    );
+    expect(format(text)).toBe(text);
+  });
+
+  it("adds no second bar, removes none, and goes below a comment above the alternative", () => {
+    const text = lines(
+      "module A",
+      "union Reason =",
+      "    -- The shape is wrong.",
+      "    Shape",
+      "    | Range",
+      "union Kind = | A | B",
+    );
+    expect(format(text)).toBe(lines(
+      "module A",
+      "union Reason =",
+      "    -- The shape is wrong.",
+      "    | Shape",
+      "    | Range",
+      "",
+      "union Kind = | A | B",
+    ));
+    expect(format(format(text))).toBe(format(text));
+  });
+
+  it("adds the bar whatever the options say", () => {
+    const text = lines("module A", "union Id =", "    Wrap(Int)");
+    for (const options of [{ leaveTrailingCommasAsWritten: true }, { collapseExtraSpaces: true }, { maximumLineLength: 20 }]) {
+      expect(format(text, options)).toBe(lines("module A", "union Id =", "    | Wrap(Int)"));
+    }
+  });
+
+  it("counts the bar in a line's length before it is written (§9.2)", () => {
+    // 28 wide with its bar: broken at 27, not at 28.
+    const text = lines("module A", "union Id =", "    Wrap(Int, String, Int)");
+    expect(format(text, { maximumLineLength: 28 })).toBe(lines("module A", "union Id =", "    | Wrap(Int, String, Int)"));
+    expect(format(text, { maximumLineLength: 27 })).toBe(lines(
+      "module A",
+      "union Id =",
+      "    | Wrap(",
+      "        Int,",
+      "        String,",
+      "        Int,",
+      "    )",
+    ));
+  });
+
+  it("is added by Format selection within its region, and nowhere else (§2.2)", () => {
+    const text = lines("module A", "union Id =", "    Wrap(Int)", "union Other =", "    Thing(Int)");
+    const result = formatSelection(text, { start: text.indexOf("Thing"), end: text.indexOf("Thing") });
+    expect(result).toMatchObject({
+      kind: "Formatted",
+      text: lines("module A", "union Id =", "    Wrap(Int)", "union Other =", "    | Thing(Int)"),
+    });
+    if (result.kind !== "Formatted") return;
+    expect(result.edits).toEqual([{ start: text.indexOf("Thing") - 5, end: text.indexOf("Thing"), newText: "\n    | " }]);
+  });
+
+  it("checks that only bars after an `=` are added (§12)", () => {
+    const before = read("module A\nunion Id =\n    Wrap(Int)\n");
+    expect(sameText(before, read("module A\nunion Id =\n    | Wrap(Int)\n"), false, true)).toBe(true);
+    expect(sameText(before, read("module A\nunion Id =\n    | Wrap(Int)\n"))).toBe(false);
+  });
+});
+
+// -----------------------------------------------------------------------------
 // The standard library as a corpus (§12)
 
 const library = Object.entries(STDLIB_SOURCES);
@@ -1950,9 +2445,11 @@ const settings: readonly FormatOptions[] = [
   {},
   { collapseExtraSpaces: true },
   { maximumLineLength: 100 },
-  { maximumLineLength: 100, collapseExtraSpaces: true },
+  { maximumLineLength: 100, collapseExtraSpaces: true, applyWidthLimits: true },
   { maximumLineLength: 72, collapseExtraSpaces: true },
   { maximumLineLength: 72, leaveTrailingCommasAsWritten: true },
+  { applyWidthLimits: true },
+  { maximumLineLength: 72, applyWidthLimits: true },
 ];
 
 const formattedLibrary = new Map<string, string>();
@@ -1982,19 +2479,24 @@ describe("The standard library (§12)", () => {
   });
 
   // The house settings are setting 3: Maximum line length 100, Collapse extra
-  // spaces on (spec/notes/canonical-formatting-and-naming.md H1, H2). The
-  // library is house text, so Format document has nothing left to change.
+  // spaces on, Apply width limits on (spec/notes/canonical-formatting-and-naming.md
+  // H1, H2, H9). The library is house text, so Format document has nothing left
+  // to change.
   it.each(library)("leaves %s as it is at the house settings", (name) => {
     expect(libraryFormat(name, 3)).toBe(STDLIB_SOURCES[name]);
   });
 
-  it.each(library)("keeps %s's grouping under every setting (§6.3)", (name) => {
-    const groupings = settings.map((_, setting) => blankLineSites(libraryFormat(name, setting)));
+  // Apply width limits may spread a union, which then takes a blank line, so
+  // the grouping is the same under every setting of the other three options.
+  it.each(library)("keeps %s's grouping under every setting of the first three options (§6.3)", (name) => {
+    const groupings = settings
+      .flatMap((options, setting) => options.applyWidthLimits === true ? [] : [setting])
+      .map((setting) => blankLineSites(libraryFormat(name, setting)));
     for (const grouping of groupings) expect(grouping).toEqual(groupings[0]);
   });
 
   const pairs = library.flatMap(([name]) =>
-    ([[0, 4], [1, 2], [2, 4], [4, 5], [5, 4]] as const).map(([a, b]) => [name, a, b] as const));
+    ([[0, 4], [1, 2], [2, 4], [4, 5], [5, 4], [6, 0], [7, 5], [5, 7]] as const).map(([a, b]) => [name, a, b] as const));
   it.each(pairs)("settings never fight over %s: %i then %i (§3.3)", (name, first, second) => {
     const both = format(libraryFormat(name, first), settings[second]);
     expect(format(both, settings[first])).toBe(both);
