@@ -303,8 +303,7 @@ let sumTo(n) =
 -- total : Int; emits let total = 0; ... total = total + i; ... return total;
 
 -- (b) Block-final assignment: Unit function, no ceremony
--- ERROR if count is outer (crosses the function's lambda)
-let bump() = count := count + 1
+let bump() = count := count + 1 -- ERROR if count is outer (crosses the function's lambda)
 -- legal only for a var in the same body — so:
 let step(n) =
     var x = n

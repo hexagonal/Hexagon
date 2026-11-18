@@ -375,8 +375,8 @@ the Book, the Playground's tutorials and the spec's own examples.
 
   ```
   let total = subtotal + shipping -- before tax
-  -- The rate is the one in force on the day the order was placed, not
-  -- the day it ships.
+  -- The rate is the one in force on the day the order was placed, not the day it ships, so an order
+  -- placed before a change and shipped after it keeps the old rate.
   let taxed = total * rate
   ```
 
