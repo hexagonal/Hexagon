@@ -235,7 +235,7 @@ work:
 let x = match parse(input) with
     Ok(ast) => generate(ast)
     Err(reason) => report(reason)
-catch                                  -- ERROR: aligned with the `let`, not the `match`
+catch -- ERROR: aligned with the `let`, not the `match`
     ParseError(line, message) => reportAt(line, message)
 ```
 
