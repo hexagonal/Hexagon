@@ -520,8 +520,9 @@ describe("§4/§7 complexity", () => {
    * the claim checkable. The counter cannot be installed from Hexagon — `concat`
    * calls the module's own `nodeRun`, not an importable one — so the emitted
    * runtime module is instrumented at the source level: the definition is
-   * renamed and a counting wrapper takes its name. Function declarations hoist,
-   * so every call site in the file, `concat`'s included, reaches the wrapper.
+   * renamed and a counting wrapper takes its name. The wrapper is a function
+   * declaration, which hoists, so every call site in the file, `concat`'s
+   * included, reaches the wrapper.
    *
    * This is representation knowledge of the emitted JavaScript, which is what
    * this file is for. Nothing else in the suite may hold it.
@@ -547,7 +548,7 @@ describe("§4/§7 complexity", () => {
    * fresh module per test.
    */
   async function countingTrie(): Promise<CountingTrie> {
-    const definition = "function nodeRun(trie, index) {";
+    const definition = "const nodeRun = (trie, index) => {";
     // Linked through the whole project rather than imported standalone: since
     // #344 the emitted `VectorTrie.js` imports `Integral<Int>`'s member and its
     // dictionary for the index arithmetic, so a bare `data:` URL for this one
@@ -561,7 +562,7 @@ describe("§4/§7 complexity", () => {
           // Exactly one definition, so the rename below cannot leave a call
           // site reaching an uncounted implementation.
           expect(javascript.split(definition)).toHaveLength(2);
-          return javascript.replace(definition, "function __probeNodeRun(trie, index) {") +
+          return javascript.replace(definition, "const __probeNodeRun = (trie, index) => {") +
             "\nlet __probeDescents = 0;\n" +
             "function nodeRun(trie, index) {\n" +
             "  __probeDescents += 1;\n" +

@@ -18,7 +18,7 @@ let words = Seq.prepend(nothing, "Briar")
 -- A computed right-hand side is not a value, and is polymorphic anyway when
 -- nothing in the result could hold an element the checker never saw. \`Vector\`
 -- only ever produces its element, so \`blank\` generalizes too.
-fun makeEmpty<a>(): Vector(a) = []
+let makeEmpty<a>(): Vector(a) = []
 let blank = makeEmpty()
 
 let counts: Vector(Int) = blank.append(1)
@@ -29,9 +29,9 @@ let labels: Vector(String) = blank.append("one")
 -- that a \`Box\` only ever hands an \`a\` out, never takes one in.
 opaque record Box(+a) = { open: () -> Option(a) }
 
-export fun emptyBox<a>(): Box(a) = Box({ open = () => None })
+export let emptyBox<a>(): Box(a) = Box({ open = () => None })
 
-export fun openBox<a>(box: Box(a)): Option(a) = (box.open)()
+export let openBox<a>(box: Box(a)): Option(a) = (box.open)()
 
 -- Drop the \`+\` and this stops compiling: without a claim, a parameter is
 -- invariant and \`empty\` would be pinned to whatever type used it first.

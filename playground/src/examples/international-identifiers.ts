@@ -8,7 +8,7 @@ export const internationalIdentifiers: PlaygroundExample = {
 -- cannot be, so the M prefix here is doing real work as well as cultural.
 module Mगणित
 
-export fun जोड़(left: Int, right: Int): Int = left + right
+export let जोड़(left: Int, right: Int): Int = left + right
 
 end module Mगणित
 

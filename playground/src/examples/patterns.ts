@@ -19,7 +19,7 @@ let opposite(direction: Direction) =
 
 Debug.log("Opposite of North: \${opposite(North)}")
 
-fun attendanceLabel(count: Int) =
+let attendanceLabel(count: Int) =
     match count with
         0 => "none"
         1 => "one"
@@ -27,12 +27,12 @@ fun attendanceLabel(count: Int) =
 
 Debug.log("Guests: \${attendanceLabel(1)}")
 
-fun tupleLabel(pair: (Bool, Int)) =
+let tupleLabel(pair: (Bool, Int)) =
     match pair with
         (True, _) => "active"
         (_, _) => "inactive"
 
-fun unitLabel(value: Unit) =
+let unitLabel(value: Unit) =
     match value with
         () => "unit"
 

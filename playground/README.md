@@ -50,7 +50,7 @@ compiler at the offset the user is looking at.
 ```hexagon
 module Mगणित
 
-export fun जोड़(left: Int, right: Int): Int = left + right
+export let जोड़(left: Int, right: Int): Int = left + right
 
 end module Mगणित
 

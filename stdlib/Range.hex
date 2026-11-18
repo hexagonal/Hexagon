@@ -20,7 +20,7 @@ extern from "hex:intrinsic"
 
 {-- The ascending range from `lo` up to `hi`, both included: the same value as
     `lo..hi`, as a function. Empty when `lo > hi`. -}
-export fun up(lo: Int, hi: Int): Range = lo..hi
+export let up(lo: Int, hi: Int): Range = lo..hi
 
 honor Iterable<Range> =
     type Item = Int
