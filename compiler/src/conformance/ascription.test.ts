@@ -121,7 +121,7 @@ describe("§3.1 the four-example block", () => {
     expect(messages).toHaveLength(1);
     expect(messages[0]).toBe(
       "`a` is a declared type variable, but `42` can be only a `Num` type; " +
-        "ascribe the concrete type you mean — `(42 : Int)` — or remove the " +
+        "ascribe the concrete type you mean — `(42: Int)` — or remove the " +
         "ascription to let the literal default to `Int`",
     );
     // The Rewrite Rule: both named edits have to compile.

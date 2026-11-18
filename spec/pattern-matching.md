@@ -229,9 +229,9 @@ expression is (Operators §6.4).
   a `d` literal pattern at a `Rat` subject (Exact Integer Widening §9).
 - **Coverage** reads `p1 // p2` as a declared pattern's one-constructor shape (Pattern
   Declarations §4): one complete signature over `Rat`, with two components at `BigInt`. Its
-  witness prints with `//` between its sides: `_ // _`.
+  witness prints with `//` between its sides: `_//_`.
 - **The opaque refusal** (§2.4) at a `Rat` abroad names it: "cannot destructure opaque
-  record `Rat`; match it with `top // bottom`".
+  record `Rat`; match it with `top//bottom`".
 - **Emission.** The top and bottom are read once per position, as a declared pattern's
   view is applied once (Pattern Declarations §5), and the sides are tested as a tuple's
   components are.
@@ -508,7 +508,7 @@ Both generalize from Unions §4.3. Both remain **hard errors**. Both remain **ex
 
 - An arm is unreachable if its pattern is useless relative to the *unguarded* arms above it (guarded arms above cannot subsume — their guards may fail). Hard error, naming the shadowing arm, as before. When no single arm subsumes — the arm is dead only against several arms jointly, as in `W(True)` / `W(False)` / `_` — the report names none of them, because naming one would be false: "this case is unreachable; the patterns above already cover it".
 - **A literal's identity, for both judgments, is its value at the type of its position under that type's `Eq` — never its spelling** — at a type whose `Eq` the compiler computes, the permitted types: `Int`, `Nat` (whose negative literals are refused before any key is read, §2.5), `BigInt`, `Float`, `String`, and canonical prelude `Dec`; at a type outside those permitted types no literal pattern stands (§2.5: the permitted-literal-type restriction, `BigInt` for an `n`-suffixed literal, `Float` for an unsuffixed decimal, canonical Dec for a `d` literal, `String` for a string), so the matrix never equates what it cannot evaluate — it never leans on an unchecked law. At `Int` this makes `7` and `007` one literal (Lexer §5 legalises the leading zeroes) and `-0` the literal `0`. At `BigInt`, bare `7`, `7n`, and `007n` are one literal, as are `0`, `0n`, and `-0n`; two distinct arbitrary-precision integers remain distinct even beyond the safe-integer range. At `Float` the value is the lexer's binary64 and the equality is SameValueZero (§2.5): `1.0`, `1.00`, `1.0e0`, and `10e-1` are one literal; `0.0` and `-0.0` are one; two spellings the lexer rounds to one double — underflow to zero included — are one. So an unguarded `0.0` arm makes a later `-0.0` arm unreachable, and in `1.0 | 1.00` the second alternative is dead, exactly as `0 | 0` is at `Int` — the same hard errors in the same words: "this literal case is unreachable; it is already handled above" at the top of an arm, once per dead alternative, and the general unreachable-arm report where the duplicate sits in a nested column, the matrix judging both. At Dec, the compiler uses the canonical numerical key from `dec.md` §8: trailing-zero variants and all representations of zero coincide, without discarding stored places from values. The canonical stdlib Eq contract governs this key; it is not inferred from arbitrary user code. At the permitted types the coverage key and the runtime test cannot disagree, because they are one function: what the type's `Eq` equates, the matrix equates.
-- **A fraction pattern its literals show can never match is a dead case** (§2.10). A fraction comes apart in lowest terms with a positive bottom, so `p // q` matches nothing where `q` is a literal zero or negative, or where `p` and `q` are both literals whose greatest common divisor is not one; a side counts as a literal where its test is one — a literal pattern, alone or under `as` or a written type (§2.7, §2.9). These two rules are the whole judgment: nothing else about a side is read. The case is refused wherever reachability is judged, one alternative at a time once or-patterns expand (§7.1), in this section's words, the report giving the spelling that matches where one exists: "this case is unreachable; a fraction comes apart in lowest terms with a positive bottom, so `2 // 6` never matches — write `1 // 3`"; "… so `1 // -3` never matches — write `-1 // 3`"; for a binder or wildcard top, "… so `n // -3` never matches — write `n // 3`, which binds the negated top"; and at a zero bottom, which no spelling repairs, "this case is unreachable; a fraction's bottom is never zero — remove the case". At a binding position the irrefutability gate (§5.3) refuses a literal side first.
+- **A fraction pattern its literals show can never match is a dead case** (§2.10). A fraction comes apart in lowest terms with a positive bottom, so `p // q` matches nothing where `q` is a literal zero or negative, or where `p` and `q` are both literals whose greatest common divisor is not one; a side counts as a literal where its test is one — a literal pattern, alone or under `as` or a written type (§2.7, §2.9). These two rules are the whole judgment: nothing else about a side is read. The case is refused wherever reachability is judged, one alternative at a time once or-patterns expand (§7.1), in this section's words, the report giving the spelling that matches where one exists: "this case is unreachable; a fraction comes apart in lowest terms with a positive bottom, so `2//6` never matches — write `1//3`"; "… so `1//-3` never matches — write `-1//3`"; for a binder or wildcard top, "… so `n//-3` never matches — write `n//3`, which binds the negated top"; and at a zero bottom, which no spelling repairs, "this case is unreachable; a fraction's bottom is never zero — remove the case". At a binding position the irrefutability gate (§5.3) refuses a literal side first.
 - Two arms with the same pattern and different guards are both reachable (the checker cannot prove a guard total): legal.
 - A guarded arm whose pattern is already fully covered by an earlier **unguarded** arm is unreachable — `when True` does not launder it.
 - Anything after a catch-all arm is unreachable — a declared pattern whose components are all irrefutable included, being irrefutable at the column's type (Pattern Declarations §4). An arm, whatever its head, is dead beneath a complete signature present in the column — the type's constructors, or another view's — and is otherwise never reported dead on another view's account, the checker being unable to relate two views of a value, as it cannot prove a guard total (Pattern Declarations §4); the exactness claim ranges over what it can decide. In `catch`, the Exceptions §5.3 logic transfers with or-patterns folded in: a second `JsError(_)` arm, or anything after `_`, is unreachable; domestic arms after a `JsError` arm are fine.
@@ -639,9 +639,9 @@ The tiers are judged per constructor occurrence — a nested witness may print a
 | Field pattern for a field the type lacks | missing-field family, naming known fields (§2.4) |
 | Constructor/pattern arity mismatches, nullary parens, bare payload constructor | unchanged Unions §4.2 family; the "nested patterns arrive later" error is **retired** |
 | A declared pattern's own seats — arity, match-only expression use, a contested suffix, the suffix under an undetermined type, the opaque refusal naming the exported patterns | Pattern Declarations §7 |
-| A `//` pattern whose literals show it never matches (`2 // 6`, `1 // -3`, `n // -3`, `n // 0`) | "this case is unreachable; a fraction comes apart in lowest terms with a positive bottom, so `2 // 6` never matches — write `1 // 3`", the matching spelling named where one exists; at a zero bottom "this case is unreachable; a fraction's bottom is never zero — remove the case" (§7.2) |
+| A `//` pattern whose literals show it never matches (`2//6`, `1//-3`, `n//-3`, `n//0`) | "this case is unreachable; a fraction comes apart in lowest terms with a positive bottom, so `2//6` never matches — write `1//3`", the matching spelling named where one exists; at a zero bottom "this case is unreachable; a fraction's bottom is never zero — remove the case" (§7.2) |
 | `1 // 2 // 3` in a pattern; a `//` pattern's side of a type other than `BigInt` | Operators §6.4's chain refusal; the ordinary mismatch at `BigInt` (§2.10) |
-| Constructor or record pattern over `Rat` abroad | "cannot destructure opaque record `Rat`; match it with `top // bottom`" (§2.10) |
+| Constructor or record pattern over `Rat` abroad | "cannot destructure opaque record `Rat`; match it with `top//bottom`" (§2.10) |
 
 ---
 
@@ -921,17 +921,17 @@ describe(6 // 4)                             -- "3 over 2"
 describe(-8 // 4)                            -- "the whole number -2"
 let n // d = 4 // -5                         -- irrefutable; n = -4n, d = 5n
 let tops = rats.map(n // _ => n)             -- one parameter, a fraction pattern; tops of each
-let f = 1 // d => d                          -- ERROR: this pattern can fail: `_ // _`; use match
+let f = 1 // d => d                          -- ERROR: this pattern can fail: `_//_`; use match
 match r with
     x when x > 1 // 2 => a                   -- the guard compares with a fraction; the arrow is the arm's
     _ => b
-let 1 // d = r                               -- ERROR: this pattern can fail: `_ // _`; use match
+let 1 // d = r                               -- ERROR: this pattern can fail: `_//_`; use match
 match r with
     2 // 6 => a                              -- ERROR: this case is unreachable; a fraction comes apart in
     _ => b                                   --   lowest terms with a positive bottom, so `2 // 6` never
-                                             --   matches — write `1 // 3`
+                                             --   matches — write `1//3`
 match r with
-    n // -3 => a                             -- ERROR: … so `n // -3` never matches — write `n // 3`,
+    n // -3 => a                             -- ERROR: … so `n // -3` never matches — write `n//3`,
     _ => b                                   --   which binds the negated top
 match r with
     n // 0 => a                              -- ERROR: this case is unreachable; a fraction's bottom is never zero — remove the case
@@ -940,7 +940,7 @@ match r with
     1 // 3 | 2 // 6 => a                     -- ERROR at `2 // 6` alone: the alternatives are judged one at a time
     _ => b
 match r with
-    0 // _ => a                              -- ERROR: match is missing cases: `_ // _`
+    0 // _ => a                              -- ERROR: match is missing cases: `_//_`
 match r with
     1.50d => a                               -- ERROR: the ordinary mismatch; a `Dec` literal pattern does not widen
     _ => b

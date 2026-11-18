@@ -84,7 +84,7 @@ const FRACTION_COMMENT_NOTE = "for a comment, write `--`";
 
 /** Operators §6.4's chain refusal, for the expression and the pattern alike. */
 const FRACTION_CHAIN =
-  "`//` does not chain; a fraction has one top and one bottom — to divide one, write `(1 // 2) / 3`";
+  "`//` does not chain; a fraction has one top and one bottom — to divide one, write `(1//2) / 3`";
 
 /**
  * `bitwise.md` §3: the contextual bitwise words, operators only in the seat
