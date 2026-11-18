@@ -119,7 +119,7 @@ describe("the constructors", () => {
     const range = project.modules.find(({ source }) => source.path === "/Hex/Range.hex");
     if (range === undefined) throw new Error("Range.hex was not emitted");
     const text = range.javascript.text;
-    expect(text).toContain("function up(lo, hi) {\n  return __range(lo, hi);\n}");
+    expect(text).toContain("const up = (lo, hi) => __range(lo, hi);");
     expect(text).toContain("const down = __rangeDown;");
     expect(text).toContain("  return { start: __start, end: __end, descending: true,");
     expect(text).toContain("      for (let __value = __start; __value >= __end; __value -= 1) yield __value;");

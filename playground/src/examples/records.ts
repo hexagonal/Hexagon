@@ -6,12 +6,12 @@ export const records: PlaygroundExample = {
   description: "Annotate open records, update them immutably, and destructure selected fields.",
   source: `module Records
 
-fun guestName(reservation: { guest: String, ... }) = reservation.guest
+let guestName(reservation: { guest: String, ... }) = reservation.guest
 
-fun renameGuest(reservation: { guest: String, ...rest }, guest: String) =
+let renameGuest(reservation: { guest: String, ...rest }, guest: String) =
     { reservation with guest = guest }
 
-fun confirmedGuest(reservation: { guest: String, confirmed: Bool }) =
+let confirmedGuest(reservation: { guest: String, confirmed: Bool }) =
     match reservation with
         { confirmed = True, guest } => guest
         { guest } => guest
