@@ -281,7 +281,7 @@ and the code that ties everything together tends to sit at the bottom.
 
 ```hexagon
 let message = "Orders are ready"
-fun announce() = Debug.log(message)
+let announce() = Debug.log(message)
 announce()
 ```
 
