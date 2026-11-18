@@ -29,10 +29,11 @@
  * `hexagon` block; in the spec, each `hexagon`, `hex` or untagged block. A
  * block with one line the compiler refuses does not parse, so the first four
  * checks pass it by; H10 asks only the lexer, which reads on past a token it
- * refuses, so it reads every block. The spec's chapters are read but for its decision records, which keep
- * history as it was written, and Canonical Layout and Lexer & Layout, whose
- * examples are the layouts those chapters change or refuse. Its notes, in
- * `spec/notes/`, are not chapters and are not read.
+ * refuses, so it reads every block. The spec's chapters are read but for its
+ * decision records, which keep history as it was written, and Canonical
+ * Layout and Lexer & Layout, whose examples are the layouts those chapters
+ * change or refuse. Its notes, in `spec/notes/`, are not chapters and are not
+ * read.
  *
  * `house.baseline.txt` holds what house text leaves as written, one finding to
  * a line, as `rule · place · …`: by file and by text, never by line number, so
@@ -432,7 +433,7 @@ describe("The house test", () => {
     // A fragment that does not parse is read too, even where the lexer
     // refuses a token in it: its comments are comments, though its code is
     // not a module. Another language's text in an untagged fence would be
-    // read as Hexagon, so such a fence is tagged.
+    // read as Hexagon, so such a fence should be tagged.
     const fragments = [...bookSamples.fragments, ...specSamples.fragments];
     for (const { place, text, offset } of [...await houseText(), ...fragments]) {
       for (const { line, gap, whole, spans } of trailingComments(text)) {
