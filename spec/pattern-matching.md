@@ -792,8 +792,8 @@ match count with -- count: Int — the identity law at Int (§7.2)
     7 => "seven"
     007 => "never" -- ERROR: this literal case is unreachable; it is already handled above
     0 => "zero"
-    -- ERROR: this literal case is unreachable; it is already handled above
-    -- (`-0` is the literal `0`)
+    -- ERROR: this literal case is unreachable; it is already handled above (`-0` is the
+    -- literal `0`)
     -0 => "never"
     _ => "ok"
 match ratio with -- ratio: Rat — the restriction is checked on the resolved type
