@@ -278,86 +278,99 @@ Each snippet is its own source file. Golden: attachment table (declaration → d
 
 ```
 {-- Doubles a number. -}
-let double(x: Int): Int = x * 2          -- attaches; .js and .d.ts (if exported) carry /** Doubles a number. */
+-- attaches; .js and .d.ts (if exported) carry /** Doubles a number. */
+let double(x: Int): Int = x * 2
 
 {-- Line one. -}
 {-- Line two. -}
-export let f(x: Int): Int = x            -- one block, content "Line one.\n\nLine two."; attaches through `export`
+-- one block, content "Line one.\n\nLine two."; attaches through `export`
+export let f(x: Int): Int = x
 
 {-- Overview paragraph.
 
     Indented continuation dedents.  -}
-let g(): Unit = ()                       -- content dedented; blank line preserved as paragraph break
+let g(): Unit = () -- content dedented; blank line preserved as paragraph break
 
 {--
     A newline-first body: every content line
     participates in the dedent together.
 -}
-let g2(): Unit = ()                      -- no opener-line fragment, so all lines strip their common prefix
+let g2(): Unit = () -- no opener-line fragment, so all lines strip their common prefix
 
 {-- Overview. -}
 -- ordinary note in between
 {-- Addendum. -}
-let h(): Unit = ()                       -- one doc block: "Overview.\n\nAddendum."; ordinary comment invisible
+let h(): Unit = () -- one doc block: "Overview.\n\nAddendum."; ordinary comment invisible
 
 union Shape =
-  {-- A circle of the given radius. -}
-  | Circle(radius: Float)
-  {-- An axis-aligned box. -}
-  | Box(w: Float, h: Float)              -- constructor docs; ride materialized constructors on export
+    {-- A circle of the given radius. -}
+    | Circle(radius: Float)
+    {-- An axis-aligned box. -}
+    | Box(w: Float, h: Float) -- constructor docs; ride materialized constructors on export
 
 constraint Keyed<c> =
     {-- The type of one key, chosen by each instance. -}
     type Key
     {-- The key of `x`. -}
-    keyOf(x: c) -> Key                   -- constraint-member docs: type members and function members alike (§4.2)
+    keyOf(x: c) -> Key -- constraint-member docs: type members and function members alike (§4.2)
 
 honor Keyed<Int> =
     {-- An `Int` keys itself. -}
     type Key = Int
-    keyOf(x) = x                         -- implied-type-binding docs; honor seats are tooling-only (§7.1)
+    keyOf(x) = x -- implied-type-binding docs; honor seats are tooling-only (§7.1)
 
 -- | not documentation
-let plain(): Unit = ()                   -- OK; `plain` carries NO docs — a line comment is never documentation (§2.3)
+let plain(): Unit = () -- OK; `plain` carries NO docs — a line comment is never documentation (§2.3)
 {-| not documentation either -}
-let plain2(): Unit = ()                  -- OK; `plain2` carries NO docs — `{-|` is an ordinary comment (§2.2)
-{----------}                             -- ordinary comment (`{---` rule)
-{--}                                     -- ordinary empty comment
+let plain2(): Unit = () -- OK; `plain2` carries NO docs — `{-|` is an ordinary comment (§2.2)
+{----------} -- ordinary comment (`{---` rule)
+{--} -- ordinary empty comment
 {-- - A list item. -}
-let k = 1                                -- doc content "- A list item." (space-first idiom for a leading `-`)
+let k = 1 -- doc content "- A list item." (space-first idiom for a leading `-`)
 
-let a = 1 {-- note -}                    -- ERROR: doc comments precede what they document (leading-only, §4.3)
-{-- Orphaned. -}                         -- ERROR at EOF: documents nothing (§5)
-let x = {-- inline? -} 2                 -- ERROR: next code token does not begin a declaration
+let a = 1 {-- note -} -- ERROR: doc comments precede what they document (leading-only, §4.3)
+{-- Orphaned. -} -- ERROR at EOF: documents nothing (§5)
+let x = {-- inline? -} 2 -- ERROR: next code token does not begin a declaration
 {-- Module header? -}
-import Vector                            -- ERROR: imports not documentable; message names the module-docs deferral
+import Vector -- ERROR: imports not documentable; message names the module-docs deferral
 {-- The filesystem module. -}
-extern from "node:fs"                    -- ERROR: docs attach to the block's items, not the block (§5's dedicated row)
-  fun readFileSync(path: String) ->! String
-export {-- misplaced -} let m(): Unit = ()  -- ERROR: mid-declaration; `let` does not begin the declaration
-{-! not special -}                       -- ordinary comment; no inner-doc spelling exists or is reserved (§9.1)
+extern from "node:fs" -- ERROR: docs attach to the block's items, not the block (§5's dedicated row)
+    fun readFileSync(path: String) ->! String
+-- ERROR: mid-declaration; `let` does not begin the declaration
+export {-- misplaced -} let m(): Unit = ()
+{-! not special -} -- ordinary comment; no inner-doc spelling exists or is reserved (§9.1)
 ```
 
 The throws manifest (§6.1, §7.4) — golden adds the derived-tag column:
 
 ```
 {-- Parses. Throws `ParseError` when the input is malformed. -}
-export fun parse(s: String): Ast = ...   -- recognized: sentence verbatim in both JSDoc blocks; generated position gains `@throws {ParseError} when the input is malformed`
+-- recognized: sentence verbatim in both JSDoc blocks; generated position gains `@throws
+-- {ParseError} when the input is malformed`
+export fun parse(s: String): Ast = ...
 
 {-- Throws `ParseError` when a, and `IndexFault` when b. -}
-export fun bad(s: String): Ast = ...     -- refused entirely (manifest head inside the condition): ordinary prose, no tag — not one mangled tag (§6.1)
+-- refused entirely (manifest head inside the condition): ordinary prose, no tag — not one mangled
+-- tag (§6.1)
+export fun bad(s: String): Ast = ...
 
 {-- Throws `IndexFault` when the timeout exceeds 1.5 seconds. -}
-export fun wait(s: String): Ast = ...    -- recognized: the decimal's dot is interior (no whitespace after it), the sentence ends at the final dot (§6.1)
+-- recognized: the decimal's dot is interior (no whitespace after it), the sentence ends at the
+-- final dot (§6.1)
+export fun wait(s: String): Ast = ...
 
 {-- **Throws `IndexFault` when the index is bad.** The caller must check first. -}
-export let at(i: Int): Int = ...         -- recognized: the terminator is the emphasized dot, whitespace reached across the closing `**`; the marks stay out of the condition (§6.1)
+-- recognized: the terminator is the emphasized dot, whitespace reached across the closing `**`; the
+-- marks stay out of the condition (§6.1)
+export let at(i: Int): Int = ...
 
 {-- Throws `parseError` when lowercase. -}
-export fun odd(s: String): Ast = ...     -- deviant (lowercase name): ordinary prose, no tag
+export fun odd(s: String): Ast = ... -- deviant (lowercase name): ordinary prose, no tag
 
 {-- Throws `ParseError` when the input is malformed. -}
-fun helper(s: String): Ast = ...         -- unexported: manifest is house style, .js block carries the sentence verbatim, no tag generated (§7.4)
+-- unexported: manifest is house style, .js block carries the sentence verbatim, no tag generated
+-- (§7.4)
+fun helper(s: String): Ast = ...
 ```
 
 ## 12. Decisions log

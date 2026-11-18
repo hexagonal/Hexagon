@@ -212,38 +212,38 @@ Modules §11 owns emission; packages add the layout. The program's output root h
 -- Acme: module Geometry; module Util           Acme hexagon.json: {"name": "Acme", "dependencies": ["Bolt"]}
 -- Bolt: module Util                             Bolt hexagon.json: {"name": "Bolt"}
 -- both hoisted to the project's node_modules, so the project's lookup finds Bolt (§4.1)
-import Geometry                              -- OK: Acme.Geometry, the one visible provider
-import Util                                  -- OK: Acme.Util — Bolt is not visible to the project
-import Bolt.Util                             -- ERROR: Bolt is not a dependency of this package;
-                                             --   add "Bolt" to dependencies in hexagon.json
-                                             --   (a refused import binds no alias — Modules §5.2)
+import Geometry -- OK: Acme.Geometry, the one visible provider
+import Util -- OK: Acme.Util — Bolt is not visible to the project
+-- ERROR: Bolt is not a dependency of this package; add "Bolt" to dependencies in hexagon.json (a
+-- refused import binds no alias — Modules §5.2)
+import Bolt.Util
 -- Zed under the project's node_modules, listed by nobody; Acme (in the program) declares module Zed.Helper in a file nobody imports:
-import Zed.Tools                             -- ERROR: no module Zed.Tools — unknown module, the
-                                             --   manifest edit withheld: Acme's Zed.Helper would be
-                                             --   refused were Zed in the program (§3.3)
+-- ERROR: no module Zed.Tools — unknown module, the manifest edit withheld: Acme's Zed.Helper would
+-- be refused were Zed in the program (§3.3)
+import Zed.Tools
 -- inside Acme's module Geometry (Acme sees Acme, the prelude, and Bolt):
-import Util                                  -- OK: Acme.Util — Acme's own module wins over
-                                             --   Bolt.Util (§3.2), no contest
-import Bolt.Util as BoltUtil                 -- OK: Acme lists Bolt; `as` because the default
-                                             --   alias Util is bound above (Modules §5.2)
+-- OK: Acme.Util — Acme's own module wins over Bolt.Util (§3.2), no contest
+import Util
+-- OK: Acme lists Bolt; `as` because the default alias Util is bound above (Modules §5.2)
+import Bolt.Util as BoltUtil
 
 -- (b) Occlusion (§3.2)
 -- project: module Vector
-import Vector                                -- OK: the project's own; the prelude's Vector is
-                                             --   Hex.Vector, reachable
-import Hex.Vector as HexVector               -- OK
+-- OK: the project's own; the prelude's Vector is Hex.Vector, reachable
+import Vector
+import Hex.Vector as HexVector -- OK
 
 -- (c) Two packages contest (§3.3)
 -- project hexagon.json: {"dependencies": ["Acme", "Chroma"]}; both declare module Color
-import Color                                 -- ERROR: Color is provided by Acme and Chroma;
-                                             --   write import Acme.Color or import Chroma.Color
-import Chroma.Color                          -- OK
+-- ERROR: Color is provided by Acme and Chroma; write import Acme.Color or import Chroma.Color
+import Color
+import Chroma.Color -- OK
 
 -- (d) A package does not qualify itself (§3.3, §2.5)
 -- project hexagon.json: {"name": "MyApp"}; module Geometry
-import MyApp.Geometry                        -- ERROR: no module MyApp.Geometry; a package's own
-                                             --   modules are imported by their declared names:
-                                             --   import Geometry
+-- ERROR: no module MyApp.Geometry; a package's own modules are imported by their declared names:
+-- import Geometry
+import MyApp.Geometry
 
 -- (e) Manifest refusals, and the lookup's outcomes (§2.1, §4.1, §4.3, §4.4)
 -- the project's manifest: {"name": "Hex"}   -- ERROR: Hex is the standard library's package name
@@ -265,63 +265,51 @@ import MyApp.Geometry                        -- ERROR: no module MyApp.Geometry;
                                              --   write "Acme" — a module's name is where dots belong
                                              --   (a name written wrong — §4.4)
 -- {"dependencies": ["Lodash"]}, node_modules/lodash holding no hexagon.json
-                                             -- ERROR: no installed package declares "name": "Lodash";
-                                             --   install it, or check the name in its hexagon.json
+-- ERROR: no installed package declares "name": "Lodash"; install it, or check the name in its
+-- hexagon.json
 -- the project lists Acme and Bolt; Bolt at node_modules/@bolt/tools lists Acme; Acme is at node_modules/@acme/geometry (2.1.0)
 --   and again at node_modules/@bolt/tools/node_modules/@acme/geometry (1.4.0)
-                                             -- ERROR: package Acme is installed twice:
-                                             --   node_modules/@acme/geometry (2.1.0) and
-                                             --   node_modules/@bolt/tools/node_modules/@acme/geometry (1.4.0);
-                                             --   a program holds one copy of each Hexagon package
-                                             --   (two entries reach two directories — §4.3)
+-- ERROR: package Acme is installed twice: node_modules/@acme/geometry (2.1.0) and
+-- node_modules/@bolt/tools/node_modules/@acme/geometry (1.4.0); a program holds one copy of each
+-- Hexagon package (two entries reach two directories — §4.3)
 -- node_modules/acme-a and node_modules/acme-b both declare "name": "Acme"; the project lists Acme
-                                             -- ERROR: package Acme is installed twice: node_modules/acme-a
-                                             --   (1.0.0) and node_modules/acme-b (1.0.0); … (one level,
-                                             --   two roots, the requested name — §4.1)
+-- ERROR: package Acme is installed twice: node_modules/acme-a (1.0.0) and node_modules/acme-b
+-- (1.0.0); … (one level, two roots, the requested name — §4.1)
 -- node_modules/acme and node_modules/@acme/geometry are both links to packages/acme
-                                             -- OK: one copy, at its canonical directory (§4.3)
+-- OK: one copy, at its canonical directory (§4.3)
 -- Acme at node_modules/@acme/geometry, and again in an ancestor's node_modules
-                                             -- OK: the nearest answers; the farther is shadowed (§4.1)
+-- OK: the nearest answers; the farther is shadowed (§4.1)
 -- node_modules/acme-a and node_modules/acme-b both declare "name": "Acme"; nobody lists Acme
-                                             -- OK, silent: a scanned manifest is a candidate for the name
-                                             --   it declares and nothing more (§4.1); an import Acme.Tools
-                                             --   in the project draws the unknown-module report, no edit —
-                                             --   the diagnostic lookup refuses nothing (§4.1)
+-- OK, silent: a scanned manifest is a candidate for the name it declares and nothing more (§4.1);
+-- an import Acme.Tools in the project draws the unknown-module report, no edit — the diagnostic
+-- lookup refuses nothing (§4.1)
 -- an ancestor's node_modules/x/hexagon.json declares "name": "Hex"; nobody lists it
-                                             -- OK, silent: the name refusals are the project's manifest's;
-                                             --   a scanned manifest is a candidate for the name it declares,
-                                             --   and for none at Hex (§2.1, §4.1)
+-- OK, silent: the name refusals are the project's manifest's; a scanned manifest is a candidate for
+-- the name it declares, and for none at Hex (§2.1, §4.1)
 -- an ancestor's node_modules/@junk/x/hexagon.json is not valid JSON; every listed name resolves
-                                             -- OK, silent: a manifest the walk cannot read is no
-                                             --   candidate and stops nothing (§4.1)
+-- OK, silent: a manifest the walk cannot read is no candidate and stops nothing (§4.1)
 -- the project lists Acme; nothing declares it, and node_modules/@acme/geometry/hexagon.json
 --   is not valid JSON
-                                             -- ERROR: no installed package declares "name": "Acme";
-                                             --   install it, or check the name in its hexagon.json
-                                             --   (node_modules/@acme/geometry/hexagon.json could not
-                                             --   be read: Unexpected token …)
+-- ERROR: no installed package declares "name": "Acme"; install it, or check the name in its
+-- hexagon.json (node_modules/@acme/geometry/hexagon.json could not be read: Unexpected token …)
 -- Acme lists Bolt, Bolt lists Acme         -- ERROR: dependency cycle: Acme → Bolt → Acme
 -- Acme's manifest lists "Acme"              -- ERROR: dependency cycle: Acme → Acme
                                              --   (its lookup reaches its own directory — §4.1)
 -- project {"name": "MyApp", "dependencies": ["MyApp"]}, nothing installed under that name
-                                             -- ERROR: no installed package declares "name": "MyApp";
-                                             --   install it, or check the name in its hexagon.json
-                                             --   (its lookup reaches no directory of that name — §4.1)
+-- ERROR: no installed package declares "name": "MyApp"; install it, or check the name in its
+-- hexagon.json (its lookup reaches no directory of that name — §4.1)
 -- MyApp lists Bolt; a workspace links the project MyApp into packages/bolt/node_modules; Bolt lists MyApp
-                                             -- ERROR: dependency cycle: MyApp → Bolt → MyApp — the entry
-                                             --   reaches the project's own directory (§4.1, §4.3)
+-- ERROR: dependency cycle: MyApp → Bolt → MyApp — the entry reaches the project's own directory
+-- (§4.1, §4.3)
 -- {"name": "Acme"}, with a dependency listing Acme, found at node_modules/@acme/geometry
-                                             -- ERROR: this project declares "name": "Acme", and Acme
-                                             --   is also installed at node_modules/@acme/geometry;
-                                             --   a program holds one package of each name
+-- ERROR: this project declares "name": "Acme", and Acme is also installed at
+-- node_modules/@acme/geometry; a program holds one package of each name
 
 -- (f) Coherence and the orphan rule across packages (§5.1)
 -- Acme: module Shape — export union Shape = …; honor Show<Shape> = …
 -- project: module Main — import Shape; honor Show<Shape> = …
-                                             -- ERROR: orphan instance — Main declares neither
-                                             --   Show nor Shape; Show<Shape> is already declared
-                                             --   in module Acme.Shape (Constraints §5.3: the
-                                             --   orphan's own report, no duplicate beside it)
+-- ERROR: orphan instance — Main declares neither Show nor Shape; Show<Shape> is already declared in
+-- module Acme.Shape (Constraints §5.3: the orphan's own report, no duplicate beside it)
 
 -- (g) Emission layout (§6)
 -- project: module Main; module Render.Geometry; Acme: module Geometry
@@ -334,29 +322,25 @@ import MyApp.Geometry                        -- ERROR: no module MyApp.Geometry;
 
 -- (h) One reading of a dotted spelling; the program-wide first-segment rule (§3.3; Modules §2.2)
 -- project depends on Bolt; Bolt (listing no Acme) declares module Acme.Tools
-import Acme.Tools                            -- OK: Bolt's module by its declared name — no package
-                                             --   Acme is in the program
+-- OK: Bolt's module by its declared name — no package Acme is in the program
+import Acme.Tools
 -- the project adds a dependency Acme (module Tools):
-                                             -- ERROR at program check: module Acme.Tools of package
-                                             --   Bolt begins with the name of the package Acme, also
-                                             --   in this program; drop the dependency that brings Acme
-                                             --   or the one that brings Bolt, or combine them once
-                                             --   Acme is renamed or Bolt renames its module
+-- ERROR at program check: module Acme.Tools of package Bolt begins with the name of the package
+-- Acme, also in this program; drop the dependency that brings Acme or the one that brings Bolt, or
+-- combine them once Acme is renamed or Bolt renames its module
 -- project depends on Bolt, which depends on Acme (in the program's package set, not visible to the project):
-module Acme.Parser                           -- ERROR at program check: module Acme.Parser of the
-                                             --   project begins with the name of the package Acme,
-                                             --   also in this program (brought in by Bolt); rename
-                                             --   the module, or drop the dependency that brings Acme
+-- ERROR at program check: module Acme.Parser of the project begins with the name of the package
+-- Acme, also in this program (brought in by Bolt); rename the module, or drop the dependency that
+-- brings Acme
+module Acme.Parser
 -- project named MyApp depends on Bolt; Bolt declares module MyApp.Tools:
-                                             -- ERROR at program check: module MyApp.Tools of package
-                                             --   Bolt begins with the name of this project, MyApp;
-                                             --   rename the project or drop its manifest name, drop the
-                                             --   dependency that brings Bolt, or combine them once
-                                             --   Bolt renames its module
+-- ERROR at program check: module MyApp.Tools of package Bolt begins with the name of this project,
+-- MyApp; rename the project or drop its manifest name, drop the dependency that brings Bolt, or
+-- combine them once Bolt renames its module
 
 -- (i) The runtime modules are members of Hex like any other (§2.4)
-import Hex.Runtime.VectorTrie                -- OK: binds VectorTrie, which exports nothing
-export let n: Int = VectorTrie.size          -- ERROR: module VectorTrie does not export size
+import Hex.Runtime.VectorTrie -- OK: binds VectorTrie, which exports nothing
+export let n: Int = VectorTrie.size -- ERROR: module VectorTrie does not export size
 ```
 
 ---

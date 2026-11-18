@@ -53,6 +53,7 @@ end module Geometry
 module Shapes
 
 import Geometry
+
 export let unit(): Geometry.Point = Geometry.Point({ x = 0.0, y = 0.0 })
 
 end module Shapes
@@ -289,7 +290,9 @@ claim less than (Effects §4.2).
 
 ```
 opaque record Point = { x: Float, y: Float }
-opaque union Handle = FileHandle(fd: Int) | NetHandle(sock: Int)
+opaque union Handle =
+    | FileHandle(fd: Int)
+    | NetHandle(sock: Int)
 ```
 
 `opaque` exports the **type name only**. Everything the body introduces stays private to the home module:
@@ -310,7 +313,7 @@ A type parameter of an `opaque` declaration may carry a **variance sigil**: `+a`
 
 ```hexagon
 opaque record Seq(+a) = { pull: () -> Option((a, Seq(a))) }
-opaque record Registry(k, +v) = ...      -- claims are per-parameter
+opaque record Registry(k, +v) = ... -- claims are per-parameter
 ```
 
 - **Bare means invariant — the empty claim, and legal.** Outside the home module an unmarked parameter is treated as invariant. This is this section's own doctrine applied to the next capability: opacity hides *structure*, not *capabilities* — and every capability that crosses (`derives`, arity, now variance) crosses because the author **wrote** it. The governing principle, owned by the closure doc §6.2: **what crosses an opaque boundary must be declared, not inferred.** Inferred variance would let a private representation edit silently change *client modules'* generalization behavior — fake abstraction by another door.
@@ -376,7 +379,8 @@ export let getX(p: Point): Float = p.x
 module Consumer
 
 import Point
-let p = Point.make(1.0, 2.0)      -- Point. = module; Point in types = the type (§5.1 rule 2's companion fallback)
+-- Point. = module; Point in types = the type (§5.1 rule 2's companion fallback)
+let p = Point.make(1.0, 2.0)
 let norm(p: Point): Float = ...
 ```
 
@@ -636,25 +640,25 @@ Library versus application is therefore not a distinction in Hexagon module sema
 -- (a) Privacy default
 module Geometry
 export let area(r: Float): Float = 3.14159 * r * r
-let helper(x: Float): Float = x * x          -- private
+let helper(x: Float): Float = x * x -- private
 end module Geometry
 
 module Consumer
 import Geometry as Geo
-Geo.helper(2.0)                              -- ERROR: module Geometry does not export helper
-import { area } from "./geometry"            -- ERROR (parse): Hexagon imports name modules;
-                                             --   write import Geometry and reach area as
-                                             --   Geometry.area
+Geo.helper(2.0) -- ERROR: module Geometry does not export helper
+-- ERROR (parse): Hexagon imports name modules; write import Geometry and reach area as
+-- Geometry.area
+import { area } from "./geometry"
 
 -- (b) The companion fallbacks, both namespaces (§5.1 rules 2 and 3)
 -- module Point: export record Point = { x: Float, y: Float }
 --               export let area(p: Point): Float = p.x * p.y
 import Point
-let p = Point({ x = 1.0, y = 2.0 })          -- constructor: rule 3, through the alias
-let f(q: Point): Float = q.x                 -- type: rule 2; fields visible (not opaque)
+let p = Point({ x = 1.0, y = 2.0 }) -- constructor: rule 3, through the alias
+let f(q: Point): Float = q.x -- type: rule 2; fields visible (not opaque)
 let sum = match p with
-    Point({ x, y }) => x + y                 -- constructor pattern: rule 3 again
-let area = Point.area                        -- an unqualified name is a declaration (§3.2)
+    Point({ x, y }) => x + y -- constructor pattern: rule 3 again
+let area = Point.area -- an unqualified name is a declaration (§3.2)
 
 -- (c) Opaque is a black box outside home
 -- module Point: opaque record Point = { x: Float, y: Float }
@@ -664,49 +668,50 @@ let area = Point.area                        -- an unqualified name is a declara
 --                                            --   type name; write opaque record
 --                                            --   Point = ...
 import Point
-let p = Point.make(1.0, 2.0)                 -- OK
-p.x                                          -- ERROR: Point is opaque outside module Point
-match p with                                 -- ERROR: cannot destructure opaque record Point;
-    Point(r) => ...                          --   use an operation exported by its home module
-                                             --   (Point exports no pattern; where a home does,
-                                             --   the sentence names it: "match it with (x, y)point"
-                                             --   — Pattern Declarations §3.3)
+let p = Point.make(1.0, 2.0) -- OK
+p.x -- ERROR: Point is opaque outside module Point
+-- ERROR: cannot destructure opaque record Point; use an operation exported by its home module
+-- (Point exports no pattern; where a home does, the sentence names it: "match it with (x, y)point"
+-- — Pattern Declarations §3.3)
+match p with
+    Point(r) => ...
 
 -- (d) Companion idiom: alias/type/constructor coexistence
 import Point
-let norm(p: Point): Float = ...              -- type position: the type (§5.1 rule 2's companion fallback)
-let q = Point.make(3.0, 4.0)                 -- Point. : the module
+let norm(p: Point): Float = ... -- type position: the type (§5.1 rule 2's companion fallback)
+let q = Point.make(3.0, 4.0) -- Point. : the module
 
 -- (e) Prelude shadowing: granted at every level, reserved block-wide
-let show(x: Config): String = "..."          -- OK: occludes prelude show, module-wide
+let show(x: Config): String = "..." -- OK: occludes prelude show, module-wide
 let f(c) =
-    let show = 1                             -- ERROR: show is the module's now (§5.4 reverse)
+    let show = 1 -- ERROR: show is the module's now (§5.4 reverse)
     ...
 let g(c) =
-    let nan = 0.0                            -- OK: shadows the prelude's nan (§5.4)
+    let nan = 0.0 -- OK: shadows the prelude's nan (§5.4)
     nan
 let h(c) =
-    let x = isFinite(c)                      -- ERROR: isFinite is declared later in
-    let isFinite = c > 0.0                   --   this block (§5.4 reservation)
+    -- ERROR: isFinite is declared later in this block (§5.4 reservation)
+    let x = isFinite(c)
+    let isFinite = c > 0.0
     x
 
 -- (f) The one import collision: two aliases of one spelling
 import Circle as Shape
-import Rect as Shape                         -- ERROR: module alias Shape already bound
+import Rect as Shape -- ERROR: module alias Shape already bound
 import Circle
-import Rect                                  -- OK: each under its own name
-let area = Circle.area                       -- OK; a second `let area` is the ordinary
-                                             --   duplicate-declaration error, no import rule
+import Rect -- OK: each under its own name
+-- OK; a second `let area` is the ordinary duplicate-declaration error, no import rule
+let area = Circle.area
 import Render.Geometry
-import Physics.Geometry                      -- ERROR: module alias Geometry already bound;
-                                             --   write import Physics.Geometry as <Alias>
+-- ERROR: module alias Geometry already bound; write import Physics.Geometry as <Alias>
+import Physics.Geometry
 
 -- (g) Cycle
 -- module A: import B
 -- module B: import A                        -- ERROR: import cycle: A → B → A
 
 -- (h) Private-in-public
-union Token = Word(s: String) | Gap          -- private
+union Token = Word(s: String) | Gap -- private
 export let parse(s: String): Vector(Token) = ...
 -- ERROR: exported binding parse exposes private type Token; export the
 -- type, perhaps opaquely, or keep the binding private
@@ -717,19 +722,17 @@ export record Cursor = { at: Int, token: Token }
 
 -- (i) Instance visibility: the instance rides its home into the module's reach (§7.1, §7.6)
 -- module Config: export record Config = ...; honor Ord<Config> = ...
-import Config                                -- the type's home is reached by this import
-let sorted = Vector.sort(configs)            -- OK: Ord<Config> found, nothing else imported
-import "./config"                            -- ERROR (parse): Hexagon has no effect import;
-                                             --   a module is imported for its names —
-                                             --   import Config — or run as a root
+import Config -- the type's home is reached by this import
+let sorted = Vector.sort(configs) -- OK: Ord<Config> found, nothing else imported
+-- ERROR (parse): Hexagon has no effect import; a module is imported for its names — import Config —
+-- or run as a root
+import "./config"
 
 -- (j) Cross-module duplicate instance
 -- module A: honor Show<Weird> = ...         -- (module A declares Weird: home, legal)
 -- module B: import A; honor Show<Weird> = ...
-                                             -- ERROR in B: orphan instance — B declares
-                                             --   neither Show nor Weird; Show<Weird> is
-                                             --   already declared in module A (Constraints
-                                             --   §5.3: B's one report)
+-- ERROR in B: orphan instance — B declares neither Show nor Weird; Show<Weird> is already declared
+-- in module A (Constraints §5.3: B's one report)
 -- module C: import A; import B              -- ERROR at program check: duplicate
                                              -- instance of Show<Weird>: declared in
                                              -- module A and in module B (labels at both)
@@ -741,65 +744,65 @@ Geo.area(2.0)
 -- (the named shape — import { area } …; area(2.0) — is equally lawful, §11.2)
 -- module Tag: export union Tag = Tag(n: Int) | Other
 import Tag
-let t = Tag(7)                               -- rule 3 (§5.1); the application erases (Unions §6.4)
+let t = Tag(7) -- rule 3 (§5.1); the application erases (Unions §6.4)
 -- emits: import * as Tag from "./Tag.js";  const t = {tag: "Tag", n: 7};
 --   the import line stands for the dependency the source wrote (§11.3, §8.2's load
 --   order), not for any name the emitted body reads; a bare `Tag(7)` call would
 --   call the namespace object and is never emitted
-let mk = Tag                                 -- referenced as a value: the function
+let mk = Tag -- referenced as a value: the function
 -- emits: import * as Tag from "./Tag.js";  const mk = Tag.Tag;
 -- the project's module Deep.Nested: extern from "./world.js" declaring runner, and runner reached
 -- emits Deep/Nested.js with: import { runner } from "./world.js";   -- verbatim: it names
 --   Deep/world.js beside the emitted file — a file Hexagon does not write (FFI Part 4 §2.1;
 --   the shape is representative, §2.3 there — the specifier is the pin)
 -- /src/app.hex, module Main: extern from "./util", and /src/util.hex exists
-                                             -- ERROR: use import for Hexagon modules; extern from is
-                                             --   for foreign JavaScript — the one reading, from the
-                                             --   importing file's own directory (FFI Part 4 §2.1);
-                                             --   "./util.js" beside it is legal, a foreign file
+-- ERROR: use import for Hexagon modules; extern from is for foreign JavaScript — the one reading,
+-- from the importing file's own directory (FFI Part 4 §2.1); "./util.js" beside it is legal, a
+-- foreign file
 
 -- (l) Transparent representation reaches through an un-imported home (§4.2)
 -- module Crate: export record Crate = { n: Float }
 -- module Mid:   import Crate
 --               export let make(value: Float): Crate = Crate({ n = value })   -- rules 2 and 3
-import Mid                                   -- Crate never imported here, in any form
-Mid.make(1.5).n                              -- OK: fields travel with the type
-Mid.make(1.5).m                              -- ERROR: Crate has fields n, not m
-                                             --   (known fields named — never empty)
+import Mid -- Crate never imported here, in any form
+Mid.make(1.5).n -- OK: fields travel with the type
+-- ERROR: Crate has fields n, not m (known fields named — never empty)
+Mid.make(1.5).m
 
 -- (m) Constructors not spelled like their alias
 -- module Shape: export union Shape = Circle(radius: Float) | Rect(width: Float, height: Float)
 import Shape
-let bad = Circle(1.0)                        -- ERROR: no bare Circle; write Shape.Circle(1.0)
-let c = Shape.Circle(1.0)                    -- OK
-let describe(s: Shape): String =             -- type: rule 2
+let bad = Circle(1.0) -- ERROR: no bare Circle; write Shape.Circle(1.0)
+let c = Shape.Circle(1.0) -- OK
+let describe(s: Shape): String = -- type: rule 2
     match s with
-        Circle(r) => "circle"                -- OK: Pattern Matching §2.2's door, the
-        Rect(w, h) => "rect"                 --   scrutinee's type supplying the constructors
+        -- OK: Pattern Matching §2.2's door, the scrutinee's type supplying the constructors
+        Circle(r) => "circle"
+        Rect(w, h) => "rect"
 let isRound(s: Shape): Bool =
     match s with
-        Shape.Circle(_) => True              -- the qualified pattern, unchanged
+        Shape.Circle(_) => True -- the qualified pattern, unchanged
         _ => False
 
 -- (n) The old heads and the miscased ones, refused with the rewrite
-import Geo from "./geometry"                 -- ERROR (parse): Hexagon imports name modules;
-                                             --   write import Geometry as Geo
-import Geometry from "./geometry"            -- ERROR (parse): … write import Geometry
-import module Geo from "./geometry"          -- ERROR (parse): … write import Geometry as Geo
-import * as Geo from "./geometry"            -- ERROR (parse): same rewrite, the written alias
-                                             --   kept; no item clause
-import { area } from "./geometry"            -- ERROR (parse): … write import Geometry
-                                             --   and reach area as Geometry.area
-import Geometry as geo                       -- ERROR: a module alias is uppercase-start
-import geometry                              -- ERROR (parse): a module name is uppercase-start;
-                                             --   write import Geometry
-import render.geometry                       -- ERROR (parse): … write import Render.Geometry
-import Render.geometry                       -- ERROR (parse): … write import Render.Geometry
-import geometry as Geo                       -- ERROR (parse): … write import Geometry as Geo
-import geometry as geo                       -- ERROR (parse): … write import Geometry as Geo
-import 用户 as Geo                             -- ERROR (parse): … write import <Name> as Geo
-import _internal.util                        -- ERROR (parse): … write import <Name> — no lawful
-                                             --   name results, so the slot, never _internal.Util
+-- ERROR (parse): Hexagon imports name modules; write import Geometry as Geo
+import Geo from "./geometry"
+import Geometry from "./geometry" -- ERROR (parse): … write import Geometry
+import module Geo from "./geometry" -- ERROR (parse): … write import Geometry as Geo
+-- ERROR (parse): same rewrite, the written alias kept; no item clause
+import * as Geo from "./geometry"
+-- ERROR (parse): … write import Geometry and reach area as Geometry.area
+import { area } from "./geometry"
+import Geometry as geo -- ERROR: a module alias is uppercase-start
+-- ERROR (parse): a module name is uppercase-start; write import Geometry
+import geometry
+import render.geometry -- ERROR (parse): … write import Render.Geometry
+import Render.geometry -- ERROR (parse): … write import Render.Geometry
+import geometry as Geo -- ERROR (parse): … write import Geometry as Geo
+import geometry as geo -- ERROR (parse): … write import Geometry as Geo
+import 用户 as Geo -- ERROR (parse): … write import <Name> as Geo
+-- ERROR (parse): … write import <Name> — no lawful name results, so the slot, never _internal.Util
+import _internal.util
 
 -- (o) Headers and closers (§2.1, §2.2; the strangers' unbound alias, self-qualification and the own-type carve, §5.1)
 -- search-params.hex, no header:
@@ -808,122 +811,116 @@ export let parse(s: String): Vector(String) = ...
 
 module Geometry
 export record Point = { x: Float, y: Float }
-module Shapes                                -- ERROR: a file holding several modules closes
-                                             --   each with end module Geometry (fixit
-                                             --   inserts the closer above this line)
+-- ERROR: a file holding several modules closes each with end module Geometry (fixit inserts the
+-- closer above this line)
+module Shapes
 
 module Geometry
 export record Point = { x: Float, y: Float }
-end module Shapes                            -- ERROR: end module Shapes closes module
-                                             --   Geometry; write end module Geometry
+-- ERROR: end module Shapes closes module Geometry; write end module Geometry
+end module Shapes
 
 module Geometry
 export record Point = { x: Float, y: Float }
 end module Geometry
-let stray = 1                                -- ERROR: code outside a module
+let stray = 1 -- ERROR: code outside a module
 
 module Geometry
 export record Point = { x: Float, y: Float }
-end module Geometry                          -- OK: the closer, optional in a one-module file,
-                                             --   is legal there too
+-- OK: the closer, optional in a one-module file, is legal there too
+end module Geometry
 
 -- geometry.hex, header miscased:
-module geometry                              -- ERROR (parse): a module name is uppercase-start;
-                                             --   write module Geometry; the file is then read under
-                                             --   Geometry, so no headerless report follows
+-- ERROR (parse): a module name is uppercase-start; write module Geometry; the file is then read
+-- under Geometry, so no headerless report follows
+module geometry
 export record Point = { x: Float, y: Float }
-end module geometry                          -- ERROR: end module geometry closes module Geometry;
-                                             --   write end module Geometry (§2.2's rule, unchanged)
+-- ERROR: end module geometry closes module Geometry; write end module Geometry (§2.2's rule,
+-- unchanged)
+end module geometry
 
 -- util.hex:
-module hex.util                              -- ERROR (parse): a module name is uppercase-start;
-                                             --   write module Hex.Util
-                                             -- ERROR: Hex.Util begins with the name of the package
-                                             --   Hex; a dotted module's first segment cannot name a
-                                             --   package in the program; rename the module
-                                             --   (two reports at one line; the rename repairs)
+-- ERROR (parse): a module name is uppercase-start; write module Hex.Util
+-- ERROR: Hex.Util begins with the name of the package Hex; a dotted module's first segment cannot
+-- name a package in the program; rename the module (two reports at one line; the rename repairs)
+module hex.util
 
 -- a.hex:
-module 用户                                    -- ERROR (parse): a module name is uppercase-start;
-                                             --   write module <Name>
+-- ERROR (parse): a module name is uppercase-start; write module <Name>
+module 用户
 -- b.hex:
-module 用户                                    -- ERROR (parse): a module name is uppercase-start;
-                                             --   write module <Name>
-                                             -- ERROR: module 用户 is declared twice: a.hex (line 1)
-                                             --   and b.hex (line 1); rename the module (the recovered
-                                             --   names collide; no dotted hint, none being lawful)
+-- ERROR (parse): a module name is uppercase-start; write module <Name>
+-- ERROR: module 用户 is declared twice: a.hex (line 1) and b.hex (line 1); rename the module (the
+-- recovered names collide; no dotted hint, none being lawful)
+module 用户
 
 -- internal.hex:
-module _internal.util                        -- ERROR (parse): a module name is uppercase-start;
-                                             --   write module <Name> — the slot, never _internal.Util;
-                                             --   the reading recovers under _internal.util
+-- ERROR (parse): a module name is uppercase-start; write module <Name> — the slot, never
+-- _internal.Util; the reading recovers under _internal.util
+module _internal.util
 
 -- (a second file, two modules:)
 module Geometry
 export record Point = { x: Float, y: Float }
 export let scale: Float = 1.0
-export let p: Point = Point.make(1.0, 1.0)   -- ERROR: Point is a type, not a module — no repair
-                                             --   named: the use does not yet see make below it —
-                                             --   only a fun block's members do (Functions §7.2–§7.3)
+-- ERROR: Point is a type, not a module — no repair named: the use does not yet see make below it —
+-- only a fun block's members do (Functions §7.2–§7.3)
+export let p: Point = Point.make(1.0, 1.0)
 export let make(x: Float, y: Float): Point = Point({ x = x, y = y })
-export let o: Point = Point.make(0.0, 0.0)   -- ERROR: Point is a type, not a module; write
-                                             --   make(0.0, 0.0) (the module's own type: the drop,
-                                             --   never import Geometry into itself)
-end module Geometry                          -- required: a second module follows (§2.2)
+-- ERROR: Point is a type, not a module; write make(0.0, 0.0) (the module's own type: the drop,
+-- never import Geometry into itself)
+export let o: Point = Point.make(0.0, 0.0)
+end module Geometry -- required: a second module follows (§2.2)
 module Shapes
-export let unit(): Geometry.Point = ...      -- ERROR: no module alias Geometry; import Geometry
-                                             --   (strangers, §2.2 — sharing a file binds nothing;
-                                             --   the applied edit inserts import Geometry below
-                                             --   the module Shapes header, §5.1)
-export let two: Float = 2.0 * Geometry.scale -- ERROR: the same report in term position — the
-                                             --   same edit; applying both applies one (§5.1)
-export let four: Float = Shapes.two * 2.0    -- ERROR: a module does not qualify through itself;
-                                             --   write two (bare two resolves to the module's
-                                             --   own binding here: the applied edit drops the
-                                             --   qualifier)
-export let grow(two: Float): Float =         -- ERROR: a module does not qualify through itself —
-    Shapes.two * two                         --   no repair named: bare two here is the parameter
+-- ERROR: no module alias Geometry; import Geometry (strangers, §2.2 — sharing a file binds nothing;
+-- the applied edit inserts import Geometry below the module Shapes header, §5.1)
+export let unit(): Geometry.Point = ...
+-- ERROR: the same report in term position — the same edit; applying both applies one (§5.1)
+export let two: Float = 2.0 * Geometry.scale
+-- ERROR: a module does not qualify through itself; write two (bare two resolves to the module's own
+-- binding here: the applied edit drops the qualifier)
+export let four: Float = Shapes.two * 2.0
+-- ERROR: a module does not qualify through itself — no repair named: bare two here is the parameter
+export let grow(two: Float): Float =
+    Shapes.two * two
 -- (a third file, in a project depending on Acme:)
-module Acme.Geometry                         -- ERROR: Acme.Geometry begins with the name of the
-                                             --   package Acme; a dotted module's first segment
-                                             --   cannot name a package in the program; rename the
-                                             --   module (§2.2)
+-- ERROR: Acme.Geometry begins with the name of the package Acme; a dotted module's first segment
+-- cannot name a package in the program; rename the module (§2.2)
+module Acme.Geometry
 -- (a fourth file:)
-module Json                                  -- OK beside a dependency Json: undotted (§2.2)
+module Json -- OK beside a dependency Json: undotted (§2.2)
 let f() =
-    module Inner                             -- ERROR: module and end module mark a module at a
-                                             --   file's top level; a module cannot be declared
-                                             --   or closed inside a block
+    -- ERROR: module and end module mark a module at a file's top level; a module cannot be declared
+    -- or closed inside a block
+    module Inner
 
 -- (p) Names, and what an importer may omit (§2.3)
 -- project: module Render.Geometry; module Physics.Geometry; package Acme: module Geometry
-import Geometry                              -- OK: Acme.Geometry — the project has no module
-                                             --   named exactly Geometry, and one package does
-import Render.Geometry                       -- ERROR: module alias Geometry already bound —
-                                             --   the default alias is the last segment; write `as`
+-- OK: Acme.Geometry — the project has no module named exactly Geometry, and one package does
+import Geometry
+-- ERROR: module alias Geometry already bound — the default alias is the last segment; write `as`
+import Render.Geometry
 -- project: module Geometry; package Acme: module Geometry
-import Geometry                              -- OK: the project's own (§2.3), silently
-import Acme.Geometry as AcmeGeo              -- OK: the package's, by its full name
+import Geometry -- OK: the project's own (§2.3), silently
+import Acme.Geometry as AcmeGeo -- OK: the package's, by its full name
 -- project: none; packages Acme and Hex: module Geometry each
-import Geometry                              -- ERROR: Geometry is provided by Acme and Hex;
-                                             --   write import Acme.Geometry or import Hex.Geometry
-import Hex.Option as Opt                     -- OK: a second alias onto a prelude module
+-- ERROR: Geometry is provided by Acme and Hex; write import Acme.Geometry or import Hex.Geometry
+import Geometry
+import Hex.Option as Opt -- OK: a second alias onto a prelude module
 -- project depending on Acme (module Tools) and Bolt (module Acme.Tools; Bolt lists no Acme):
-                                             -- ERROR at program check: module Acme.Tools of package
-                                             --   Bolt begins with the name of the package Acme, also
-                                             --   in this program; drop the dependency that brings Acme
-                                             --   or the one that brings Bolt, or combine them once
-                                             --   Acme is renamed or Bolt renames its module (§2.2)
+-- ERROR at program check: module Acme.Tools of package Bolt begins with the name of the package
+-- Acme, also in this program; drop the dependency that brings Acme or the one that brings Bolt, or
+-- combine them once Acme is renamed or Bolt renames its module (§2.2)
 -- project depending on Bolt alone:
-import Acme.Tools                            -- OK: Bolt's module, by its declared name — no package
-                                             --   Acme is in the program, so the spelling has one
-                                             --   reading (§2.3); binds Tools
-import Bolt.Acme.Tools as BoltTools          -- OK: the full name; `as` because the default alias
-                                             --   Tools is bound above (§5.2)
+-- OK: Bolt's module, by its declared name — no package Acme is in the program, so the spelling has
+-- one reading (§2.3); binds Tools
+import Acme.Tools
+-- OK: the full name; `as` because the default alias Tools is bound above (§5.2)
+import Bolt.Acme.Tools as BoltTools
 -- project named MyApp, module Geometry:
-import MyApp.Geometry                        -- ERROR: no module MyApp.Geometry; a package's own
-                                             --   modules are imported by their declared names:
-                                             --   import Geometry
+-- ERROR: no module MyApp.Geometry; a package's own modules are imported by their declared names:
+-- import Geometry
+import MyApp.Geometry
 ```
 
 ---

@@ -33,8 +33,8 @@ The parenthesized expression production (`()` / group / tuple) gains one clause:
 Within an element, `:` binds loosest: the entire element expression is ascribed. This is the element grammar's own rule, stated here as its owner: an element's delimiters — `,`, `)`, and now `:` — end whatever expression form is open, including the eats-right forms (Operators §3.2 — lambda, `if`, `match`, which that section bounds by closing delimiters and layout; the comma-stop inside brackets has always been the parenthesized form's own behavior, and the colon-stop joins it):
 
 ```
-(x => x: a -> a)           -- the LAMBDA is ascribed: ((x => x): a -> a)
-(if p then 1 else 2: Int)  -- the if-expression is ascribed
+(x => x: a -> a) -- the LAMBDA is ascribed: ((x => x): a -> a)
+(if p then 1 else 2: Int) -- the if-expression is ascribed
 ```
 
 To ascribe something *inside* such a form, parenthesize inside it: `x => (x: Int)`. This is the same resolution the comma already imposes on eats-right forms in tuples, applied to the same delimiter set.
@@ -70,10 +70,10 @@ A type variable written in an ascription is what it is in every other annotation
 Consequences, in the order a reader meets them:
 
 ```
-let f(x: a): a = (x: a)         -- the inner a IS the declaration's a; trivially fine
-let id = (x => x: a -> a)       -- fine: the identity genuinely is that general
-let inc = (x => x + 1: a -> a)  -- fine: Num is inferred for a; inc : <a: Num> a -> a
-let n = (42: a)                 -- ERROR — defaulting reaches declared a; rigidity refuses
+let f(x: a): a = (x: a) -- the inner a IS the declaration's a; trivially fine
+let id = (x => x: a -> a) -- fine: the identity genuinely is that general
+let inc = (x => x + 1: a -> a) -- fine: Num is inferred for a; inc : <a: Num> a -> a
+let n = (42: a) -- ERROR — defaulting reaches declared a; rigidity refuses
 ```
 
 The third line is the accumulation contract at work, and it is deliberately not an error: `+` demands `Num`, the demand accumulates on rigid `a`, and `inc` elaborates constrained-polymorphic — usable at `Int` and `Float` alike. Nothing was silently concretized; the structure claim `a -> a` was checked and holds. This is precisely `let numeric(value: a) = value + 1` (Functions §4.1, legal) restated at expression granularity — one spelling, one meaning. A reader who wants a written floor without a generality claim has the constrained-hole spelling — `(x => x + 1: (_: Num) -> _)`, the annotation doctrine's floor form (§3.2); where the variable claim is true and meant, as here, the variable is the canonical spelling (S12, §3.2).
@@ -91,10 +91,10 @@ This is a **deliberate divergence from OCaml**, whose annotation variables are u
 An ascription is an **inference-checked annotation position**, so type holes apply by the annotation doctrine's own rule (`decisions-ml-dialect-annotations-2026-08.md` §5.1, whose §5.5 records this position explicitly): every type position inside the ascribed type admits `_`, and a hole may carry a constraint list.
 
 ```
-(parse(raw): Vector(_))          -- claim the constructor, infer the element
+(parse(raw): Vector(_)) -- claim the constructor, infer the element
 (scores: Map(String, _))
-(x => x + 1: (_: Num) -> _)      -- the written floor; see §3.1
-((v.sum()): _: Num)              -- whole-type constrained hole: floor with no structure claim
+(x => x + 1: (_: Num) -> _) -- the written floor; see §3.1
+((v.sum()): _: Num) -- whole-type constrained hole: floor with no structure claim
 ```
 
 Nothing here is this spec's to define: hole semantics (fresh metavariable, monotype fill, floor-never-cap constraint seeding, substitution sharing) are the closure doc's, unchanged. Two consequences are worth recording in place:

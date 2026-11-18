@@ -15,7 +15,7 @@ Written for a future implementation session against the existing `hexc` architec
 - **The semantics is one rewrite.** For a receiver of known companion-bearing type:
 
   ```
-  receiver.name(args…)   ⇒   CompanionOf(receiverType).name(receiver, args…)
+  receiver.name(args…) ⇒ CompanionOf(receiverType).name(receiver, args…)
   ```
 
   After resolution, a dot call **is** an ordinary qualified function call. No runtime methods, no `this`, no prototype, no wrapper object, no dynamic property lookup, no method table exists at any point. *(Rewrite formulation: Sol.)*
@@ -35,9 +35,9 @@ Written for a future implementation session against the existing `hexc` architec
 ### 2.1 The form
 
 ```
-e.name(args…)        -- dot call: decided at the dot (§2.2, §3)
-e.name               -- bare dot: field access (Products §3.2) / itemN (Products §2.3), always
-(e.name)(args…)      -- parenthesized: field access, then an ordinary call — no dispatch
+e.name(args…) -- dot call: decided at the dot (§2.2, §3)
+e.name -- bare dot: field access (Products §3.2) / itemN (Products §2.3), always
+(e.name)(args…) -- parenthesized: field access, then an ordinary call — no dispatch
 ```
 
 - The dot-call form is precisely: a level-1 postfix expression (Operators §10), a `.`, a **non-uppercase-start** term name, and an **immediately following argument list**. It is a dot call only in this exact shape.
@@ -201,10 +201,10 @@ member is not subject-first.
 **`T`-headed is a syntactic test, not a unification question**: after expanding transparent aliases, the first parameter's outermost type constructor is `T` itself. Constructing the candidate set is therefore a **declaration-indexing operation** — decidable per declaration, once, with no speculative unification anywhere (many types *unify* with `T(…)`, starting with a fresh variable; none of that is consulted). *(Syntactic formulation: Sol.)* Worked examples:
 
 ```
-map(v: Vector(a), f: a -> b): Vector(b)    -- included: outermost constructor is Vector
-empty(): Vector(a)                           -- excluded: no first parameter
-make(x: Float, y: Float): Point              -- excluded: first parameter not Point-headed
-identity(x: a): a                            -- excluded: bare type variable, no constructor
+map(v: Vector(a), f: a -> b): Vector(b) -- included: outermost constructor is Vector
+empty(): Vector(a) -- excluded: no first parameter
+make(x: Float, y: Float): Point -- excluded: first parameter not Point-headed
+identity(x: a): a -- excluded: bare type variable, no constructor
 ```
 
 - **Exported only, uniformly** — including inside the home module itself. Making private functions dot-callable inside-only would give a type a visibility-dependent method set; inside the home module bare calls are available anyway. (Alternative rejected, §11.9.)
@@ -315,9 +315,9 @@ Two footnotes the old text carried, updated: a companion cannot export a monomor
 Resolved companion dispatch is an ordinary qualified call before lowering; **the dot-call node does not survive into codegen**. Emission is whatever the equivalent hand-written call emits:
 
 ```
-v.at(3)          -- emits: at(v, 3)         (named import per Modules §11)
+v.at(3) -- emits: at(v, 3) (named import per Modules §11)
 opt.defaultValue(0) -- emits: defaultValue(opt, 0), or its established inlining
-r.callback(3)    -- (field call) emits: r.callback(3)   — the honest POJO read
+r.callback(3) -- (field call) emits: r.callback(3) — the honest POJO read
 ```
 
 Field-resolved dot calls emit *as themselves* — a JS property access and call on a POJO, which is exactly what the semantics is. Companion-resolved calls retain the resolved declaration's ordinary lowering: a Hexagon-defined operation emits the named-import call, subject to established inlining rights, while an extern receiver member retains its FFI linkage and may emit a receiver call or property access directly (FFI Part 5 §9). **Member-resolved calls emit exactly what the constraint-qualified member call — or the bare one, where the prelude seeds it — emits at the same type** (Constraints §6.1/§6.5): the concrete instance's slot where selection erases, the forwarder with passed evidence where it does not — the dot spelling adds no emission shape of its own. Method Syntax itself adds no runtime method, prototype change, or hidden `this`.
@@ -452,131 +452,134 @@ Credit: the rewrite formulation, opportunistic timing, name-based collision rule
 ```
 -- (a) The three spellings converge
 let v: Vector(Int) = Vector.of(1, 2, 3)
-Vector.at(v, 2)                    -- OK : Int
-v |> Vector.at(2)                  -- OK : Int, same elaboration
-v.at(2)                            -- OK : Int, same elaboration
+Vector.at(v, 2) -- OK : Int
+v |> Vector.at(2) -- OK : Int, same elaboration
+v.at(2) -- OK : Int, same elaboration
 
 -- (b) Chain: left to right at the dot, no annotations beyond the first subject's
-v.map(x => x * 2).take(2).at(1)    -- OK : Int  (each link's subject is the call before
-                                   --   it, which the text decides where v is decided)
+-- OK : Int (each link's subject is the call before it, which the text decides where v is decided)
+v.map(x => x * 2).take(2).at(1)
 
 -- (c) Tier-0 row polymorphism: the record spelling (§3.6)
-let f(r) = (r.callback)(3)         -- OK : { callback: Int -> a, ... } -> a
-f({ callback = n => n + 1 })        -- OK : Int
-let f2(r) = r.callback(3)          -- ERROR (row 17): the text does not decide `r`'s type
+let f(r) = (r.callback)(3) -- OK : { callback: Int -> a, ... } -> a
+f({ callback = n => n + 1 }) -- OK : Int
+let f2(r) = r.callback(3) -- ERROR (row 17): the text does not decide `r`'s type
 
 -- (d) Evidence from another line never decides a subject, in either order (§3.1)
 let g(v) =
-    let x = v.at(3)                  -- ERROR (row 17): `v` has no written type
+    let x = v.at(3) -- ERROR (row 17): `v` has no written type
     Vector.length(v)
     x
+
 let g2(v) =
     Vector.length(v)
-    v.at(3)                          -- ERROR (row 17): the same — the line above is
-                                   --   inference, not text
-let g3(v: Vector(a)) = v.at(3)     -- OK — written; or Vector.at(v, 3), the module's spelling
+    -- ERROR (row 17): the same — the line above is inference, not text
+    v.at(3)
+
+let g3(v: Vector(a)) = v.at(3) -- OK — written; or Vector.at(v, 3), the module's spelling
 
 -- (e) Annotated form dispatches; no other evidence needed
-let h(v: Vector(Int)) = v.at(3)    -- OK: Vector.at(v, 3)
+let h(v: Vector(Int)) = v.at(3) -- OK: Vector.at(v, 3)
 
 -- (f) Member names never nominate
-let k(x) = x.at(3)                 -- ERROR (row 17): `at` chooses neither a type nor a module
+let k(x) = x.at(3) -- ERROR (row 17): `at` chooses neither a type nor a module
 
 -- (g) The record spelling's row meeting a nominal: the enriched report (row 8)
-let first(v) = (v.at)(1)           -- OK : { at: Int -> a, ... } -> a, the row type
-first(Vector.of(9))                -- ERROR (row 8): this value's type was inferred as a
-                                   --   record with a `at` field because its type was
-                                   --   unknown where it was written; `Vector(Int)` is
-                                   --   not a record; annotate it to use dispatch, or
-                                   --   call `Vector.at(…)` directly
+let first(v) = (v.at)(1) -- OK : { at: Int -> a, ... } -> a, the row type
+-- ERROR (row 8): this value's type was inferred as a record with a `at` field because its type was
+-- unknown where it was written; `Vector(Int)` is not a record; annotate it to use dispatch, or call
+-- `Vector.at(…)` directly
+first(Vector.of(9))
 
 -- (h) Collision, use-site, both fixits
 -- box.hex: export record Box = { size: Int }
 --          export let size(b: Box): Int = b.size * 2
 let b = Box({ size = 3 })
-b.size                             -- OK : Int      (bare dot = field, always)
-(b.size)                           -- OK : Int
-b.size()                           -- ERROR (row 1): ambiguous — field `size` /
-                                   --   companion `Box.size`. Write `Box.size(b)` to
-                                   --   call the companion operation; write `b.size`
-                                   --   to access the field.  [field is Int — not
-                                   --   callable, so `(b.size)()` is NOT offered (§6)]
-Box.size(b)                        -- OK : Int
+b.size -- OK : Int (bare dot = field, always)
+(b.size) -- OK : Int
+-- ERROR (row 1): ambiguous — field `size` / companion `Box.size`. Write `Box.size(b)` to call the
+-- companion operation; write `b.size` to access the field. [field is Int — not callable, so
+-- `(b.size)()` is NOT offered (§6)]
+b.size()
+Box.size(b) -- OK : Int
 
 -- (i) Non-subject-first export is invisible after the dot
-v.empty()                          -- ERROR (row 5): `Vector` has no field `empty`;
-                                   --   `Vector.empty` does not take a `Vector` as its
-                                   --   first argument; call it as `Vector.empty()`
+-- ERROR (row 5): `Vector` has no field `empty`; `Vector.empty` does not take a `Vector` as its
+-- first argument; call it as `Vector.empty()`
+v.empty()
 
 -- (j) Declared type variable with a matching bound member: dispatch
 --     [flipped by #304/#335 — was the row-6 redirect; §16.2]
 let cmp<a: Ord>(x: a, y: a) =
-    x.compare(y)                     -- OK : Ordering — `compare` dispatched through
-                                   --   the binder's `Ord` evidence; same elaboration
-                                   --   as the qualified call at that type
+    -- OK : Ordering — `compare` dispatched through the binder's `Ord` evidence; same elaboration as
+    -- the qualified call at that type
+    x.compare(y)
 
 -- (j2) Declared type variable, no matching member: the options message
 let go(x: a) =
-    x.process()                      -- ERROR (row 7): `a` is a declared type variable,
-                                   --   so `.process` can only be one of its
-                                   --   constraints' members, and none of `a`'s
-                                   --   constraints has a subject-first member
-                                   --   `process`; add the constraint to the
-                                   --   parameter's binder, use a concrete nominal
-                                   --   type, or call a qualified function
+    -- ERROR (row 7): `a` is a declared type variable, so `.process` can only be one of its
+    -- constraints' members, and none of `a`'s constraints has a subject-first member `process`; add
+    -- the constraint to the parameter's binder, use a concrete nominal type, or call a qualified
+    -- function
+    x.process()
 
 -- (j3) The four-row #304 table: member dispatch on primitives
-42.show()                          -- OK : "42"  — the literal's default, Int, taken at the
-                                   --   dot (§3.3); Show<Int>'s member
-(42: Nat).show()                   -- OK : "42"  — head-known Nat, Show<Nat>'s member
-42n.show()                         -- OK : "42"  — head-known BigInt, Show<BigInt>'s member
-42.0.show()                        -- OK : "42"  — head-known Float, Show<Float>'s member
-7.div(2)                           -- OK : 3     — Int at the dot; Integral's member at
-                                   --   Int, no companion module involved
+-- OK : "42" — the literal's default, Int, taken at the dot (§3.3); Show<Int>'s member
+42.show()
+(42: Nat).show() -- OK : "42" — head-known Nat, Show<Nat>'s member
+42n.show() -- OK : "42" — head-known BigInt, Show<BigInt>'s member
+42.0.show() -- OK : "42" — head-known Float, Show<Float>'s member
+-- OK : 3 — Int at the dot; Integral's member at Int, no companion module involved
+7.div(2)
 
 -- (j4) Member ambiguity: two honored constraints claim one spelling
 -- loud.hex: constraint Loud<a> = volume(x: a) -> Int ;  honor Loud<Gauge> = ...
 -- soft.hex: constraint Soft<a> = volume(x: a) -> Int ;  honor Soft<Gauge> = ...
-g.volume()                         -- ERROR (row 6): both `Loud`'s member and `Soft`'s
-                                   --   member claim `volume` at `Gauge`; write
-                                   --   `Loud.volume(g)` or `Soft.volume(g)`
+-- ERROR (row 6): both `Loud`'s member and `Soft`'s member claim `volume` at `Gauge`; write
+-- `Loud.volume(g)` or `Soft.volume(g)`
+g.volume()
 
 -- (k) Nominal union receiver (no field surface, no collision possible)
 let o: Option(Int) = Some(3)
-o.defaultValue(0)                     -- OK : Int   (companion: Option.defaultValue)
+o.defaultValue(0) -- OK : Int (companion: Option.defaultValue)
 
 -- (l) Transparent alias inherits companion
 type Name = String
 let n: Name = "hex"
-n.length()                         -- OK : Int   (String's companion; `Name` adds none)
+n.length() -- OK : Int (String's companion; `Name` adds none)
 
 -- (m) Opaque outside home: pure companion surface
 -- point.hex: opaque record Point = { x: Float, y: Float }
 --            export let getX(p: Point): Float = p.x
-p.getX()                           -- OK : Float  (outside home; field x invisible,
-                                   --   no collision possible)
-p.x                                -- ERROR: existing opacity error (Modules §4.2)
+-- OK : Float (outside home; field x invisible, no collision possible)
+p.getX()
+p.x -- ERROR: existing opacity error (Modules §4.2)
 
 -- (n) A literal subject and an unknown name: the refusal is phrased against Int
-let n = 7.total(1)                 -- ERROR (row 4): Int at the dot (§3.3), and `total` is
-                                   --   no field, companion operation, or honored member
-                                   --   of Int
+-- ERROR (row 4): Int at the dot (§3.3), and `total` is no field, companion operation, or honored
+-- member of Int
+let n = 7.total(1)
 let m(x) = Num.multiply(x, x.total(1)) -- ERROR (row 17): `x` has no written type
 
 -- (o) Field-resolved dot call emits as itself
+-- emits: r.step(1) — POJO read, honest JS
 let run(r: { step: Int -> Int, ... }) = r.step(1)
-                                   -- emits: r.step(1)   — POJO read, honest JS
 
 -- (p) A member of an open `fun` block: its result is not decided inside the block (§3.1)
 fun
+    -- ERROR (row 17), in either member order
     a(n: Int): Bool = if n > 3 then b(n).isEmpty() else a(n + 1)
-                                   -- ERROR (row 17), in either member order
-    b(n: Int): Vector(Int) = if n > 9 then [n] else (if a(n) then [] else [1])
+    b(n: Int): Vector(Int) =
+        if n > 9 then
+            [n]
+        else
+            (if a(n) then [] else [1])
+
 --  Vector.isEmpty(b(n)) — the module's spelling — is OK
 
 -- (q) Rows connect by ordinary unification through the record spelling (§3.6)
-let w(x) = ((x.make)().run)()      -- OK — make's result row unifies with run's
-                                   --   receiver row; w is row-polymorphic
+-- OK — make's result row unifies with run's receiver row; w is row-polymorphic
+let w(x) = ((x.make)().run)()
 
 -- (r) Home-module declaration order (§4.4): declared-below is its own error
 -- box.hex: export record Box = { value: Int }
@@ -596,157 +599,179 @@ let w(x) = ((x.make)().run)()      -- OK — make's result row unifies with run'
 
 -- (t) Tower members widen through the dot, in every spelling (#808)
 --     count : Int, price : Float, i, j : Int, b : BigInt, n, m : Nat
-count * price                      -- OK : Float
-Num.multiply(count, price)         -- OK : Float
-count |> Num.multiply(price)       -- OK : Float — widening and the lift reach through the pipe
-count.multiply(price)              -- OK : Float   [was refused: "expected Int, found Float"]
-price.multiply(count)              -- OK : Float   [was refused]
-Float.multiply(count, price)       -- OK : Float — a written face; the Int widens into it
-Int.multiply(count, price)         -- ERROR: a written face; a Float cannot enter Int
-let total: Rat = count * price     -- ERROR, in every spelling — a Float never enters Rat
-let r: BigInt = i.add(j)           -- OK — emits BigInt(i) + BigInt(j)
-                                   --   [was BigInt(add(i, j)): Int addition, then injection]
-let s: BigInt = i |> Num.add(j)    -- OK — the same   [was BigInt(add(i, j)) likewise]
-let q: BigInt = i.div(j)           -- OK — Integral.div lifted; no operator spells it
-                                   --   [was BigInt(div(i, j)): Int division, then injection]
-i.add(b)                           -- OK : BigInt — emits BigInt(i) + b   [was refused]
-b.add(i)                           -- OK : BigInt — emits b + BigInt(i)   [was refused]
-i.compare(b)                       -- OK : Ordering — Ord is no rung; the seat injects i
-                                   --   [was refused: "expected Int, found BigInt"]
-i.equals(b)                        -- OK : Bool — likewise; emits BigInt(i) === b (§8.1)   [was refused]
-let d: Int = n.subtract(m)         -- OK — Nat owns Signed's members (§4.2); runs at Int
-                                   --   [was refused: no member `subtract` at Nat]
-n.subtract(m)                      -- ERROR (row 15): exactly `n - m`'s refusal — no face
-i.pow(2n)                          -- ERROR (row 14): the exponent seat is Int; the fixit
-                                   --   names BigInt.pow — as `i ** 2n` and Pow.pow(i, 2n)
-b.pow(i)                           -- OK — the door; i injected: pow(b, BigInt(i))   [was refused]
+count * price -- OK : Float
+Num.multiply(count, price) -- OK : Float
+count |> Num.multiply(price) -- OK : Float — widening and the lift reach through the pipe
+count.multiply(price) -- OK : Float [was refused: "expected Int, found Float"]
+price.multiply(count) -- OK : Float [was refused]
+Float.multiply(count, price) -- OK : Float — a written face; the Int widens into it
+Int.multiply(count, price) -- ERROR: a written face; a Float cannot enter Int
+let total: Rat = count * price -- ERROR, in every spelling — a Float never enters Rat
+-- OK — emits BigInt(i) + BigInt(j) [was BigInt(add(i, j)): Int addition, then injection]
+let r: BigInt = i.add(j)
+let s: BigInt = i |> Num.add(j) -- OK — the same [was BigInt(add(i, j)) likewise]
+-- OK — Integral.div lifted; no operator spells it [was BigInt(div(i, j)): Int division, then
+-- injection]
+let q: BigInt = i.div(j)
+i.add(b) -- OK : BigInt — emits BigInt(i) + b [was refused]
+b.add(i) -- OK : BigInt — emits b + BigInt(i) [was refused]
+-- OK : Ordering — Ord is no rung; the seat injects i [was refused: "expected Int, found BigInt"]
+i.compare(b)
+i.equals(b) -- OK : Bool — likewise; emits BigInt(i) === b (§8.1) [was refused]
+-- OK — Nat owns Signed's members (§4.2); runs at Int [was refused: no member `subtract` at Nat]
+let d: Int = n.subtract(m)
+n.subtract(m) -- ERROR (row 15): exactly `n - m`'s refusal — no face
+-- ERROR (row 14): the exponent seat is Int; the fixit names BigInt.pow — as `i ** 2n` and
+-- Pow.pow(i, 2n)
+i.pow(2n)
+b.pow(i) -- OK — the door; i injected: pow(b, BigInt(i)) [was refused]
+-- OK — one Signed<a> dictionary, count injected through fromInt; value.multiply(count) and count *
+-- value elaborate identically [was refused]
 let scale<a: Signed>(count: Int, value: a): a = count.multiply(value)
-                                   -- OK — one Signed<a> dictionary, count injected through
-                                   --   fromInt; value.multiply(count) and count * value
-                                   --   elaborate identically   [was refused]
 
 -- (u) Every spelling of an operator-backed member at a primitive representation emits
 --     the operator's lowering (#808 rider; §8.1) — i, j : Int, f, g : Float, s, t : String,
 --     p, q : Bool, r : Rat
-i.equals(j)                        -- emits i === j            [was equals(i, j)]
-i.notEquals(j)                     -- emits !(i === j)         [was notEquals(i, j)] — the
-                                   --   lowering `i != j` has, verbatim; not `!==`
-f.equals(g)                        -- emits what `f == g` emits (SameValueZero, helper and all)
-p.equals(q)                        -- emits p === q            [was __Eq_Bool.equals(p, q)]
-s.concat(t)                        -- emits s + t              [was concat(s, t)]
-i.negate()                         -- emits -i                 [was negate(i)]
-f.divide(g)                        -- emits f / g              [was divide(f, g)]
-Pow.pow(f, i)                      -- emits f ** i             [was pow(f, i)] — the member at
-                                   --   Float, total; its `**` lowers natively
-f.pow(g)                           -- stays the door's call (§6.1, §14(t)) — a written face with a
-                                   --   Float exponent seat; no operator spells it (`f ** g` refuses)
-i.pow(j)                           -- emits pow(i, j)          — guarded; `**` is no operator here
-i.compare(j)                       -- emits compare(i, j)      — no operator carries compare
-r.add(r)                           -- emits add(r, r)          — object representation; untouched
-                                   --   (multi-module fixture: `Rat` is imported, not prelude)
+i.equals(j) -- emits i === j [was equals(i, j)]
+-- emits !(i === j) [was notEquals(i, j)] — the lowering `i != j` has, verbatim; not `!==`
+i.notEquals(j)
+f.equals(g) -- emits what `f == g` emits (SameValueZero, helper and all)
+p.equals(q) -- emits p === q [was __Eq_Bool.equals(p, q)]
+s.concat(t) -- emits s + t [was concat(s, t)]
+i.negate() -- emits -i [was negate(i)]
+f.divide(g) -- emits f / g [was divide(f, g)]
+-- emits f ** i [was pow(f, i)] — the member at Float, total; its `**` lowers natively
+Pow.pow(f, i)
+-- stays the door's call (§6.1, §14(t)) — a written face with a Float exponent seat; no operator
+-- spells it (`f ** g` refuses)
+f.pow(g)
+i.pow(j) -- emits pow(i, j) — guarded; `**` is no operator here
+i.compare(j) -- emits compare(i, j) — no operator carries compare
+-- emits add(r, r) — object representation; untouched (multi-module fixture: `Rat` is imported, not
+-- prelude)
+r.add(r)
 -- (v) The receiver seat (#808, ruled after #815's review) — x, y, z : Int with
 --     x = 9007199254740991, y = 2, z = 3; i, j, k, negOne : Int, negOne = -1; p, q, s : Foo, a user record
 --     honoring Num and Signed whose companion exports gcd(Foo, Foo): BigInt; b1, b2, b3 : Bar and
 --     z1, z2, z3 : Baz, user records honoring Num and Signed as Foo does, Bar honoring a user
 --     constraint Gcdish<a: Num> with member gcd(a, a): BigInt, Baz carrying a field gcd: (Baz) -> BigInt
-let r: BigInt = x.add(y).multiply(z)  -- OK — both operations at BigInt; value-checked past 2^53:
-                                   --   27021597764222979n, as (x + y) * z and
-                                   --   x.add(y) |> Num.multiply(z) give   [was …976n: inner at Int]
-let r: BigInt = (x + y).multiply(z)   -- OK — the same; emits (BigInt(x) + BigInt(y)) * BigInt(z)
-let r: BigInt = (x + y).pow(z)        -- OK — the base lifts to BigInt, so the dot addresses the
-                                   --   door (§6.1) and z injects: pow(BigInt(x) + BigInt(y), BigInt(z))
-let f: Float = (i + j).pow(negOne)    -- OK — Float honors Pow: the base lifts to Float and the dot
-                                   --   addresses Float's door; yields the reciprocal, 0.5 for
-                                   --   i + j = 2, where Pow<Int> threw   [was NegativeExponentFault]
-let f: Float = (i + j).rem(k)         -- OK — Float honors no Integral: nothing forwards; i + j runs
-                                   --   at Int, Integral<Int>'s guarded rem dispatches, the result
-                                   --   widens — as Integral.rem(i + j, k) does
-let n: BigInt = p.add(q).gcd(s)       -- ERROR (row 16) — BigInt honors Integral, so BigInt is forwarded
-                                   --   and is binding; Foo cannot enter it, the lift stands down, and
-                                   --   the dot, resolving to the export, refuses: one report   [was OK]
+-- OK — both operations at BigInt; value-checked past 2^53: 27021597764222979n, as (x + y) * z
+-- and x.add(y) |> Num.multiply(z) give [was …976n: inner at Int]
+let r: BigInt = x.add(y).multiply(z)
+let r: BigInt = (x + y).multiply(z) -- OK — the same; emits (BigInt(x) + BigInt(y)) * BigInt(z)
+-- OK — the base lifts to BigInt, so the dot addresses the door (§6.1) and z injects: pow(BigInt(x)
+-- + BigInt(y), BigInt(z))
+let r: BigInt = (x + y).pow(z)
+-- OK — Float honors Pow: the base lifts to Float and the dot addresses Float's door; yields the
+-- reciprocal, 0.5 for i + j = 2, where Pow<Int> threw [was NegativeExponentFault]
+let f: Float = (i + j).pow(negOne)
+-- OK — Float honors no Integral: nothing forwards; i + j runs at Int, Integral<Int>'s guarded rem
+-- dispatches, the result widens — as Integral.rem(i + j, k) does
+let f: Float = (i + j).rem(k)
+-- ERROR (row 16) — BigInt honors Integral, so BigInt is forwarded and is binding; Foo cannot enter
+-- it, the lift stands down, and the dot, resolving to the export, refuses: one report [was OK]
+let n: BigInt = p.add(q).gcd(s)
+-- OK — the ascription is the boundary; Foo.gcd answers
 let n: BigInt = (p.add(q): Foo).gcd(s)
-                                   -- OK — the ascription is the boundary; Foo.gcd answers
-let n: BigInt = Foo.add(p, q).gcd(s)  -- OK — the companion-qualified spelling is a written face: it
-                                   --   lifts nothing, stands down nowhere, and Foo.gcd answers
-let n: BigInt = Num.add(p, q).gcd(s)  -- ERROR (row 16) — the constraint-qualified spelling is the open
-                                   --   call, no face; one report   [was refused three times]
-let n: BigInt = (p + q).gcd(s)        -- ERROR (row 16) — the purest newly refused shape   [was OK]
-let n = p.add(q).gcd(s)               -- OK : BigInt — no face, nothing forwards; Foo.gcd answers
+-- OK — the companion-qualified spelling is a written face: it lifts nothing, stands down nowhere,
+-- and Foo.gcd answers
+let n: BigInt = Foo.add(p, q).gcd(s)
+-- ERROR (row 16) — the constraint-qualified spelling is the open call, no face; one report [was
+-- refused three times]
+let n: BigInt = Num.add(p, q).gcd(s)
+let n: BigInt = (p + q).gcd(s) -- ERROR (row 16) — the purest newly refused shape [was OK]
+let n = p.add(q).gcd(s) -- OK : BigInt — no face, nothing forwards; Foo.gcd answers
 let t = p.add(q)
-let n: BigInt = t.gcd(s)              -- OK — a binding is the boundary (Numeric Literals §5.1)
-let n: BigInt = p.gcd(s)              -- OK — no tower member call: the expectation is no annotation
-let n: BigInt = p.add(q).multiply(s)  -- ERROR — the rung's own member: refused at the binding, before
-                                   --   this clause and after it; not row 16, no receiver fixit — the
-                                   --   ascribed receiver's multiply still yields the Foo the binding refuses
-let n: BigInt = i.add(p).gcd(s)       -- ERROR (row 16) — one operand reaches, one does not; one report,
-                                   --   naming p   [was refused twice]
-let n: BigInt = (i + p).gcd(s)        -- ERROR (row 16) — the operator receiver; the same report   [was OK]
+let n: BigInt = t.gcd(s) -- OK — a binding is the boundary (Numeric Literals §5.1)
+let n: BigInt = p.gcd(s) -- OK — no tower member call: the expectation is no annotation
+-- ERROR — the rung's own member: refused at the binding, before this clause and after it; not row
+-- 16, no receiver fixit — the ascribed receiver's multiply still yields the Foo the binding refuses
+let n: BigInt = p.add(q).multiply(s)
+-- ERROR (row 16) — one operand reaches, one does not; one report, naming p [was refused twice]
+let n: BigInt = i.add(p).gcd(s)
+let n: BigInt = (i + p).gcd(s) -- ERROR (row 16) — the operator receiver; the same report [was OK]
+-- ERROR (row 16) — the pipe stage is the bare call; one report [was refused three times]
 let n: BigInt = (p |> Num.add(q)).gcd(s)
-                                   -- ERROR (row 16) — the pipe stage is the bare call; one report
-                                   --   [was refused three times]
-let n: BigInt = (p + (i + j)).gcd(s)  -- ERROR (row 16) — the nested i + j runs at BigInt, p does not
-                                   --   enter it, and the outer addition stands down; one report,
-                                   --   naming p, carrying the boundary fixit
-let n: BigInt = (p ** i).gcd(s)       -- ERROR (row 16) — the base stands down like any operand; with
-                                   --   Foo honoring no Pow, no repair is offered: none would compile
+-- ERROR (row 16) — the nested i + j runs at BigInt, p does not enter it, and the outer addition
+-- stands down; one report, naming p, carrying the boundary fixit
+let n: BigInt = (p + (i + j)).gcd(s)
+-- ERROR (row 16) — the base stands down like any operand; with Foo honoring no Pow, no repair is
+-- offered: none would compile
+let n: BigInt = (p ** i).gcd(s)
+-- ERROR — not row 16: the face travels into both branches (Functions §4.3), i + j lifts to BigInt,
+-- and the else branch p cannot enter it — one report, Operators §11's own at the if, naming p,
+-- carrying the boundary fixit; nothing stood down [was refused twice]
 let n: BigInt = (if c then i + j else p).gcd(s)
-                                   -- ERROR — not row 16: the face travels into both branches
-                                   --   (Functions §4.3), i + j lifts to BigInt, and the else branch p
-                                   --   cannot enter it — one report, Operators §11's own at the if,
-                                   --   naming p, carrying the boundary fixit; nothing stood down
-                                   --   [was refused twice]
+-- OK — variables in both branches, nothing to lift; Foo.gcd answers
 let n: BigInt = (if c then p else q).gcd(s)
-                                   -- OK — variables in both branches, nothing to lift; Foo.gcd answers
+-- ERROR (row 16) — the then branch is a tower member call the form handed the face to, and it
+-- stands down; refused at that call, the fixit ascribing it [was OK: the branches joined at Foo and
+-- Foo.gcd answered — the retracted behaviour]
 let n: BigInt = (if c then p.add(q) else p).gcd(s)
-                                   -- ERROR (row 16) — the then branch is a tower member call the form
-                                   --   handed the face to, and it stands down; refused at that call,
-                                   --   the fixit ascribing it   [was OK: the branches joined at Foo
-                                   --   and Foo.gcd answered — the retracted behaviour]
+-- OK — the fixit's repair: the boundary at the stood-down call
 let n: BigInt = (if c then (p.add(q): Foo) else p).gcd(s)
-                                   -- OK — the fixit's repair: the boundary at the stood-down call
+-- OK — the whole-receiver ascription also repairs here, the receiver's own type being the kept type
 let n: BigInt = (if c then p.add(q) else p: Foo).gcd(s)
-                                   -- OK — the whole-receiver ascription also repairs here, the
-                                   --   receiver's own type being the kept type
-let n: BigInt = (if c then
-        let z = 1
-        p.add(q)
-    else p).gcd(s)                    -- ERROR (row 16) — the reach follows a block's final expression   [was OK]
-let n: BigInt = (if c then
-        let inner = p.add(q)
-        inner
-    else p).gcd(s)                    -- OK — one line apart: the binding inside the block is the
-                                   --   boundary, and its final expression is a variable
+-- ERROR (row 16) — the reach follows a block's final expression [was OK]
+let n: BigInt =
+    (
+        if c then
+            let z = 1
+            p.add(q)
+        else
+            p
+    ).gcd(s)
+
+-- OK — one line apart: the binding inside the block is the boundary, and its final expression is a
+-- variable
+let n: BigInt =
+    (
+        if c then
+            let inner = p.add(q)
+            inner
+        else
+            p
+    ).gcd(s)
+
+-- ERROR — not row 16: the branches disagree (Foo against b : BigInt), so the if's own report wins
+-- and no receiver fixit is offered — the ascription would not compile [unchanged]
 let n: BigInt = (if c then p.add(q) else b).gcd(s)
-                                   -- ERROR — not row 16: the branches disagree (Foo against b : BigInt),
-                                   --   so the if's own report wins and no receiver fixit is offered —
-                                   --   the ascription would not compile   [unchanged]
-let n: BigInt = (p.add(q) + q).gcd(s)  -- ERROR (row 16) — the face reaches the inner call as an operand;
-                                   --   it stands down, the outer runs at Foo, and the outer is the
-                                   --   outermost stood-down call   [was OK]
-let n: BigInt = (if c then (if c then p.add(q) else p) else q).gcd(s)
-                                   -- ERROR (row 16) — the reach follows the nested form   [was OK]
+-- ERROR (row 16) — the face reaches the inner call as an operand; it stands down, the outer runs at
+-- Foo, and the outer is the outermost stood-down call [was OK]
+let n: BigInt = (p.add(q) + q).gcd(s)
+-- ERROR (row 16) — the reach follows the nested form [was OK]
+let n: BigInt =
+    (
+        if c then
+            (if c then p.add(q) else p)
+        else
+            q
+    ).gcd(s)
+-- ERROR (row 16) — the reach follows the dot chain's receiver into the branch; p.add(q) stands down
+-- under the forwarded BigInt; the fixit ascribes p.add(q) — the receiver's own type is BigInt, so
+-- ascribing it whole would send the face back down [was OK]
 let n: BigInt = (if c then p.add(q).gcd(s) else b).multiply(b)
-                                   -- ERROR (row 16) — the reach follows the dot chain's receiver into
-                                   --   the branch; p.add(q) stands down under the forwarded BigInt; the
-                                   --   fixit ascribes p.add(q) — the receiver's own type is BigInt, so
-                                   --   ascribing it whole would send the face back down   [was OK]
-let n: BigInt = (try p.add(q)
-catch
-    JsError(e) => p).gcd(s)             -- ERROR (row 16) — a try body is a forwarding form   [was OK]
+-- ERROR (row 16) — a try body is a forwarding form [was OK]
+let n: BigInt =
+    (
+        try p.add(q)
+        catch
+            JsError(e) => p
+    ).gcd(s)
 let n: BigInt = (i.add(p): Foo).gcd(s)
 let n: BigInt = (p + (i + j): Foo).gcd(s)
+-- OK, all three — the ascription repairs every refused shape above
 let n: BigInt = (if c then i + j else p: Foo).gcd(s)
-                                   -- OK, all three — the ascription repairs every refused shape above
-let n: BigInt = (1 + 2).gcd(s)        -- ERROR — literals reach anything: the receiver lifts to BigInt
-                                   --   and Integral<BigInt>'s gcd refuses s; unannotated, the literals
-                                   --   take s's Foo and Integral<Foo> is missing — refused either way,
-                                   --   and neither is row 16: no lift stood down
-let n: BigInt = b1.add(b2).gcd(b3)    -- ERROR (row 16) — Gcdish.gcd, the honored member, is a
-                                   --   non-rung claimant exactly as the export is
-let n: BigInt = z1.add(z2).gcd(z3)    -- ERROR (row 16) — the field is one too
+-- ERROR — literals reach anything: the receiver lifts to BigInt and Integral<BigInt>'s gcd refuses
+-- s; unannotated, the literals take s's Foo and Integral<Foo> is missing — refused either way, and
+-- neither is row 16: no lift stood down
+let n: BigInt = (1 + 2).gcd(s)
+-- ERROR (row 16) — Gcdish.gcd, the honored member, is a non-rung claimant exactly as the export is
+let n: BigInt = b1.add(b2).gcd(b3)
+let n: BigInt = z1.add(z2).gcd(z3) -- ERROR (row 16) — the field is one too
+-- OK — (add(z1, z2).gcd)(z3), the field call
 let n: BigInt = (z1.add(z2): Baz).gcd(z3)
-                                   -- OK — (add(z1, z2).gcd)(z3), the field call
-let g(v): BigInt = v.multiply(2)      -- ERROR (row 17): the face decides nothing about `v`
+let g(v): BigInt = v.multiply(2) -- ERROR (row 17): the face decides nothing about `v`
 ```
 
 ---

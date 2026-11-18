@@ -20,9 +20,9 @@
 ## 2. Literals
 
 ```
-let xs = [1, 2, 3]          -- Vector(Int)
-let ys = []                 -- Vector(α), generalizes
-let zs = [f(a), g(b)]       -- elements are arbitrary expressions
+let xs = [1, 2, 3] -- Vector(Int)
+let ys = [] -- Vector(α), generalizes
+let zs = [f(a), g(b)] -- elements are arbitrary expressions
 ```
 
 - `[e1, e2, …, en]` in expression-head position is the `Vector(a)` literal — the reading Operators §10 reserved this position for. Postfix `xs[…]` remains indexing/slicing; the lexer/parser distinguish by position exactly as Operators §10 specified.
@@ -42,11 +42,11 @@ The vector pattern is one form in the single pattern grammar (Pattern Matching �
 ### 3.1 Forms
 
 ```
-[]                          -- exactly empty
-[p1, p2, …, pn]             -- exactly n elements, each matched by pi
-[p1, …, pk, ...rest]        -- at least k; rest binds the remainder (a Vector)
-[...init, pn]               -- at least 1; init binds all but the last
-[p1, ..., pn]               -- at least 2; anonymous rest between
+[] -- exactly empty
+[p1, p2, …, pn] -- exactly n elements, each matched by pi
+[p1, …, pk, ...rest] -- at least k; rest binds the remainder (a Vector)
+[...init, pn] -- at least 1; init binds all but the last
+[p1, ..., pn] -- at least 2; anonymous rest between
 ```
 
 - Element slots take the **full nested grammar** — constructor patterns, tuples, records, literals, or-patterns, as-patterns, further vector patterns: `[Some(x), _, ...rest]`, `[{ name }, ...]` are legal.
@@ -73,9 +73,9 @@ Vector patterns partition **by length** (the Rust slice-pattern treatment), inte
 A vector pattern is irrefutable **iff it matches every length**: exactly the forms `[...rest]` and `[...]` (with irrefutable element sub-patterns — vacuously true, there are none). Everything else can fail on length:
 
 ```
-let [x, ...rest] = xs        -- ERROR: this pattern can fail: []; use `match`
-let [...all] = xs            -- OK (legal, pointless, and the checker doesn't judge)
-for [k, v] in pairs do ...   -- ERROR (same gate; match inside the loop instead)
+let [x, ...rest] = xs -- ERROR: this pattern can fail: []; use `match`
+let [...all] = xs -- OK (legal, pointless, and the checker doesn't judge)
+for [k, v] in pairs do ... -- ERROR (same gate; match inside the loop instead)
 ```
 
 Same uniform gate message, same witness printer (Pattern Matching §5.3).
@@ -171,10 +171,10 @@ fault IndexFault(index: Int, size: Int)
 
 ```
 let xs = [10, 20, 30]
-xs[2..3]      -- [20, 30]
-xs[2..99]     -- [20, 30]        (clamped)
-xs[5..9]      -- []              (fully out of window)
-xs[3..1]      -- []              (empty ascending range: lo > hi)
+xs[2..3] -- [20, 30]
+xs[2..99] -- [20, 30] (clamped)
+xs[5..9] -- [] (fully out of window)
+xs[3..1] -- [] (empty ascending range: lo > hi)
 ```
 
 - `xs[5..2]` can never error: `..` builds ascending only (Loops §3.1), so `5..2` is the *empty ascending range*, and clamping yields `[]`. Literal slices are total, always.
@@ -370,76 +370,76 @@ Part 1's rejections; listed to keep this doc's rejection index complete. Do not 
 
 ```
 -- (a) Literals and inference
-let xs = [1, 2, 3]                    -- Vector(Int)
-let e  = []                           -- Vector(α), generalizes
-let bad = [1, "a"]                    -- ERROR: type mismatch at "a"
-let t  = [1, 2, 3,]                   -- OK (trailing comma)
-let sp = [x, ...ys]                   -- ERROR: spread is pattern syntax;
-                                      --   write `prepend(ys, x)` or `[x] ++ ys`
+let xs = [1, 2, 3] -- Vector(Int)
+let e = [] -- Vector(α), generalizes
+let bad = [1, "a"] -- ERROR: type mismatch at "a"
+let t = [1, 2, 3,] -- OK (trailing comma)
+-- ERROR: spread is pattern syntax; write `prepend(ys, x)` or `[x] ++ ys`
+let sp = [x, ...ys]
 
 -- (b) Patterns: forms and nesting
 match xs with
     [] => 0
     [x] => x
-    [x, ...rest] => x + rest.length()     -- exhaustive: [] covers 0, [x] covers 1, third covers ≥1
+    [x, ...rest] => x + rest.length() -- exhaustive: [] covers 0, [x] covers 1, third covers ≥1
 
 match pairs with
-    [(k, v), ...] => k                  -- nested tuple in element slot
+    [(k, v), ...] => k -- nested tuple in element slot
     [] => defaultKey
 
 match ys with
-    [first, ..., last] => first + last  -- middle rest
+    [first, ..., last] => first + last -- middle rest
     [x] => x
-    [] => 0                             -- exhaustive
+    [] => 0 -- exhaustive
 
 -- (c) Exhaustiveness by length
 match xs with
     [] => 0
-    [a, b] => a + b                     -- ERROR: non-exhaustive; e.g. [_] not covered
+    [a, b] => a + b -- ERROR: non-exhaustive; e.g. [_] not covered
 
 -- (d) One rest only; spelling
 match xs with
-    [...a, ...b] => 0                   -- ERROR: at most one `...`
+    [...a, ...b] => 0 -- ERROR: at most one `...`
 match xs with
-    [x, ..rest] => x                    -- ERROR: Hexagon spells rest patterns with `...`
+    [x, ..rest] => x -- ERROR: Hexagon spells rest patterns with `...`
 
 -- (e) Irrefutability gate
-let [x, ...rest] = xs                 -- ERROR: this pattern can fail: []; use `match`
-let [...all] = xs                     -- OK
+let [x, ...rest] = xs -- ERROR: this pattern can fail: []; use `match`
+let [...all] = xs -- OK
 
 -- (f) Indexing family
-xs[2]                                 -- 20 (for xs = [10,20,30])
-xs[4]                                 -- throws IndexFault(4, 3)
-xs[-1]                                -- throws IndexFault(-1, 3)
-Vector.get(xs, 4)                     -- None
-Vector.at(xs, 2)                      -- 20  (≡ xs[2])
-Vector.at(xs, -1)                     -- 30
-Vector.at(xs, 0)                      -- throws IndexFault(0, 3)
-Vector.set(xs, 9, 0)                  -- throws IndexFault(9, 3)
+xs[2] -- 20 (for xs = [10,20,30])
+xs[4] -- throws IndexFault(4, 3)
+xs[-1] -- throws IndexFault(-1, 3)
+Vector.get(xs, 4) -- None
+Vector.at(xs, 2) -- 20 (≡ xs[2])
+Vector.at(xs, -1) -- 30
+Vector.at(xs, 0) -- throws IndexFault(0, 3)
+Vector.set(xs, 9, 0) -- throws IndexFault(9, 3)
 
 -- (g) Slices: magnitude clamps, direction throws
-xs[2..99]                             -- [20, 30]
-xs[3..1]                              -- []       (empty ascending range)
-xs[Range.down(3, 1)]                  -- throws SliceFault(3, 1)
+xs[2..99] -- [20, 30]
+xs[3..1] -- [] (empty ascending range)
+xs[Range.down(3, 1)] -- throws SliceFault(3, 1)
 
 -- (h) Drop family: total
-Vector.dropFirst([])                  -- []
-Vector.dropFirst([1, 2])              -- [2]
+Vector.dropFirst([]) -- []
+Vector.dropFirst([1, 2]) -- [2]
 
 -- (i) Instances
-[1, 2] == [1, 2]                      -- true          (Eq)
-[1, 2] < [1, 2, 0]                    -- true          (Ord: proper prefix is less)
-[1, 3] > [1, 2, 99]                   -- true          (Ord: first unequal decides)
-show([1, 2])                          -- "[1, 2]"      (Show)
-[1] ++ [2, 3]                         -- [1, 2, 3]     (Concat; linear, documented)
-for x in [1, 2, 3] do                 -- Iterable: Item = Int
+[1, 2] == [1, 2] -- true (Eq)
+[1, 2] < [1, 2, 0] -- true (Ord: proper prefix is less)
+[1, 3] > [1, 2, 99] -- true (Ord: first unequal decides)
+show([1, 2]) -- "[1, 2]" (Show)
+[1] ++ [2, 3] -- [1, 2, 3] (Concat; linear, documented)
+for x in [1, 2, 3] do -- Iterable: Item = Int
     total := total + x
 
 -- (j) String, same doctrine
 let s = "héllo"
-s[2]                                  -- "é"  (codepoint, 1-based)
-s[9]                                  -- throws IndexFault(9, 5)
-String.at(s, -1)                      -- "o"
-s[2..4]                               -- "éll"
-s[Range.down(4, 2)]                   -- throws SliceFault(4, 2)
+s[2] -- "é" (codepoint, 1-based)
+s[9] -- throws IndexFault(9, 5)
+String.at(s, -1) -- "o"
+s[2..4] -- "éll"
+s[Range.down(4, 2)] -- throws SliceFault(4, 2)
 ```

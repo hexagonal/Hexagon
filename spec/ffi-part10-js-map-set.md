@@ -182,9 +182,9 @@ The result is a captured value from birth (§2): Hexagon-held, unreachable from 
 The established names, preserved from Collections Part 4 §10 (subject-first, pre-registered there):
 
 ```hexagon
-Map.toJsMap   : Map(k, v) -> JsMap(k, v)
+Map.toJsMap : Map(k, v) -> JsMap(k, v)
 Map.fromJsMap : <k: Hash> JsMap(k, v) ->^ Map(k, v)
-Set.toJsSet   : Set(a) -> JsSet(a)
+Set.toJsSet : Set(a) -> JsSet(a)
 Set.fromJsSet : <a: Hash> JsSet(a) ->^ Set(a)
 ```
 

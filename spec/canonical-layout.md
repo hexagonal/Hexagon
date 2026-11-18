@@ -556,8 +556,6 @@ On next touch:
 
 - **Comments §4**, whose "the formatter may frown" sentence points to §8.2 here.
 - **Modules §3, Pattern Declarations §3.3, Pattern Matching §6.5 and Constraints §5.4** speak of the formatter moving imports, removing redundant parentheses and deleting a bare binder. Each is a token-level rule awaiting its own ruling (§13).
-- **Spec examples written before §7.1**: about 200 fractions spaced as `1 // 3` (most of them in Operators, Pattern Matching and `Rat`), and about 150 record braces written tight, as `{x = 1}`. Each is respelt when its section is next touched. The examples that show the C comment habit, such as `let y = 2 // a note`, stay as they are.
-- **Spec examples written before §14**: a list whose closing bracket begins its line gains its trailing comma when its section is next touched.
 
 The compiler's two reports that spell an ascription for the author, Ascription §5's and Numeric Literals §6's, follow the tight colon in #1569.
 
@@ -568,8 +566,6 @@ Applied with the assignment's block (#1590): **Lexer & Layout §2.1** lists a li
 Applied with the trailing comma (#1594): **Lexer & Layout §7** says that every list in brackets may end with a comma, and gives its limits, with their reports in §5. **Products §3.1** and **Collections Part 3 §2** point to it. **`notes/canonical-formatting-and-naming.md`** gains H8, and its examples carry the comma.
 
 Applied with the width limits (#1602): **Operators §11.3** and **`notes/canonical-formatting-plan.md` §5** say that a conditional stays on one line up to its width limit of 60, and that an `else if` chain never does. **`notes/canonical-formatting-and-naming.md`** rewords F3 and gains H9, which restates §15.1's table and adds the half the formatter does not do. **Unions §2** says that Format document writes the leading bar of a union whose alternatives stand one to a line (§16 here).
-
-On next touch, with the width limits (#1602): **spec examples** that write a construct on one line over its width limit, or spread within its width limit where it could be on one line, take §15's shape when their section is next touched.
 
 ## 12. Conformance
 

@@ -168,9 +168,10 @@ honor<a: Eq, b: Eq> Eq<Pair(a, b)> =
 Derived instances for **nominal** types (`record`, `union`) are **opt-in** — "nominal means you control the surface." Two spellings, one meaning:
 
 ```
-honor Eq<Point> = derive              -- core form: the RHS is exactly the keyword `derive`
-record Point derives (Eq, Show) = ...  -- header sugar, owned by Declarations Preamble §2.3,
-                                       --   elaborating to one core-form instance per constraint
+honor Eq<Point> = derive -- core form: the RHS is exactly the keyword `derive`
+-- header sugar, owned by Declarations Preamble §2.3, elaborating to one core-form instance per
+-- constraint
+record Point derives (Eq, Show) = ...
 ```
 
 - **A derived instance is an ordinary instance thereafter**: it occupies the (constraint, constructor) coherence slot (§5.1), obeys the orphan rule (header sugar is necessarily in the type's home; the core form may appear in either legal home), is existence-checked for base constraints (§4.2), supplies the required members fixed by the structural semantics (Products §2.5/§3.4; Unions §7), and inherits every defaulted member (§2) — `derives Eq` generates `equals` and inherits the standard `notEquals`.

@@ -748,25 +748,25 @@ There is no warning tier. Every row is either accepted source or a hard error.
 ## 11. Acceptance inventory
 
 ```hexagon
-let café2 = 1_000                 -- Unicode NonUpperName + Integer
-let 用户 = "小明"                  -- caseless-script NonUpperName
-let $税率 = 0.10                  -- JavaScript-compatible `$` start
-let _折扣 = 5                     -- `_name` is a name; bare `_` remains wildcard
+let café2 = 1_000 -- Unicode NonUpperName + Integer
+let 用户 = "小明" -- caseless-script NonUpperName
+let $税率 = 0.10 -- JavaScript-compatible `$` start
+let _折扣 = 5 -- `_name` is a name; bare `_` remains wildcard
 record Résultat(a) = { value: a } -- Unicode UpperName
-record T用户 = { 名字: String }     -- uppercase role by ordinary Latin prefix
-let greeting = "Hello ${name}."   -- one composite String token
-let lines = "first\r\nsecond"      -- escapes retain explicit CRLF
+record T用户 = { 名字: String } -- uppercase role by ordinary Latin prefix
+let greeting = "Hello ${name}." -- one composite String token
+let lines = "first\r\nsecond" -- escapes retain explicit CRLF
 let multi = "first
-second"                           -- physical newline contributes one \n
-let n = 1..10                     -- Integer, Range, Integer
-let mask = 0xFF_FF band 0b1010    -- Integer, NonUpperName, Integer
-let big = 0x1F_FFFF_FFFF_FFFFn    -- a BigInt in hexadecimal
-let subtract = x - -1             -- x - (-1); the space keeps the second minus out of a comment
-let kept = x --1                  -- kept is x: the comment begins at the dashes
-let quiet = {- inline -} 2        -- a block comment is trivia
-let third = 1//3                  -- Integer, Fraction, Integer
-for x in xs do visit(x)           -- `do` is a hard keyword (§4.1)
-match value with                  -- `with` is a NonUpperName, closing the head (§4.2)
+second" -- physical newline contributes one \n
+let n = 1..10 -- Integer, Range, Integer
+let mask = 0xFF_FF band 0b1010 -- Integer, NonUpperName, Integer
+let big = 0x1F_FFFF_FFFF_FFFFn -- a BigInt in hexadecimal
+let subtract = x - -1 -- x - (-1); the space keeps the second minus out of a comment
+let kept = x --1 -- kept is x: the comment begins at the dashes
+let quiet = {- inline -} 2 -- a block comment is trivia
+let third = 1//3 -- Integer, Fraction, Integer
+for x in xs do visit(x) -- `do` is a hard keyword (§4.1)
+match value with -- `with` is a NonUpperName, closing the head (§4.2)
     Some(x) | None as whole when ready => whole
 ```
 

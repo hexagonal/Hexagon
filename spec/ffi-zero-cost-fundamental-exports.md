@@ -437,7 +437,7 @@ export let same<a: Eq>(x: a, y: a): Bool = x == y
 --   and plusNat/plusInt/plusFloat/plusBigInt are unchanged (names, signatures, bodies).
 
 -- (d) Internal calls never shape the surface
-let internal = plus(20, 22)        -- emits: const internal = 20 + 22;
+let internal = plus(20, 22) -- emits: const internal = 20 + 22;
 -- No Hexagon call to plus at Float exists anywhere; plusFloat is exported anyway.
 -- A private type honoring Num changes nothing foreign.
 
@@ -492,7 +492,7 @@ export let describe<a: Show, b: Weighty>(x: a, y: b): String = ...
 -- either — it has two constrained variables (§3.2) — so this export has no
 -- foreign entry points, per §3.4.)
 export record Grams = { n: Float }
-honor Weighty<Grams> = ...                          -- public type, lawful instance
+honor Weighty<Grams> = ... -- public type, lawful instance
 -- Now complete assignments exist (e.g. a=Int via Show.int, b=Grams via its
 -- public Weighty handle, FFI Part 9 §3) → the `describe` generic edition
 -- appears. Additive.

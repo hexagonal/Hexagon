@@ -17,11 +17,11 @@ The motivating v1 client is `Rat`, whose top and bottom use `BigInt` — `gcd` f
 
 ```
 constraint Integral<a: (Num, Ord)> =
-    div(x: a, y: a) -> a     -- Euclidean quotient
-    mod(x: a, y: a) -> a     -- Euclidean remainder, in [0, abs(y))
-    quot(x: a, y: a) -> a    -- truncated quotient
-    rem(x: a, y: a) -> a     -- truncated remainder
-    gcd(x: a, y: a) -> a     -- greatest common divisor, always >= 0
+    div(x: a, y: a) -> a -- Euclidean quotient
+    mod(x: a, y: a) -> a -- Euclidean remainder, in [0, abs(y))
+    quot(x: a, y: a) -> a -- truncated quotient
+    rem(x: a, y: a) -> a -- truncated remainder
+    gcd(x: a, y: a) -> a -- greatest common divisor, always >= 0
 ```
 
 - **Base constraints `(Num, Ord)`**: `Num` gives generic code non-negative literals via `fromNat`, and `Ord` gives comparisons. `Nat`, `Int`, and `BigInt` satisfy both. Code that also subtracts, negates, or normalizes signs states `Signed` separately; `Integral` itself does not require signedness.
@@ -31,8 +31,8 @@ constraint Integral<a: (Num, Ord)> =
 ## 3. Instances
 
 ```
-honor Integral<Nat>    -- same safe-number operations, restricted to non-negative inputs
-honor Integral<Int>    -- members are Int.div, Int.mod, Int.quot, Int.rem, Int.gcd
+honor Integral<Nat> -- same safe-number operations, restricted to non-negative inputs
+honor Integral<Int> -- members are Int.div, Int.mod, Int.quot, Int.rem, Int.gcd
 honor Integral<BigInt> -- members are the BigInt counterparts
 ```
 
@@ -44,9 +44,9 @@ honor Integral<BigInt> -- members are the BigInt counterparts
 For all instances (laws, testable):
 
 ```
-gcd(a, b) == gcd(b, a) == gcd(abs(a), abs(b))    -- sign-insensitive
-gcd(a, b) >= 0                                    -- always non-negative
-gcd(a, 0) == abs(a)                               -- hence:
+gcd(a, b) == gcd(b, a) == gcd(abs(a), abs(b)) -- sign-insensitive
+gcd(a, b) >= 0 -- always non-negative
+gcd(a, 0) == abs(a) -- hence:
 gcd(0, 0) == 0
 ```
 
@@ -61,7 +61,7 @@ gcd(0, 0) == 0
 
 ```
 lcm(a, 0) == lcm(0, b) == 0
-lcm(a, b) == abs(quot(a, gcd(a, b)) * b)     -- divide FIRST, then multiply
+lcm(a, b) == abs(quot(a, gcd(a, b)) * b) -- divide FIRST, then multiply
 ```
 
   Divide-first is exact (gcd divides `a`) and, though BigInt cannot overflow, keeps the intermediate small — cheaper and the correct form to document, since it is the form anyone porting to a fixed-width type must copy.
@@ -103,31 +103,36 @@ That spec's §3 says the four functions are "monomorphic `Int` functions, not co
 
 ```
 -- gcd laws across signs (Int and BigInt agree)
-Int.gcd(12, 18)     -- 6
-Int.gcd(-4, 6)      -- 2
-Int.gcd(-4, -6)     -- 2
-Int.gcd(7, 0)       -- 7
-Int.gcd(-7, 0)      -- 7
-Int.gcd(0, 0)       -- 0
+Int.gcd(12, 18) -- 6
+Int.gcd(-4, 6) -- 2
+Int.gcd(-4, -6) -- 2
+Int.gcd(7, 0) -- 7
+Int.gcd(-7, 0) -- 7
+Int.gcd(0, 0) -- 0
 
 -- Polymorphic use: the Rat down payment
 let normalize<a: Integral>(n: a, d: a): (a, a) =
     let g = n.gcd(d)
-    if g == 0 then (0, 1)                    -- 0/0 input; literals via Num super
+    if g == 0 then (0, 1) -- 0/0 input; literals via Num super
     else
         let (n2, d2) = (n.quot(g), d.quot(g))
-        if d2 < 0 then (Signed.negate(n2), Signed.negate(d2)) else (n2, d2)   -- Ord super at work
+        -- Ord super at work
+        if d2 < 0 then
+            (Signed.negate(n2), Signed.negate(d2))
+        else
+            (n2, d2)
+
 -- normalize : <a: Integral>(a, a) -> (a, a)
 -- concrete sites emit direct calls: normalize(4, -6) uses Int.gcd/Int.quot → (-2, 3)
 -- normalize(4n, -6n) uses the BigInt instance → (-2n, 3n)
 
 -- Float excluded, with the right words
-gcd(1.5, 2.0)       -- ERROR: `Float` is not `Integral`
+gcd(1.5, 2.0) -- ERROR: `Float` is not `Integral`
 
 -- lcm at BigInt only
-BigInt.lcm(4n, 6n)  -- 12n
-BigInt.lcm(0n, 5n)  -- 0n
-Int.lcm             -- ERROR: name not found + curated hint (§8)
+BigInt.lcm(4n, 6n) -- 12n
+BigInt.lcm(0n, 5n) -- 0n
+Int.lcm -- ERROR: name not found + curated hint (§8)
 ```
 
 ## 10. Decisions log & edit notes

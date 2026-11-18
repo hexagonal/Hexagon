@@ -79,8 +79,8 @@ Exactly the union rules (Unions §2.2), restated for closure:
 
 ```
 throw^(ParseError(3, "unexpected token"))
-throw(IndexFault(i, n))       -- a fault: bare (§3)
-throw^(err)                   -- err : Exn, constructed earlier
+throw(IndexFault(i, n)) -- a fault: bare (§3)
+throw^(err) -- err : Exn, constructed earlier
 ```
 
 - Ordinary function application; the argument is any `Exn`-typed expression, and its text decides the mark (§3).
@@ -282,7 +282,7 @@ Per §6.1. Declared in the prelude; FFI Part 11 finalizes its `JsValue` payload 
 ### 8.2 `attempt`: a failure as data
 
 ```
-let loaded = attempt loadConfig^(path)        -- Result(Config)
+let loaded = attempt loadConfig^(path) -- Result(Config)
 let parsed = attempt
     let raw = readFile!(path)
     parse^(raw)
@@ -328,8 +328,8 @@ A checked division whose divisor is written as a literal zero never throws `Divi
 ### 8.6 What a caught failure says: `Show<Exn>` and `Exn.stack` *(#1159)*
 
 ```
-"failed: ${e}"             -- ParseError: unexpected token
-e.stack()                  -- Some(trace), or None
+"failed: ${e}" -- ParseError: unexpected token
+e.stack() -- Some(trace), or None
 ```
 
 A catch-all exists to report what failed (§1), so an `Exn` describes itself. Both operations live in `stdlib/Exn.hex`, `Exn`'s companion (Method Syntax §4.1; Constraints §5.3): a prelude module seated after `JsError.hex`, spending no bare vocabulary (`show` is already in the bare set, Modules §5.5).

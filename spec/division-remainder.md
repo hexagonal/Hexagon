@@ -20,8 +20,8 @@
 For `b ≠ 0`, `Int.div` and `Int.mod` are the unique pair satisfying:
 
 ```
-div(a, b) * b + mod(a, b) == a          -- the division identity
-0 <= mod(a, b) < abs(b)                  -- the Euclidean invariant
+div(a, b) * b + mod(a, b) == a -- the division identity
+0 <= mod(a, b) < abs(b) -- the Euclidean invariant
 ```
 
 Equivalently: `div(a, b)` is `floor(a / b)` when `b > 0` and `ceil(a / b)` when `b < 0`; `mod` is the residue that makes the identity hold. The invariant is the whole point: **the remainder is a canonical residue — non-negative, unconditionally** — with no caveat about the sign of either operand. Floored (Python/Knuth) shares the identity but lets the remainder take the divisor's sign; truncated (C/JS/Java) lets it take the *dividend's* sign, which is the convention that breaks `isEven`-via-remainder, hash bucketing, ring indexing, and calendar arithmetic on negative inputs.
@@ -44,10 +44,10 @@ Euclidean and floored differ **only when the divisor is negative** (rows 3–4);
 ## 3. The `Int` family
 
 ```
-Int.div(a: Int, b: Int): Int      -- Euclidean quotient
-Int.mod(a: Int, b: Int): Int      -- Euclidean remainder, in [0, abs(b))
-Int.quot(a: Int, b: Int): Int     -- truncated quotient  (rounds toward zero)
-Int.rem(a: Int, b: Int): Int      -- truncated remainder (JS's `%` exactly)
+Int.div(a: Int, b: Int): Int -- Euclidean quotient
+Int.mod(a: Int, b: Int): Int -- Euclidean remainder, in [0, abs(b))
+Int.quot(a: Int, b: Int): Int -- truncated quotient (rounds toward zero)
+Int.rem(a: Int, b: Int): Int -- truncated remainder (JS's `%` exactly)
 ```
 
 - **All four throw `DivideByZeroFault` on `b == 0`.** JS's `a % 0` is `NaN`, which would silently break the Int-is-a-whole-JS-number invariant; the truncated pair gets no IEEE exemption just because its convention matches JS — the *type* is `Int`, and `Int` partiality throws (same doctrine as `Int.div` always had, and as `IndexFault`). A `b` written as a literal zero is refused before the program runs (§12).
@@ -66,8 +66,8 @@ Note JS BigInt's native `%` is truncated, same as `number`'s — so `BigInt.rem`
 ## 5. The `Float` family
 
 ```
-Float.mod(a: Float, b: Float): Float   -- Euclidean remainder
-Float.rem(a: Float, b: Float): Float   -- truncated remainder (JS's `%` on floats; C's fmod)
+Float.mod(a: Float, b: Float): Float -- Euclidean remainder
+Float.rem(a: Float, b: Float): Float -- truncated remainder (JS's `%` on floats; C's fmod)
 ```
 
 *(Landed, #344 — the last companion milestone.)* Both live in `stdlib/Float.hex` as **plain exports** — `Float` is not `Integral` (Integral spec §1), so unlike every integer type's family these are not constraint members and never join a dispatch set. `rem` is the companion's intrinsic-door declaration (`floatRem`, lowering the bare `a % b` §6 tables); `mod` is ordinary Hexagon above it — the §5.1 adjustment written over `rem`, the ordinary comparison operators, `Num<Float>`'s add, and `Signed<Float>`'s negate, which is exactly the strictly-simpler layering `Int.hex` uses for its Euclidean family. Neither spelling is bare (Modules §5.5 seeds no prelude function or member bare but `ignore` and `show`): `mod` and `rem` are reached through their qualified homes — `Integral.mod`/`Integral.rem` for the polymorphic members, `Float.mod`/`Float.rem` for the float family — and by the dot call, which is type-directed and never reads the bare layer, so the one spelling shape serves every numeric type.
@@ -135,55 +135,70 @@ Docs (not compiler) obligations: `rem`'s doc line says "this is JS's `%`"; `mod`
 
 ```
 -- Euclidean pair: identity + invariant on all sign combinations (§2 table)
-Int.div(7, 3)    -- 2      Int.mod(7, 3)    -- 1
-Int.div(-7, 3)   -- -3     Int.mod(-7, 3)   -- 2
-Int.div(7, -3)   -- -2     Int.mod(7, -3)   -- 1
-Int.div(-7, -3)  -- 3      Int.mod(-7, -3)  -- 2
+Int.div(7, 3) -- 2
+Int.mod(7, 3) -- 1
+Int.div(-7, 3) -- -3
+Int.mod(-7, 3) -- 2
+Int.div(7, -3) -- -2
+Int.mod(7, -3) -- 1
+Int.div(-7, -3) -- 3
+Int.mod(-7, -3) -- 2
 
 -- Truncated pair: JS's answers exactly
-Int.quot(-7, 3)  -- -2     Int.rem(-7, 3)   -- -1
-Int.quot(7, -3)  -- -2     Int.rem(7, -3)   -- 1
-Int.quot(-7, -3) -- 2      Int.rem(-7, -3)  -- -1
+Int.quot(-7, 3) -- -2
+Int.rem(-7, 3) -- -1
+Int.quot(7, -3) -- -2
+Int.rem(7, -3) -- 1
+Int.quot(-7, -3) -- 2
+Int.rem(-7, -3) -- -1
 
 -- Zero divisors: all four throw, branded, where the zero is not written as a literal (§12)
 let zero = 0
 let bigZero = 0n
-Int.mod(1, zero)          -- throws DivideByZeroFault
-Int.rem(1, zero)          -- throws DivideByZeroFault (NOT NaN; not JS behaviour)
-BigInt.rem(1n, bigZero)   -- throws DivideByZeroFault (NOT RangeError; §4)
+Int.mod(1, zero) -- throws DivideByZeroFault
+Int.rem(1, zero) -- throws DivideByZeroFault (NOT NaN; not JS behaviour)
+BigInt.rem(1n, bigZero) -- throws DivideByZeroFault (NOT RangeError; §4)
 
 -- Float: IEEE, no throws
-Float.rem(-7.0, 3.0)   -- -1.0   (bare JS %)
-Float.mod(-7.0, 3.0)   -- 2.0
-Float.mod(-0.5, 6.283185307179586)  -- ~5.783185307179586 (angle wrap, non-negative)
-Float.mod(1.0, 0.0)    -- NaN
-Float.rem(1.0, 0.0)    -- NaN
+Float.rem(-7.0, 3.0) -- -1.0 (bare JS %)
+Float.mod(-7.0, 3.0) -- 2.0
+Float.mod(-0.5, 6.283185307179586) -- ~5.783185307179586 (angle wrap, non-negative)
+Float.mod(1.0, 0.0) -- NaN
+Float.rem(1.0, 0.0) -- NaN
 
 -- The doctrine, exercised
-isEven = n => Int.mod(n, 2) == 0    -- correct for negative n; with rem it wouldn't be
+isEven = n => Int.mod(n, 2) == 0 -- correct for negative n; with rem it wouldn't be
 
 -- A divisor written as a literal zero: refused when the program is compiled (§12)
-Int.mod(1, 0)             -- ERROR: division by zero: `Int.mod(1, 0)` has no value; write the divisor that was meant
-1.mod(0)                  -- ERROR, the same report quoting `1.mod(0)`; so are `1 |> Int.mod(0)` and `Integral.mod(1, 0)`, each quoting its own text
-BigInt.rem(1n, -0n)       -- ERROR: a sign does not hide a written zero
-Int.div(0, (0: Int))      -- ERROR: nor does a written type; the dividend is not read
-let r: Rat = 1 / 0.0      -- ERROR: division by zero: `1 / 0.0` has no value; write the divisor that was meant
-1.5d.divide(0.00d, 2)     -- ERROR: division by zero: `1.5d.divide(0.00d, 2)` has no value; write the divisor that was meant
-1//0                      -- ERROR: a fraction's bottom is never zero, so `1//0` has no value; write the bottom that was meant
-Rat.create(1n, 0n)        -- ERROR: a fraction's bottom is never zero, so `Rat.create(1n, 0n)` has no value; write the bottom that was meant
-let never() = Int.div(1, 0)                          -- ERROR, though nothing calls it
-try Int.div(1, 0) catch DivideByZeroFault(_) => 0    -- ERROR: the check reads the text, not the run
+-- ERROR: division by zero: `Int.mod(1, 0)` has no value; write the divisor that was meant
+Int.mod(1, 0)
+-- ERROR, the same report quoting `1.mod(0)`; so are `1 |> Int.mod(0)` and `Integral.mod(1, 0)`,
+-- each quoting its own text
+1.mod(0)
+BigInt.rem(1n, -0n) -- ERROR: a sign does not hide a written zero
+Int.div(0, (0: Int)) -- ERROR: nor does a written type; the dividend is not read
+-- ERROR: division by zero: `1 / 0.0` has no value; write the divisor that was meant
+let r: Rat = 1 / 0.0
+-- ERROR: division by zero: `1.5d.divide(0.00d, 2)` has no value; write the divisor that was meant
+1.5d.divide(0.00d, 2)
+-- ERROR: a fraction's bottom is never zero, so `1//0` has no value; write the bottom that was meant
+1//0
+-- ERROR: a fraction's bottom is never zero, so `Rat.create(1n, 0n)` has no value; write the bottom
+-- that was meant
+Rat.create(1n, 0n)
+let never() = Int.div(1, 0) -- ERROR, though nothing calls it
+try Int.div(1, 0) catch DivideByZeroFault(_) => 0 -- ERROR: the check reads the text, not the run
 
 -- Not checked: each faults or answers when it runs
-Int.div(1, zero)          -- throws DivideByZeroFault: a name is never read
-Int.div(1, 2 - 2)         -- throws DivideByZeroFault: nothing is folded
+Int.div(1, zero) -- throws DivideByZeroFault: a name is never read
+Int.div(1, 2 - 2) -- throws DivideByZeroFault: nothing is folded
 let g = Int.div
-g(1, 0)                   -- throws DivideByZeroFault: a function value is never checked
+g(1, 0) -- throws DivideByZeroFault: a function value is never checked
 let f = x => x / 0
-f(1.0)                    -- Infinity: a division at a type variable is never checked
-f(1//2)                   -- throws DivideByZeroFault, for the same reason
-Rat.reciprocal(0)         -- throws DivideByZeroFault: not a checked division
-1.0 / 0.0                 -- Infinity: `Float` is not checked
+f(1.0) -- Infinity: a division at a type variable is never checked
+f(1//2) -- throws DivideByZeroFault, for the same reason
+Rat.reciprocal(0) -- throws DivideByZeroFault: not a checked division
+1.0 / 0.0 -- Infinity: `Float` is not checked
 ```
 
 ## 10. Decisions log

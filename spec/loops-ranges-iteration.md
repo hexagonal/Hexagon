@@ -49,7 +49,7 @@ Semantics are defined by this desugaring (the emitter is free to do better, §8,
 -- for p in e do
 --   body
 
-var cur = toSeq(e)              -- cur : Seq(ε), a compiler-fresh name
+var cur = toSeq(e) -- cur : Seq(ε), a compiler-fresh name
 -- loop:
 --   match next(cur) with
 --     Some((p, rest)) =>
@@ -70,9 +70,9 @@ var cur = toSeq(e)              -- cur : Seq(ε), a compiler-fresh name
 ### 3.1 The `Range` type and the `..` operator
 
 ```
-1..10                -- the Ints 1,2,...,10, in order
-lo..hi               -- general form; lo, hi : Int
-for i in 1..n do     -- the counting loop
+1..10 -- the Ints 1,2,...,10, in order
+lo..hi -- general form; lo, hi : Int
+for i in 1..n do -- the counting loop
 ```
 
 - `x..y` is a binary operator on `Int`s producing a value of the concrete type **`Range`**: a lightweight, immutable, *lazy* description of a bounded integer progression. It is **not** a `Vector` — `for i in 1..1_000_000 do` allocates nothing.
@@ -86,7 +86,7 @@ for i in 1..n do     -- the counting loop
 
 ```
 Range.up : (Int, Int) -> Range
-Range.up(1, 10)      -- identical to 1..10
+Range.up(1, 10) -- identical to 1..10
 ```
 
 `lo..hi` and `Range.up(lo, hi)` denote the same value, and are checked alike (§3.1); the operator is the idiomatic spelling, the function is the first-class one (pass it, partially configure it, and it is where a future step parameter would live — §11.5). Both are inclusive. Both constructors live in `Range`'s companion, `stdlib/Range.hex`, which also declares the type (its public intrinsic row, Intrinsics §3.3) and honors `Iterable<Range>` (Collections Part 5 §4); they are reached qualified, as the prelude spends no bare vocabulary on them (Modules §5.5).
@@ -95,7 +95,7 @@ Range.up(1, 10)      -- identical to 1..10
 
 ```
 Range.down : (Int, Int) -> Range
-Range.down(10, 1)    -- 10,9,...,1
+Range.down(10, 1) -- 10,9,...,1
 ```
 
 Descending iteration is **never inferred from operand order** (§3.4); it is always the separately-named `Range.down(hi, lo)`, first argument the larger. No operator spelling in v1.
@@ -334,19 +334,19 @@ let sumTo(n) =
 -- emits: let total = 0; for (let i = 1; i <= n; i++) { total = total + i; } return total;
 
 -- (b) Empty range: zero iterations
-sumTo(0)                       -- 0
+sumTo(0) -- 0
 
 -- (c) General-path iteration
 let printAll(xs) =
     for x in xs do
-        print(x)                   -- assuming print : String -> Unit
+        print(x) -- assuming print : String -> Unit
 -- xs : Vector(String) at a call site → for (const x of xs) { print(x); }
 
 -- (d) Discard in a loop body
 for x in 1..10 do
-    compute(x)                   -- ERROR (10.2 row 1) if compute returns non-Unit
+    compute(x) -- ERROR (10.2 row 1) if compute returns non-Unit
 for x in 1..10 do
-    ignore(compute(x))           -- fine
+    ignore(compute(x)) -- fine
 
 -- (e) while, load-bearing
 let countdown(n0) =
@@ -357,27 +357,27 @@ let countdown(n0) =
 
 -- (f) Loop variable is a head binder; immutable
 let i = 99
-for i in 1..3 do               -- fine: head binder shadows
-    i := 5                       -- ERROR: loop variable cannot be assigned
+for i in 1..3 do -- fine: head binder shadows
+    i := 5 -- ERROR: loop variable cannot be assigned
 
 -- (g) Seq as the generic idiom (v1's answer to "any iterable" parameters)
 let firstOrZero(s: Seq(Int)): Int =
-    ...Seq.next(s)...            -- Seq has an Iterable instance; for..in over s is fine
+    ...Seq.next(s)... -- Seq has an Iterable instance; for..in over s is fine
 
 -- (h) Range escaping a loop head
 let r = 1..10
-for x in r do                  -- general path: r materialised as an iterable object
+for x in r do -- general path: r materialised as an iterable object
     ...
 
 -- (i) Literals in `..` pin to Int; later arithmetic may widen that Int
-var total = 0.0                -- total : Float (monomorphic Float literal)
-for x in 1..10 do              -- x : Int — `..`'s Int seats take both literal tyvars
-    total := total + x           -- x widens through Float.fromInt; emitted JS stays
-                               -- `total = total + x`
+var total = 0.0 -- total : Float (monomorphic Float literal)
+for x in 1..10 do -- x : Int — `..`'s Int seats take both literal tyvars
+    -- x widens through Float.fromInt; emitted JS stays `total = total + x`
+    total := total + x
 -- total : Float; range emission unaffected: for (let x = 1; x <= 10; x++)
 
 -- (j) Pattern loop head (canonical; per-row goldens live in Collections Parts 4–5)
-for (k, v) in m do             -- m : Map(String, Int); k : String, v : Int
+for (k, v) in m do -- m : Map(String, Int); k : String, v : Int
     ...
 -- emits: for (const [k, v] of m.entries()) { ... }
 
@@ -393,15 +393,15 @@ let total(lo: () ->! Int, hi: () ->! Int) =
 -- (l) An established Nat widens into `..`'s Int seats; arithmetic there runs at Int
 let below(n: Nat): Int =
     var t = 0
-    for i in 1..(n - 1) do       -- n widens to Int, then subtracts: Range.up(1, n - 1)
+    for i in 1..(n - 1) do -- n widens to Int, then subtracts: Range.up(1, n - 1)
         t := t + i
     t
 -- emits: const __end = n - 1; for (let i = 1; i <= __end; i++) { t = t + i; }
 -- and `for i in 1..n do` at `n: Nat` emits for (let i = 1; i <= n; i++): the widening erases
 
 -- (m) A body on the head's line
-for x in xs do visit(x)           -- the body is one expression after `do`
-while n > 0 do n := n - 1         -- the same for `while`
+for x in xs do visit(x) -- the body is one expression after `do`
+while n > 0 do n := n - 1 -- the same for `while`
 for x in xs do visit(x); finish() -- `;` opens no block: finish() runs once, after the loop
 
 -- (n) A head carried across lines, to its `do`
@@ -409,24 +409,28 @@ while remaining > 0
         and not cancelled(job) do -- the deeper line carries the condition on
     remaining := step(remaining)
 for (name, total) in totalsFor(region,
-        year) do                  -- brackets hold the head open as well
+        year) do -- brackets hold the head open as well
     report(name, total)
 
 -- (o) The heads' reports, each fragment on its own
 for x in xs
-    visit(x)                      -- ERROR at the `for`: `for` requires `do`
+    visit(x) -- ERROR at the `for`: `for` requires `do`
 
 while n > 0
-    n := n - 1                    -- ERROR at the `while`: `while` requires `do`
+    n := n - 1 -- ERROR at the `while`: `while` requires `do`
 
-while n > 0                       -- ERROR at the `while`: a `do` at the `while`'s column
-do                                --   begins a new line of the block; end the head's last
-    n := n - 1                    --   line with `do` (one report: the `do` draws none)
+-- ERROR at the `while`: a `do` at the `while`'s column begins a new line of the block; end the
+-- head's last line with `do` (one report: the `do` draws none)
+while n > 0
+do
+    n := n - 1
 
 var n = 10
-do                                -- ERROR at the `do`: Hexagon has no `do … while` loop;
-    n := n - 1                    --   write `while condition do` with the body beneath it
-while n > 0                       -- no second report
+-- ERROR at the `do`: Hexagon has no `do … while` loop; write `while condition do` with the body
+-- beneath it
+do
+    n := n - 1
+while n > 0 -- no second report
 ```
 
 ---

@@ -54,10 +54,10 @@ Notes, normative where bolded:
 **`Map` and `Set` have no literal syntax in v1.** `{ … }` is permanently records; `[k: v]`-style forms would complicate the bracket grammar Part 3 §2 settled, for two types whose construction is rarely hot in source. Rejected alternative §12.1. Construction is by name:
 
 ```
-let empty  = Map.empty                                -- Map(k, v), generalizes
-let one    = Map.singleton(1, "one")                  -- Map(Int, String)
-let m      = Map.fromVector([(1, "one"), (2, "two")]) -- Map(Int, String)
-let s      = Set.fromVector([1, 2, 3])                -- Set(Int)
+let empty = Map.empty -- Map(k, v), generalizes
+let one = Map.singleton(1, "one") -- Map(Int, String)
+let m = Map.fromVector([(1, "one"), (2, "two")]) -- Map(Int, String)
+let s = Set.fromVector([1, 2, 3]) -- Set(Int)
 ```
 
 ### 3.2 `fromVector` — the convenience constructor
@@ -140,7 +140,7 @@ This is the deliberate, stated break with `Vector.set` (which throws `IndexFault
 `Map.remove<k: Hash>(m, key)` and `Set.remove<a: Hash>(s, x)` return the collection **unchanged** when the key/element is absent; they never throw. "Remove" names a request, not an assertion — the `dropFirst`/`dropLast` family (Part 3 §7.1/§11.4), with the pleasant algebraic consequence stated in the doc:
 
 ```
-m.remove(k).remove(k) == m.remove(k)         -- idempotent
+m.remove(k).remove(k) == m.remove(k) -- idempotent
 ```
 
 A caller who needs the assertion checks `containsKey` first or reads `m[k]` before removing — three intents (assert / ask / request), three named behaviours, exactly the Part 3 §7.1 consistency note extended.
@@ -419,51 +419,49 @@ Rejected in Part 2 §2.4 (do-not-relitigate record there; table placement is see
 
 ```
 -- (a) Construction, generalization, no Hash on empty
-let e = Map.empty                          -- Map(k, v), generalizes
+let e = Map.empty -- Map(k, v), generalizes
 let m = Map.fromVector([(1, "one"), (2, "two")])
 let s = Set.fromVector([1, 2, 3])
-let one = Map.singleton("a", 1)            -- Map(String, Int)
+let one = Map.singleton("a", 1) -- Map(String, Int)
+-- "new" (last value wins)
 Map.fromEntries(Vector.toSeq([(1, "old"), (1, "new")]))[1]
-                                           -- "new"  (last value wins)
 
 -- (b) Unsatisfied Hash, hinted (key type without derives)
 record Weird = { s: String }
 honor Eq<Weird> =
     equals(a, b) = String.lower(a.s) == String.lower(b.s)
+-- ERROR: no Hash instance for Weird (and derives Hash is barred by the Eq-agreement rule, Part 2
+-- §4.3; wrapper key types are the pattern)
 let bad = Map.set(Map.empty, Weird({ s = "K" }), 1)
-                                           -- ERROR: no Hash instance for Weird
-                                           --   (and derives Hash is barred by the
-                                           --    Eq-agreement rule, Part 2 §4.3;
-                                           --    wrapper key types are the pattern)
 
 -- (c) Accessor pair
-m[1]                                       -- "one"
-m[9]                                       -- throws KeyFault
-Map.get(m, 9)                              -- None
-Map.containsKey(m, 2)                      -- True
+m[1] -- "one"
+m[9] -- throws KeyFault
+Map.get(m, 9) -- None
+Map.containsKey(m, 2) -- True
 
 -- (d) No Set brackets; contains is membership
-s[1]                                       -- ERROR: type error (Set has no [])
-Set.contains(s, 2)                         -- True
+s[1] -- ERROR: type error (Set has no [])
+Set.contains(s, 2) -- True
 
 -- (e) Upsert vs assert
-Map.set(m, 3, "three")                     -- OK: inserts (contrast Vector.set, throws)
-Map.set(m, 1, "uno")                       -- OK: replaces
-Map.remove(m, 99)                          -- OK: unchanged (forgiving)
-Set.remove(Set.add(s, 4), 4) == s          -- True
+Map.set(m, 3, "three") -- OK: inserts (contrast Vector.set, throws)
+Map.set(m, 1, "uno") -- OK: replaces
+Map.remove(m, 99) -- OK: unchanged (forgiving)
+Set.remove(Set.add(s, 4), 4) == s -- True
 
 -- (f) Set algebra
+-- {1, 2, 3} extensionally
 Set.union(Set.fromVector([1, 2]), Set.fromVector([2, 3]))
-                                           -- {1, 2, 3} extensionally
-Set.isSubsetOf(Set.empty, s)               -- True
-s ++ s                                     -- ERROR: no Concat for Set (use Set.union)
+Set.isSubsetOf(Set.empty, s) -- True
+s ++ s -- ERROR: no Concat for Set (use Set.union)
 
 -- (g) Iteration; pattern loop head
 var total = 0
 for (k, v) in m do
-    total := total + k                       -- OK: irrefutable tuple head
+    total := total + k -- OK: irrefutable tuple head
 for [k, v] in m do
-    ...                                      -- ERROR: this pattern can fail; use match
+    ... -- ERROR: this pattern can fail; use match
 
 -- (h) Order contract (property-shaped, not golden-output)
 -- m.toSeq() traversed twice in one run: identical order.
@@ -471,27 +469,27 @@ for [k, v] in m do
 -- No test may assert a concrete order across runs.
 
 -- (i) Instances
+-- True (extensional Eq)
 Map.fromVector([(1, "a"), (2, "b")]) == Map.fromVector([(2, "b"), (1, "a")])
-                                           -- True   (extensional Eq)
+-- ERROR: no Ord instance for Set(Int)
 Set.fromVector([1, 2]) < Set.fromVector([1, 2, 3])
-                                           -- ERROR: no Ord instance for Set(Int)
-show(Set.fromVector([1, 2]))               -- "Set.fromVector([1, 2])"  (some order)
-show(Map.empty)                            -- "Map.empty"
+show(Set.fromVector([1, 2])) -- "Set.fromVector([1, 2])" (some order)
+show(Map.empty) -- "Map.empty"
+-- True (permutation-invariant)
 Set.fromVector([1, 2]).hash() == Set.fromVector([2, 1]).hash()
-                                           -- True   (permutation-invariant)
+-- OK: Set(Set(Int)) — Hash<Set> provided
 let nested = Set.fromVector([Set.fromVector([1]), Set.fromVector([2])])
-                                           -- OK: Set(Set(Int)) — Hash<Set> provided
 
 -- (j) Representative retention (§5.4)
-let z = Set.fromVector([-0.0, 0.0])        -- one element (SameValueZero)
-Set.size(z)                                -- 1
-show(Vector.fromSeq(Set.toSeq(z)))         -- "[-0.0]"   (first representative retained)
-Set.add(z, 0.0) == z                       -- True, and the SAME value (add is idempotent)
+let z = Set.fromVector([-0.0, 0.0]) -- one element (SameValueZero)
+Set.size(z) -- 1
+show(Vector.fromSeq(Set.toSeq(z))) -- "[-0.0]" (first representative retained)
+Set.add(z, 0.0) == z -- True, and the SAME value (add is idempotent)
 let m0 = Map.set(Map.set(Map.empty, -0.0, "a"), 0.0, "b")
-m0[0.0]                                    -- "b"        (value: last wins)
-show(Vector.fromSeq(Map.keys(m0)))         -- "[-0.0]"   (key representative: first wins)
+m0[0.0] -- "b" (value: last wins)
+show(Vector.fromSeq(Map.keys(m0))) -- "[-0.0]" (key representative: first wins)
+-- retains -0.0 (left operand's representative)
 Set.union(Set.fromVector([-0.0]), Set.fromVector([0.0]))
-                                           -- retains -0.0 (left operand's representative)
 ```
 
 ---

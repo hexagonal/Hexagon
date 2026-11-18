@@ -67,11 +67,14 @@ The message a running program's own fault or exception carries is not shown text
 
 ```
 record Point = { x: Float, y: Float }
-record Pair(a, b) derives (Eq, Show) = { first: a, second: b }
+record Pair(a, b) derives (Eq, Show) = {
+    first: a,
+    second: b,
+}
 
 union Option(a) derives (Eq, Show) = Some(value: a) | None
 union Shape
-    derives (Eq, Show) =
+        derives (Eq, Show) =
     | Circle(radius: Float)
     | Rect(width: Float, height: Float)
     | Point
@@ -115,15 +118,15 @@ A declaration's header and RHS are **one logical line under ordinary offside han
 
 ```
 union Shape
-    derives (Eq, Show) =        -- derives on its own continuation line
-    | Circle(radius: Float)        -- alternatives are continuations, not a block
+        derives (Eq, Show) = -- derives on its own continuation line
+    | Circle(radius: Float) -- alternatives are continuations, not a block
     | Rect(width: Float, height: Float)
     | Point
 
 record Config derives (Eq) = {
-    host: String,                  -- record braces may span lines; braces make this
-    port: Int,                     -- trivially a continuation regardless
-    verbose: Bool
+    host: String, -- record braces may span lines; braces make this
+    port: Int, -- trivially a continuation regardless
+    verbose: Bool,
 }
 ```
 
@@ -179,7 +182,7 @@ The same fully-applied rule already holds for `record`/`union` constructors at u
 ### 5.3 Unused alias parameters are a hard error
 
 ```
-type Tagged(tag, a) = a        -- ERROR
+type Tagged(tag, a) = a -- ERROR
 ```
 
 "parameter `tag` is unused in the alias body; type aliases are transparent, so unused parameters have no effect — for phantom typing use a `record` or `union`."
@@ -190,8 +193,8 @@ type Tagged(tag, a) = a        -- ERROR
 ### 5.4 The recursion ban
 
 ```
-type T = Option(T)             -- ERROR
-type A = B; type B = A         -- ERROR (mutual)
+type T = Option(T) -- ERROR
+type A = B; type B = A -- ERROR (mutual)
 ```
 
 "type aliases cannot be recursive; use a `union` or `record` for recursive types." Direct and mutual, detected by an SCC check over the alias-dependency graph at module check time (cheap; the graph is small). The rationale is the one Unions §2 recorded from the other side: nominal names are constants to the unifier, so nominal recursion is just another mention of a constant — aliases have no such indirection, and recursion means infinite expansion. The fixit **names the nominal escape**; that is the point of the message.
@@ -313,7 +316,10 @@ Apply on next touch; until then this doc governs.
 
 ```
 -- (a) Header grammar tour
-record Pair(a, b) derives (Eq, Show) = { first: a, second: b }
+record Pair(a, b) derives (Eq, Show) = {
+    first: a,
+    second: b,
+}
 union Option(a) derives (Eq, Show) = Some(value: a) | None
 type Lookup(k, v) = k -> Option(v)
 
@@ -338,7 +344,7 @@ record Point derives (Eq) = { x: Float, y: Float }
 -- (e) Alias transparency round trip
 export type UserName = String
 export let greet(name: UserName): String = "hi ${name}"
-greet("ada")                         -- OK: String is UserName
+greet("ada") -- OK: String is UserName
 -- .d.ts: export type UserName = string;
 --         export declare function greet(name: UserName): string;
 
@@ -349,13 +355,13 @@ honor Show<Meters> = ...
 -- instances — use a `record` or a single-constructor `union`
 
 -- (g) Unused alias parameter (and why the syntactic check suffices)
-type Tagged(tag, a) = a              -- ERROR: parameter `tag` is unused
-type Const(a, b) = a                 -- ERROR first: `b` unused — so no alias can
-type Weird(x) = Const(Int, x)        -- ever launder another's parameters
+type Tagged(tag, a) = a -- ERROR: parameter `tag` is unused
+type Const(a, b) = a -- ERROR first: `b` unused — so no alias can
+type Weird(x) = Const(Int, x) -- ever launder another's parameters
 
 -- (h) Recursion ban vs. the nominal escape
-type T = Option(T)                   -- ERROR: aliases cannot be recursive
-type Forest(a) = List(Tree(a))       -- OK: cycle passes through nominal Tree
+type T = Option(T) -- ERROR: aliases cannot be recursive
+type Forest(a) = List(Tree(a)) -- OK: cycle passes through nominal Tree
 union Tree(a) = Node(a, Forest(a)) | Leaf
 
 -- (i) Fully applied
@@ -363,7 +369,7 @@ type Handler(a) = a -> Unit
 let register(h: Handler): Unit = ... -- ERROR: `Handler` takes 1 type parameter
 
 -- (j) Order-insensitivity
-let area(s: Shape): Float = ...      -- Shape declared below: legal
+let area(s: Shape): Float = ... -- Shape declared below: legal
 union Shape derives (Eq) = Circle(radius: Float) | Point
 
 -- (k) Display stickiness

@@ -41,7 +41,9 @@
 module Function
 
 extern from "hex:intrinsic"
-    export fun functionMemoizeRecursive as memoizeRecursive<a: Hash>(body: ((a) -> b, a) -> b) -> (a) -> b
+    export fun functionMemoizeRecursive as memoizeRecursive<a: Hash>(
+        body: ((a) -> b, a) -> b,
+    ) -> (a) -> b
 
 export let memoize<a: Hash>(f: (a) -> b): (a) -> b =
     memoizeRecursive((_, key: a) => f(key))

@@ -42,11 +42,11 @@ group       ::= '(' alternation ')'
               | '(?<' name '>' alternation ')' | '(?P<' name '>' alternation ')'
               | '(?' flags ':' alternation ')'
 setting     ::= '(?' flags ')'
-flags       ::= flag+ ('-' flag+)? | '-' flag+   -- flag ::= 'i' | 'm' | 's' | 'x', each at most once
+flags       ::= flag+ ('-' flag+)? | '-' flag+ -- flag ::= 'i' | 'm' | 's' | 'x', each at most once
 anchor      ::= '^' | '$' | '\A' | '\z' | '\b' | '\B'
 class       ::= '[' '^'? item+ ']'
 item        ::= single | single '-' single | classescape
-single      ::= literal | codeescape                 -- one codepoint
+single      ::= literal | codeescape -- one codepoint
 classescape ::= '\d' | '\D' | '\s' | '\S' | '\w' | '\W' | property
 codeescape  ::= '\n' | '\t' | '\r' | '\u{' hex+ '}' | '\' punct
 name        ::= [A-Za-z_] [A-Za-z0-9_]*
@@ -169,12 +169,17 @@ A pattern the parser refuses is reported by one exception, thrown by `Regex.pars
 
 ```
 export exception RegexError(
-    message: String,             -- one sentence, naming the defect and the spelling the dialect has instead
-    position: Int,               -- 1-based codepoint position in the pattern; length + 1 when the pattern ended early
-    rewrites: Vector(Rewrite)    -- each spelling the message names that keeps the text's one reading, as data
+    message: String, -- one sentence, naming the defect and the spelling the dialect has instead
+    -- 1-based codepoint position in the pattern; length + 1 when the pattern ended early
+    position: Int,
+    -- each spelling the message names that keeps the text's one reading, as data
+    rewrites: Vector(Rewrite),
 )
 
-export record Rewrite = { title: String, edits: Vector(Edit) }
+export record Rewrite = {
+    title: String,
+    edits: Vector(Edit),
+}
 export record Edit = { start: Int, end: Int, text: String }
 ```
 
@@ -272,9 +277,22 @@ Signatures below are the normative qualified API, not declaration syntax. Every 
 ### 4.1 Types
 
 ```
-opaque record Regex = { source: String, groupCount: Int, names: Vector((String, Int)), program: Program }
-opaque record Match = { whole: Group, groups: Vector(Option(Group)), names: Vector((String, Int)) }
-export record Group derives (Eq, Show) = { start: Int, length: Int, text: String }
+opaque record Regex = {
+    source: String,
+    groupCount: Int,
+    names: Vector((String, Int)),
+    program: Program,
+}
+opaque record Match = {
+    whole: Group,
+    groups: Vector(Option(Group)),
+    names: Vector((String, Int)),
+}
+export record Group derives (Eq, Show) = {
+    start: Int,
+    length: Int,
+    text: String,
+}
 ```
 
 - **`Regex`** is a compiled pattern: a value, immutable, sharable, with no `Eq`, `Ord`, or `Hash` instance — two regexes are compared by `source`. It carries a **`Program`**, the confined type its door row declares (§7), and inside that the two memos the program owns, the lazy-DFA cache and the resolved classes (§6.2); the record is `opaque` because a confined type may travel only inside an opaque carrier (Intrinsics §3.3), and it derives nothing for the same reason. `Show<Regex>` is honored by hand and shows the source. Its **name table** is `Pattern.names`'s entries (§5) in group order, each name with its number. It is a vector, not a `Map`, so that a `Regex` the compiler builds can be written into the emitted program (§8): a `Map`'s layout depends on a placement seeded per process (Collections Part 2 §2.4), so a map built while compiling would have to be hashed again, name by name, when the program loads, where a vector is rebuilt by appending its entries in order and needs no hash. A pattern names few groups, and `groupIndex` and `named` read the table from the start.
@@ -286,8 +304,10 @@ export record Group derives (Eq, Show) = { start: Int, length: Int, text: String
 ```
 export fault RegexCompileFault(message: String, position: Int, rewrites: Vector(Syntax.Rewrite))
 
-Regex.compile(pattern: String): Regex        -- String -> Regex; a bad pattern throws the fault RegexCompileFault
-Regex.parse(pattern: String): Regex          -- String ->^ Regex; a bad pattern throws the exception Syntax.RegexError
+-- String -> Regex; a bad pattern throws the fault RegexCompileFault
+Regex.compile(pattern: String): Regex
+-- String ->^ Regex; a bad pattern throws the exception Syntax.RegexError
+Regex.parse(pattern: String): Regex
 Regex.escape(text: String): String
 Regex.source(regex: Regex): String
 Regex.groupCount(regex: Regex): Int
@@ -366,7 +386,7 @@ Regex.groups(match: Match): Vector(Option(Group))
 export union Expr =
     | Empty
     | Literal(point: Int)
-    | Dot(newline: Bool)                     -- `.`; newline = True under `s`
+    | Dot(newline: Bool) -- `.`; newline = True under `s`
     | Class(items: Vector(ClassItem), negated: Bool, folded: Bool)
     | Anchor(kind: AnchorKind)
     | Concat(parts: Vector(Expr))
@@ -375,21 +395,44 @@ export union Expr =
     | Capture(body: Expr, index: Int, name: Option(String))
 
 export union ClassItem =
-    | Range(low: Int, high: Int)             -- inclusive, low ≤ high
+    | Range(low: Int, high: Int) -- inclusive, low ≤ high
     | Property(kind: PropertyKind, value: String, negated: Bool)
 
-export union PropertyKind = GeneralCategory | Script | ScriptExtensions | Binary | Any | Ascii | Assigned | Word
-export union AnchorKind = TextStart | TextEnd | LineStart | LineEnd | WordBoundary | NotWordBoundary
+export union PropertyKind =
+    | GeneralCategory
+    | Script
+    | ScriptExtensions
+    | Binary
+    | Any
+    | Ascii
+    | Assigned
+    | Word
+
+export union AnchorKind =
+    | TextStart
+    | TextEnd
+    | LineStart
+    | LineEnd
+    | WordBoundary
+    | NotWordBoundary
 
 export record Span = { start: Int, length: Int }
-export record Pattern = { root: Expr, groupCount: Int, names: Map(String, Int), spans: Vector(Span) }
+export record Pattern = {
+    root: Expr,
+    groupCount: Int,
+    names: Map(String, Int),
+    spans: Vector(Span),
+}
 export record Edit = { start: Int, end: Int, text: String }
-export record Rewrite = { title: String, edits: Vector(Edit) }
+export record Rewrite = {
+    title: String,
+    edits: Vector(Edit),
+}
 export exception RegexError(message: String, position: Int, rewrites: Vector(Rewrite))
 ```
 
 ```
-Syntax.parse(pattern: String): Pattern       -- String ->^ Pattern
+Syntax.parse(pattern: String): Pattern -- String ->^ Pattern
 ```
 
 The nine declarations and `parse` — a qualified-API signature in §4's sense, not declaration syntax — are the module's whole exported surface. The tree is `Expr`, not `Node`: `Node` is the spelling of the compiler-owned boundary type that answers bare in a runtime-privileged module (Modules §5.5, Intrinsics §3.3), and `Hex.Runtime.Regex` is one and imports this module (§6.1) — the one module that would see both. `Dot` rather than `Any`, since `PropertyKind` has an `Any` and two unions of one module may not share a constructor (Unions §2). `Property.value` is the canonical value spelling for `GeneralCategory`, `Script`, `ScriptExtensions`, and `Binary`, and `""` for `Any`, `Ascii`, `Assigned`, and `Word`, which the engine's table answers by kind alone (§7). `Word` is §2.4's `\w` and has no `\p{…}` spelling: `\p{Word}` names no supported property.
@@ -457,7 +500,11 @@ extern from "hex:intrinsic"
     fun bufferRead as read(buffer: Buffer(a), index: Int) ->~ a
     fun bufferWrite as write(buffer: Buffer(a), index: Int, value: a) ->~ Unit
     fun bufferLength as length(buffer: Buffer(a)) -> Int
-    fun regexPropertyRanges as propertyRanges(kind: Syntax.PropertyKind, value: String) -> Vector((Int, Int))   -- surrogates excluded
+    -- surrogates excluded
+    fun regexPropertyRanges as propertyRanges(
+        kind: Syntax.PropertyKind,
+        value: String,
+    ) -> Vector((Int, Int))
     fun regexFoldOrbit as foldOrbit(point: Int) -> Vector(Int)
     fun regexCodepointAt as codepointAt(text: String, offset: Int) -> Int
     fun regexCodeUnits as codeUnits(text: String) -> Int
@@ -475,7 +522,13 @@ extern from "hex:intrinsic"
 extern from "hex:intrinsic"
     type regexProgram as Program
     fun regexCompile as compileProgram(syntax: Syntax.Pattern) -> Program
-    fun regexSearch as searchProgram(program: Program, text: String, start: Int, cursor: (Int, Int), spans: Bool) -> Option((Vector(Option((Int, Int, String))), (Int, Int)))
+    fun regexSearch as searchProgram(
+        program: Program,
+        text: String,
+        start: Int,
+        cursor: (Int, Int),
+        spans: Bool,
+    ) -> Option((Vector(Option((Int, Int, String))), (Int, Int)))
 ```
 
 - `regexProgram`'s inventory entry names **`Hex.Regex`** as its one declarer: a `Program` is constructed only by `compileProgram`, or by an emitted module's load as a copy of a program `compileProgram` built (§8), is inspected by no row but `searchProgram` (the compiler reads one only to copy it, §8), travels only inside the opaque `Regex` (§4.1), and is the carrier through which a value over `Buffer` storage — a compiled program with its cache — reaches a program without the storage being addressable anywhere but the runtime module. The type has arity 0. The foundations declared one confined type key, `buffer`; this is a second, and it meets Intrinsics §3.3's **confinement bar** (#930): never addressable outside its declarer, with no constructor, pattern, or derived instance — what `Map` and `Vector` cannot have and `Program` has. That the engine keeps its `Compiled` record (§6.1) behind it settles nothing, as `HashTrie` behind `Map` settles nothing: no module names it, no row exposes it.

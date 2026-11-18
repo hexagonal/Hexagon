@@ -40,10 +40,10 @@ These are the forms users should reach for first. Everything in this section typ
 ### 3.1 Lambdas
 
 ```
-x => body                 -- one parameter, no parens needed
-(x) => body               -- identical; parens are grouping, not a 1-tuple
-(x, y) => body            -- two parameters
-() => body                -- zero parameters
+x => body -- one parameter, no parens needed
+(x) => body -- identical; parens are grouping, not a 1-tuple
+(x, y) => body -- two parameters
+() => body -- zero parameters
 ```
 
 - Parameters are comma-separated inside parens; a **single parameter may omit the parens**. `(x) => e` and `x => e` are the same term — `(x)` is redundant grouping, consistent with "there is no 1-tuple."
@@ -60,7 +60,7 @@ x => body                 -- one parameter, no parens needed
 ```
 let double = x => x * 2
 let plus = (x, y) => x + y
-let plus(x, y) = x + y          -- header sugar: same AST node as the line above
+let plus(x, y) = x + y -- header sugar: same AST node as the line above
 ```
 
 Header syntax (`let f(params) = body`) is pure sugar for `let f = (params) => body`. The parser produces the **identical AST node** for both — equivalence is by construction, not by two code paths agreeing. Header parameters are the same patterns as lambda parameters (§3.1).
@@ -108,9 +108,9 @@ The distinction is observable only when an annotation overpromises:
 
 ```
 let takesInt(value: Int) = value
-let inferred(value) = takesInt(value)       -- legal; value is inferred as Int
-let rejected(value: a) = takesInt(value)    -- ERROR: declared a, body requires Int
-let numeric(value: a) = value + 1           -- legal; Num is inferred for a
+let inferred(value) = takesInt(value) -- legal; value is inferred as Int
+let rejected(value: a) = takesInt(value) -- ERROR: declared a, body requires Int
+let numeric(value: a) = value + 1 -- legal; Num is inferred for a
 ```
 
 Rigid annotation variables still accumulate inferred constraints. Rigidity
@@ -149,7 +149,7 @@ Angle-bracket syntax, settled form:
 
 ```
 let plus<a: Num>(x: a, y: a): a = x + y
-let plus = <a: Num>(x: a, y: a): a => x + y      -- equivalent, same AST node
+let plus = <a: Num>(x: a, y: a): a => x + y -- equivalent, same AST node
 ```
 
 - Form: `<typevar: constraintList>` where `constraintList` is a single constraint or a parenthesized list `(C1, C2, ...)` meaning *all* listed constraints hold. The tuple notation is suggestive (conjunction is a product); it is not a real tuple. Example: `<a: (Eq, Show)>`.
@@ -223,9 +223,9 @@ The decision procedure, in full:
 The worked contrast:
 
 ```
-export let id(x: a): a = x                       -- complete; no binder to write
+export let id(x: a): a = x -- complete; no binder to write
 export let max<a: Ord>(x: a, y: a): a =
-    if x >= y then x else y                      -- binder, because Ord is published
+    if x >= y then x else y -- binder, because Ord is published
 ```
 
 `id` is a complete exported signature as written: `a` is introduced by
@@ -334,9 +334,9 @@ Pattern Matching §6.1 reads a `match`'s scrutinee from the program's text, not 
 ## 5. Application and arity
 
 ```
-f()          -- call with zero arguments
-f(x)         -- one argument
-f(x, y)      -- two arguments
+f() -- call with zero arguments
+f(x) -- one argument
+f(x, y) -- two arguments
 ```
 
 - Parentheses at the call site are **required**. There is no juxtaposition application.
@@ -418,8 +418,9 @@ The two are distinct types with distinct calling conventions, visible in the
 emitted JavaScript:
 
 ```
-let thunk: () -> Int = () => 5          -- emits `() => 5`;  called `thunk()`
-let taking: Unit -> Int = value => 5    -- emits `value => 5`; called `taking(())`, i.e. `taking(undefined)`
+let thunk: () -> Int = () => 5 -- emits `() => 5`; called `thunk()`
+-- emits `value => 5`; called `taking(())`, i.e. `taking(undefined)`
+let taking: Unit -> Int = value => 5
 ```
 
 So the model is a legitimate way to *teach* the surface syntax — `()` for the
@@ -463,7 +464,7 @@ by the eta-wrap (§5.3).
   ```
   let apply(transform: a -> b, value: a): b = transform(value)
   let five(): Int = 5
-  let result = apply(_ => five(), ())     -- not `apply(five, ())`
+  let result = apply(_ => five(), ()) -- not `apply(five, ())`
   ```
 
   This seam is narrow — it appears only where a thunk meets a fully generic
@@ -505,11 +506,11 @@ Consequences:
 A `fun` defines its members in **header syntax only**: `name(params)` with optional annotations, `=`, body — fused (`fun f(n) = body`) or as a member of a block (§7.3). There is no `fun name =` production; every former RHS spelling is a parse error with a mechanical rewrite:
 
 ```
-fun f(n) = body                  -- allowed (the one form)
-fun f = (n) => body              -- ERROR; write: fun f(n) = body
-fun size = match ...             -- ERROR; write: fun size(shape) = match shape with ...
-fun x = 5                        -- ERROR; not a function definition — use let
-fun fib = memoize(...)           -- ERROR (see §7.5)
+fun f(n) = body -- allowed (the one form)
+fun f = (n) => body -- ERROR; write: fun f(n) = body
+fun size = match ... -- ERROR; write: fun size(shape) = match shape with ...
+fun x = 5 -- ERROR; not a function definition — use let
+fun fib = memoize(...) -- ERROR (see §7.5)
 ```
 
 Rationale, unchanged in substance: a block's members are all bound before any member's body can run (§7.3 — mutual visibility requires it), which is only sound if creating each member requires **zero evaluation**. The old rule asked whether a written RHS was a lambda literal; the header form has the property **by construction** — it can only denote a lambda — so the check is now the grammar itself. (SML's precedent: `fun` is clausal-only; the lambda-RHS spelling belongs to `let`, which keeps it, along with the match function — the special-purpose keyword is the one that always shows its header.)
@@ -523,13 +524,13 @@ Every term binding — `let`, `var`, `fun`, and a module alias in term position 
 The law is uniform across module top level and inner blocks, and it governs every kind of reference — a bare name, and equally a dot call, which is a reference to the operation it dispatches to (Method Syntax §4.4). It also governs every term-namespace name a type-namespace declaration binds — a union's or record's **constructors**, an `exception`'s constructor, a `constraint`'s **members** — in **value position**: `Box({ value = 1 })` above `record Box` is the same declared-later error as any other. A *type-position* reference (`b: Box`) is free, per the declarations' own order-insensitivity (Declarations Preamble §7.2). A **pattern-position** constructor (`Red =>`, a `catch` arm's exception) obeys the top-down law like a value-position one: a `match` sits below the union it inspects, and one rule covers every term-namespace mention that is not a type. An instance is read by this law too: every use of it — a member call at a known type in any spelling, an operator, interpolation, a `for` head, evidence handed to generic code, a base obligation, a derived instance's components — stands below its honor, and an instance member body is an ordinary reference site (Constraints §4.8).
 
 ```
-let use: Int = twice(3)        -- ERROR: `twice` is declared later in this block;
-                               --   declarations are read top-down — move its
-                               --   declaration above this use
+-- ERROR: `twice` is declared later in this block; declarations are read top-down — move its
+-- declaration above this use
+let use: Int = twice(3)
 let twice(n: Int): Int = n * 2
 
 let twice(n: Int): Int = n * 2
-let use: Int = twice(3)        -- fine
+let use: Int = twice(3) -- fine
 ```
 
 Consequences:
@@ -616,8 +617,8 @@ The inference engine uses Algorithm J with union-find type variables and level-b
    -- load : () -> Table(k, v),  find : (Table(k, v), k) -> v,  Table transparent
    let lookup =
        let table = load()
-       (key) => find(table, key)     -- key's type: pinned by first use (contravariant);
-                                     -- the result type: generalizes (item 7)
+       -- key's type: pinned by first use (contravariant); the result type: generalizes (item 7)
+       (key) => find(table, key)
    ```
 
    Its earlier items run when the binding is bound, and code that has already run is precisely what *full* generalization is withheld from — the symmetry with §7.3's block visibility noted at the end of this section. Item 7 still applies per variable *(revised 2026-08-01, #205)*: here the argument variable occurs contravariantly and is pinned by the first use, while the unconstrained result variable generalizes — soundly, because the once-loaded table, typed with no known element type, can by parametricity contain no elements (closure doc §4.4). The rewrite for a pinned variable is the ML one again: lift the earlier items into the enclosing block, where they are bound once and what remains on the right-hand side is a lambda, hence a value.
@@ -626,10 +627,10 @@ The inference engine uses Algorithm J with union-find type variables and level-b
 5. **Lambda parameters are monomorphic within their scope.** Inside `(f) => ...`, the parameter `f` has one type per instantiation of the enclosing function; it cannot be used at two different types. The classic demonstration:
    ```
    let id = x => x
-   (id(1), id("a"))                    -- fine: id is let-bound, each use instantiates fresh
+   (id(1), id("a")) -- fine: id is let-bound, each use instantiates fresh
 
-   let apply = f => (f(1), f("a"))     -- ERROR: f is lambda-bound, monomorphic;
-                                       -- cannot be both Int -> ? and String -> ?
+   -- ERROR: f is lambda-bound, monomorphic; cannot be both Int -> ? and String -> ?
+   let apply = f => (f(1), f("a"))
    ```
    This is HM's let-polymorphism / lambda-monomorphism split and is the single most surprising rule for the target audience; diagnostics should be written with care here.
 6. Header sugar and explicit-lambda forms generalize identically **by construction** (one AST node, §3.2).

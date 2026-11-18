@@ -371,10 +371,10 @@ determined result type.
 
 ```hexagon
 let price: Dec = 1.50d
-let share: Rat = price          -- 3/2
-let third = price * 1//3        -- Rat: 1/2
-let ratio: Rat = price / 0.25d  -- 6/1: exact division at the written Rat
-let back: Rat = price ** -2     -- 4/9: Rat's power, the exponent staying Int
+let share: Rat = price -- 3/2
+let third = price * 1//3 -- Rat: 1/2
+let ratio: Rat = price / 0.25d -- 6/1: exact division at the written Rat
+let back: Rat = price ** -2 -- 4/9: Rat's power, the exponent staying Int
 ```
 
 **The ranking.** The home ranking (§4, Numeric Literals §5.1) counts `Dec` among the

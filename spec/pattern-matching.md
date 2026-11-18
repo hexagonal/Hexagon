@@ -24,24 +24,28 @@
 The complete v1 inventory:
 
 ```
-_                        -- wildcard: matches anything, binds nothing
-x                        -- variable: matches anything, binds x
-C(p1, ..., pn)           -- constructor pattern, sub-patterns nest freely
-C                        -- nullary constructor
-(p1, ..., pn)            -- tuple pattern, arity 0 or ≥ 2; (p) is grouping
-{ f1 = p1, f2, ... }     -- record pattern: open; { f } puns as { f = f }
-0   1n   1.5   1.50d   "yes" -- literal patterns: bare integer, BigInt, Float, Dec, String (Bool's are constructors, #147)
-p1 | p2                  -- or-pattern
-p as x                   -- as-pattern: match p, additionally bind the whole to x
-(p: T)                   -- typed pattern: p, at the written type T (§2.9); a tuple
-                         --   pattern's components may each take one: (p1: T1, p2)
-()                       -- the empty-tuple (`Unit`) pattern: the arity-0 tuple form (#159)
-[p1, ..., pn]  [ps, ...rest]  -- vector patterns (Collections Part 3 §3 owns forms,
-                              --   typing, exhaustiveness, irrefutability, emission)
-(p1, ..., pn)name        -- declared pattern: a component list, then the pattern's name as a
-                         --   suffix, bare always (Pattern Declarations owns declaration, typing,
-                         --   resolution, coverage, emission; registered here by reference)
-p1//p2                   -- fraction pattern: a Rat's top and bottom, each at BigInt (§2.10)
+_ -- wildcard: matches anything, binds nothing
+x -- variable: matches anything, binds x
+C(p1, ..., pn) -- constructor pattern, sub-patterns nest freely
+C -- nullary constructor
+(p1, ..., pn) -- tuple pattern, arity 0 or ≥ 2; (p) is grouping
+{ f1 = p1, f2, ... } -- record pattern: open; { f } puns as { f = f }
+-- literal patterns: bare integer, BigInt, Float, Dec, String (Bool's are constructors, #147)
+0   1n   1.5   1.50d   "yes"
+p1 | p2 -- or-pattern
+p as x -- as-pattern: match p, additionally bind the whole to x
+-- typed pattern: p, at the written type T (§2.9); a tuple pattern's components may each take one:
+-- (p1: T1, p2)
+(p: T)
+() -- the empty-tuple (`Unit`) pattern: the arity-0 tuple form (#159)
+-- vector patterns (Collections Part 3 §3 owns forms, typing, exhaustiveness, irrefutability,
+-- emission)
+[p1, ..., pn]  [ps, ...rest]
+-- declared pattern: a component list, then the pattern's name as a suffix, bare always (Pattern
+-- Declarations owns declaration, typing, resolution, coverage, emission; registered here by
+-- reference)
+(p1, ..., pn)name
+p1//p2 -- fraction pattern: a Rat's top and bottom, each at BigInt (§2.10)
 ```
 
 Grammar, loosest to tightest: `as` binds looser than `|`; both bind looser than `//`, and `//` looser than the other structural forms. So `Circle(r) | Square(r) as s` is `(Circle(r) | Square(r)) as s`, and `0//_ | _//1 as r` is `((0//_) | (_//1)) as r`. Parenthesize to override. A typed pattern's `:` ends its element (§2.9), so it is looser than both: `(Circle(r) | Square(r) as s: Shape)` types the whole.
@@ -55,7 +59,7 @@ An uppercase-start name in any pattern position is a constructor reference, neve
 ### 2.2 Constructor patterns — now nested
 
 ```
-Node(Leaf, x, Node(l, y, r))     -- nesting to any depth
+Node(Leaf, x, Node(l, y, r)) -- nesting to any depth
 Some(Some(n))
 Envelope(Header(id) as h, body)
 ```
@@ -68,8 +72,8 @@ Envelope(Header(id) as h, body)
 ### 2.3 Tuple patterns
 
 ```
-(Some(x), None)                  -- nested
-(a, _, (b, c))                   -- nesting includes tuples in tuples
+(Some(x), None) -- nested
+(a, _, (b, c)) -- nesting includes tuples in tuples
 ```
 
 Arity must equal the tuple's arity (Products §2.1 report shape). `(p)` is **grouping**, exactly as in expressions — there are no 1-tuples, so no ambiguity. `()` is the arity-0 case of this form: the empty-tuple pattern, `Unit`'s sole pattern, irrefutable because all zero of its components are *(reclassified 2026-07-30, #159 — formerly a dedicated "Unit pattern"; Products §2.7)*.
@@ -77,11 +81,11 @@ Arity must equal the tuple's arity (Products §2.1 report shape). `(p)` is **gro
 ### 2.4 Record patterns — open, with punning
 
 ```
-{ name, age }                    -- pun: { name = name, age = age }
-{ name = n }                     -- rename: field name, binder n
-{ port = 0 }                     -- literal sub-pattern
-{ mode = Verbose, port = p }     -- constructor sub-pattern + rename
-{ customer = { name }, total }   -- nested, punned at two depths
+{ name, age } -- pun: { name = name, age = age }
+{ name = n } -- rename: field name, binder n
+{ port = 0 } -- literal sub-pattern
+{ mode = Verbose, port = p } -- constructor sub-pattern + rename
+{ customer = { name }, total } -- nested, punned at two depths
 ```
 
 - **`{ f = p }` — the field slot holds a full sub-pattern.** When the sub-pattern is a bare non-uppercase-start name equal to the field name, the `= name` may be dropped: **`{ f }` ≡ `{ f = f }`.** That's the entire punning rule. A keyword-named field (Lexer §4.4) has no pun — the binder would be the keyword — so it is written out, `{ type = t }`.
@@ -100,13 +104,13 @@ match n with
     _ => "many"
 
 match reading with
-    0.0 => "zero"                  -- and -0.0: Eq<Float> is SameValueZero
+    0.0 => "zero" -- and -0.0: Eq<Float> is SameValueZero
     -2.5 => "minus two and a half"
     _ => "something else"
 
 match answer with
     True => proceed()
-    False => abort()               -- NOT literal patterns: constructor patterns (§2.2)
+    False => abort() -- NOT literal patterns: constructor patterns (§2.2)
 ```
 
 - **Bool left this section (corrected 2026-07-29, #147).** `Bool` is now the prelude union `False | True` (Unions §8), so `True`/`False` in patterns are nullary **constructor patterns** (§2.2), and the exhaustiveness of the second example above is ordinary closed-constructor union checking (§7.1) — no literal machinery involved. The example is retained here as the contrast case, because it is the respelling of what was previously this section's Bool-literal example.
@@ -177,13 +181,13 @@ Patterns contain **no operators, no calls, no expressions**. `C(...)` in pattern
 ### 2.9 Typed patterns `(p: T)`
 
 ```
-let (a: Int, b) = parse(line)          -- a tuple pattern's component
-for (k: String, v) in counts do        -- a loop's pattern
-pairs.map(((k: String, v)) => k)       -- one parameter, destructured, a component typed
-let UserId((n: Int)) = id              -- a constructor's slot, in its own parentheses
-let { total = (t: Dec) } = order       -- a record field's sub-pattern, likewise
-[(first: Int), ...rest] => first       -- a vector element, in an arm
-(Circle(r) | Square(r) as s: Shape) => area(s)   -- an arm; the colon ends the element
+let (a: Int, b) = parse(line) -- a tuple pattern's component
+for (k: String, v) in counts do -- a loop's pattern
+pairs.map(((k: String, v)) => k) -- one parameter, destructured, a component typed
+let UserId((n: Int)) = id -- a constructor's slot, in its own parentheses
+let { total = (t: Dec) } = order -- a record field's sub-pattern, likewise
+[(first: Int), ...rest] => first -- a vector element, in an arm
+(Circle(r) | Square(r) as s: Shape) => area(s) -- an arm; the colon ends the element
 ```
 
 - **The element rule.** Inside a pattern's parentheses every element is `pattern (: Type)?`, as inside an expression's parentheses every element is `expression (: Type)?` (Ascription §2.1) and inside a parameter list every element already is (Ascription §2.3). One unannotated element is grouping (§6.5); one annotated element is the **typed pattern** `(p: T)`; with a top-level comma the parentheses are a tuple pattern whose components may each carry a type, `(p1: T1, p2)` being `((p1: T1), p2)` with the inner parentheses dropped. There are no 1-tuples (Products §2.1), so the readings never meet. The type grammar is the annotation grammar (Functions §4.1).
@@ -209,7 +213,7 @@ match r with
     n//1 => "the whole number ${n}"
     n//d => "${n} over ${d}"
 
-let n//d = 4//-5               -- irrefutable; n = -4n, d = 5n
+let n//d = 4//-5 -- irrefutable; n = -4n, d = 5n
 ```
 
 `p1//p2` matches every `Rat` and takes it apart into its top and its bottom, in lowest
@@ -243,8 +247,8 @@ expression is (Operators §6.4).
 ```
 match shape with
     Circle(r) when 0.0 <= r < 100.0 => draw(r)
-    Circle(_)                       => tooBig()
-    _                               => skip()
+    Circle(_) => tooBig()
+    _ => skip()
 ```
 
 - **`when` is arm syntax, not pattern syntax.** The grammar of a match/catch arm is `pattern [when expr] => body`. A guard therefore always covers the *entire* arm pattern — `A(x) | B(x) when g` guards both alternatives — and can never appear inside a nested pattern. This placement is decided; guards-in-patterns would wreck or-pattern factoring, the same-bindings check, and exhaustiveness locality, for no expressive gain.
@@ -356,15 +360,15 @@ match point with
     (0, 0) => "origin"
     (x, 0) => "on x-axis: ${x}"
     (0, y) => "on y-axis: ${y}"
-    _      => "elsewhere"
+    _ => "elsewhere"
 
 match user with
-    { role = Admin }       => allowAll()
+    { role = Admin } => allowAll()
     { role = _, verified = True } => allowSome()
-    _                    => deny()
+    _ => deny()
 
 match flag with
-    True  => on()
+    True => on()
     False => off()
 ```
 
@@ -403,9 +407,9 @@ let (x, y) = t
 let { name, age } = user
 let UserId(n) = id
 let (Point({ x, y }) as p) = origin
-let (a, b): (Float, String) = (n, "x")   -- the binding's annotation
-let (a: Int, b) = parse(line)            -- a typed component (§2.9)
-let Some(v) = opt                -- HARD ERROR: refutable
+let (a, b): (Float, String) = (n, "x") -- the binding's annotation
+let (a: Int, b) = parse(line) -- a typed component (§2.9)
+let Some(v) = opt -- HARD ERROR: refutable
 ```
 
 The LHS of `let` is now a full pattern, gated by irrefutability (§5).
@@ -417,11 +421,9 @@ The LHS of `let` is now a full pattern, gated by irrefutability (§5).
 ### 6.4 `for..in` loop variable
 
 ```
-for (k, v) in pairs do
-    process(k, v)
+for (k, v) in pairs do process(k, v)
 
-for { id, name } in users do
-    register(id, name)
+for { id, name } in users do register(id, name)
 ```
 
 The loop variable is a single binder position with no arity question — full patterns, irrefutability-gated, binders are **head binders** (Statements §5). `for (k, v) in map do` is live idiom: `Map` iteration yields `(k, v)` tuples (Collections Part 4 §7.2), and the tuple pattern destructures them exactly as above. The head takes no binding annotation, since its elements already exist when it binds them and a type there has nothing to convert: the element's type is written as a typed pattern, `for (x: Nat) in [1, 2, 3] do` (§2.9). `for x: Nat in xs do` is a parse error whose fixit is that spelling.
@@ -435,15 +437,15 @@ The collision: `(x, y) => e` must remain a **two-parameter lambda**, permanently
 One group is not the parameter list: a parenthesised group with a declared pattern's name **against** its closing parenthesis is a suffixed pattern, and one parameter — `(h, m)clock => e` takes one `Time`, where `(h, m) => e` takes two (Pattern Declarations §3.1). The name closes the group before the head's own parentheses are read; whitespace before the name is what makes a parameter list.
 
 ```
-(x, y) => e            -- 2 parameters
-((x, y)) => e          -- 1 parameter, tuple-destructured
-{ a, b } => e          -- 1 parameter, record-destructured (no collision: braces)
-UserId(n) => e         -- 1 parameter, newtype-unwrapped (irrefutable: sole constructor)
-x as v => e            -- legal, if pointless alone; useful as (({ x } as r)) forms grow
-n//d => e              -- 1 parameter, a fraction pattern (§2.10)
-(x, { a, b }, _) => e  -- 3 parameters, second record-destructured
-((k: String, v)) => e  -- 1 parameter, tuple-destructured, a component typed (§2.9)
-Some(x) => e           -- HARD ERROR: refutable pattern in a binding position
+(x, y) => e -- 2 parameters
+((x, y)) => e -- 1 parameter, tuple-destructured
+{ a, b } => e -- 1 parameter, record-destructured (no collision: braces)
+UserId(n) => e -- 1 parameter, newtype-unwrapped (irrefutable: sole constructor)
+x as v => e -- legal, if pointless alone; useful as (({ x } as r)) forms grow
+n//d => e -- 1 parameter, a fraction pattern (§2.10)
+(x, { a, b }, _) => e -- 3 parameters, second record-destructured
+((k: String, v)) => e -- 1 parameter, tuple-destructured, a component typed (§2.9)
+Some(x) => e -- HARD ERROR: refutable pattern in a binding position
 ```
 
 Pins that make this airtight:
@@ -716,26 +718,26 @@ match flag with
 -- exhaustive; adding `_ => 2` afterwards is an unreachable-arm error
 
 -- (c) Or-pattern same-bindings
-Circle(r) | Square(r) => r          -- OK: r bound both sides
-Circle(r) | Point => r              -- ERROR: r bound on the left of | but not the right
+Circle(r) | Square(r) => r -- OK: r bound both sides
+Circle(r) | Point => r -- ERROR: r bound on the left of | but not the right
 
 -- (d) as looser than |
-A(x) | B(x) as v => (x, v)          -- v = whole value in both alternatives
+A(x) | B(x) as v => (x, v) -- v = whole value in both alternatives
 
 -- (e) Irrefutability: the Some/UserId pair
 union UserId = UserId(Int)
-let UserId(n) = id                  -- OK: sole constructor
-let Some(v) = opt                   -- ERROR: this pattern can fail: None; use match
+let UserId(n) = id -- OK: sole constructor
+let Some(v) = opt -- ERROR: this pattern can fail: None; use match
 
 -- (f) True|False is irrefutable (coverage definition, not syntax)
-let (True | False) = b              -- legal (binds nothing; pointless but principled)
+let (True | False) = b -- legal (binds nothing; pointless but principled)
 
 -- (g) Lambda depth rule
-(x, y) => x + y                     -- 2 params
-((x, y)) => x + y                   -- 1 param, tuple; emits t => { const [x, y] = t; ... } or param-destructure
-{ a, b } => a ++ b                  -- 1 param, record; row-constrains if unannotated
-UserId(n) => n                      -- 1 param, newtype unwrap
-Some(x) => x                        -- ERROR: refutable pattern in a binding position
+(x, y) => x + y -- 2 params
+((x, y)) => x + y -- 1 param, tuple; emits t => { const [x, y] = t; ... } or param-destructure
+{ a, b } => a ++ b -- 1 param, record; row-constrains if unannotated
+UserId(n) => n -- 1 param, newtype unwrap
+Some(x) => x -- ERROR: refutable pattern in a binding position
 
 -- (h) Record openness + punning + literal sub-pattern
 match user with
@@ -753,90 +755,97 @@ match n with
 
 -- (i2) Guard termination: => after when belongs to the arm
 match n with
-    x when isPositive => "pos"       -- guard is the expression `isPositive`; => is the arm's
-    x when exists(preds, p => p(x)) => "any"     -- lambda in a guard: the call's bracket
-                                                 -- drops the arm's claim; parens optional
+    x when isPositive => "pos" -- guard is the expression `isPositive`; => is the arm's
+    -- lambda in a guard: the call's bracket drops the arm's claim; parens optional
+    x when exists(preds, p => p(x)) => "any"
     _ => "other"
 -- `x when f => x` parses as guard `f`, body `x` — the pin, not an error (§3)
 
 -- (j) Construction punning round trip
 let name = "Ada"
 let user = { name, verified = True } -- { name = name, ... }; emits {name, verified: true}
-let { name = n } = user             -- n = "Ada"
+let { name = n } = user -- n = "Ada"
 
 -- (k) Float literals, through Eq<Float>
 match temp with
-    0.0 => "zero"                     -- matches -0.0 too: SameValueZero; emits the SameValueZero test,
-                                      --   __floatEquals(temp, 0.0) or the inline shape (Decisions Batch §1.5)
+    -- matches -0.0 too: SameValueZero; emits the SameValueZero test, __floatEquals(temp, 0.0) or
+    -- the inline shape (Decisions Batch §1.5)
+    0.0 => "zero"
     -40.0 => "the same on both scales"
-    t when t == Float.nan => "not a number"      -- a named special value is a term: a guard
+    t when t == Float.nan => "not a number" -- a named special value is a term: a guard
     t when t == Float.infinity => "too hot"
     t when t <= 0.0 => "freezing"
-    _ => "ok"                         -- required: Float is an infinite domain
+    _ => "ok" -- required: Float is an infinite domain
 match temp with
     0.0 => "zero"
-    -0.0 => "never"                   -- ERROR: this literal case is unreachable; it is already handled above
-    0 => "still never"                -- ERROR: the same — an integer literal at Float is checked at Float
-                                      --   through Num (§2.5): Float's zero
-    1.0 | 1.00 | 1.0e0 => "one"       -- ERROR ×2: this literal case is unreachable; it is already handled above
+    -0.0 => "never" -- ERROR: this literal case is unreachable; it is already handled above
+    -- ERROR: the same — an integer literal at Float is checked at Float through Num (§2.5): Float's
+    -- zero
+    0 => "still never"
+    -- ERROR ×2: this literal case is unreachable; it is already handled above
+    1.0 | 1.00 | 1.0e0 => "one"
     _ => "ok"
-match count with                      -- count: Int
-    0.0 => "zero"                     -- ERROR: type mismatch: expected Int, found Float
+match count with -- count: Int
+    0.0 => "zero" -- ERROR: type mismatch: expected Int, found Float
     _ => "ok"
-match count with                      -- count: Int — the identity law at Int (§7.2)
+match count with -- count: Int — the identity law at Int (§7.2)
     7 => "seven"
-    007 => "never"                    -- ERROR: this literal case is unreachable; it is already handled above
+    007 => "never" -- ERROR: this literal case is unreachable; it is already handled above
     0 => "zero"
-    -0 => "never"                     -- ERROR: this literal case is unreachable; it is already handled above
-                                      --   (`-0` is the literal `0`)
+    -- ERROR: this literal case is unreachable; it is already handled above (`-0` is the literal
+    -- `0`)
+    -0 => "never"
     _ => "ok"
-match ratio with                      -- ratio: Rat — the restriction is checked on the resolved type
-    0 => "zero"                       -- ERROR: 0 is not a pattern at Rat; bind a name and test it in a
-                                      --   guard: x when x == 0
-    1.5 => "never"                    -- ERROR: type mismatch: expected Rat, found Float — a decimal is Float
+match ratio with -- ratio: Rat — the restriction is checked on the resolved type
+    -- ERROR: 0 is not a pattern at Rat; bind a name and test it in a guard: x when x == 0
+    0 => "zero"
+    1.5 => "never" -- ERROR: type mismatch: expected Rat, found Float — a decimal is Float
     _ => "ok"
-match None with                       -- a nested position, undetermined when the literal is checked
-    Some(0) => "zero"                 -- OK: inference and defaulting resolve it — a match at Option(Int)
+match None with -- a nested position, undetermined when the literal is checked
+    Some(0) => "zero" -- OK: inference and defaulting resolve it — a match at Option(Int)
     _ => "other"
-match name with                       -- name: String — the literal's Num is unmet: what name == 0 draws
-    0 => "zero"                       -- ERROR: integer literal cannot have type String
+match name with -- name: String — the literal's Num is unmet: what name == 0 draws
+    0 => "zero" -- ERROR: integer literal cannot have type String
     _ => "ok"
 let g<a: (Num, Eq)>(o: Option(a)): String =
-    match o with                      -- constraints met; the restriction on the resolved type
-        Some(0) => "zero"             -- ERROR: 0 is not a pattern at a; bind a name and test it in a
-        _ => "other"                  --   guard: Some(y) when y == 0
-match big with                        -- big: BigInt (a match at BigInt: #519 lifts today's gate; §2.5 settles the literal)
-    0 => "zero"                       -- OK: the literal's Num variable resolves to BigInt; emits === 0n
+    match o with -- constraints met; the restriction on the resolved type
+        -- ERROR: 0 is not a pattern at a; bind a name and test it in a guard: Some(y) when y == 0
+        Some(0) => "zero"
+        _ => "other"
+match big with -- big: BigInt (a match at BigInt: #519 lifts today's gate; §2.5 settles the literal)
+    0 => "zero" -- OK: the literal's Num variable resolves to BigInt; emits === 0n
     _ => "big"
-match big with                        -- big: BigInt — explicit literal spellings (#898)
-    9007199254740993n => "large"       -- exact, beyond the bare-literal payload range
+match big with -- big: BigInt — explicit literal spellings (#898)
+    9007199254740993n => "large" -- exact, beyond the bare-literal payload range
     -9007199254740993n => "negative"
     0 => "zero"
-    0n => "never"                     -- ERROR: this literal case is unreachable; it is already handled above
+    0n => "never" -- ERROR: this literal case is unreachable; it is already handled above
     _ => "other"
-match count with                      -- count: Int
-    0n => "never"                     -- ERROR: expected Int, found BigInt — no widening
+match count with -- count: Int
+    0n => "never" -- ERROR: expected Int, found BigInt — no widening
     _ => "other"
 match None with
-    Some(0n) => "zero"                -- nested inference resolves this to Option(BigInt)
+    Some(0n) => "zero" -- nested inference resolves this to Option(BigInt)
     _ => "other"
-match size with                       -- size: Nat (a match at Nat: #519 lifts today's gate)
-    -1 => "never"                     -- ERROR: type Nat has no Signed instance; its only legal homes are
-                                      --   the module declaring Signed and Nat's prelude companion module,
-                                      --   both outside project source, so this pair's honored set is
-                                      --   closed — change the type, or go through the operations those
-                                      --   homes export   [Modules §7.6's report; Method Syntax §9 row 15's rider omitted]
+match size with -- size: Nat (a match at Nat: #519 lifts today's gate)
+    -- ERROR: type Nat has no Signed instance; its only legal homes are the module declaring Signed
+    -- and Nat's prelude companion module, both outside project source, so this pair's honored set
+    -- is closed — change the type, or go through the operations those homes export [Modules §7.6's
+    -- report; Method Syntax §9 row 15's rider omitted]
+    -1 => "never"
     _ => "ok"
 match temp with
-    1.0e309 => "hot"                  -- ERROR (lexer): Float literal is too large; use `Float.infinity`
-    Float.nan => "not a number"       -- ERROR: Float.nan is a value, not a pattern; bind a name and
-                                      --   test it in a guard: x when x == Float.nan
-    -Float.infinity => "cold"         -- ERROR: -Float.infinity is a value, not a pattern; … x when x == -Float.infinity
+    1.0e309 => "hot" -- ERROR (lexer): Float literal is too large; use `Float.infinity`
+    -- ERROR: Float.nan is a value, not a pattern; bind a name and test it in a guard: x when x ==
+    -- Float.nan
+    Float.nan => "not a number"
+    -- ERROR: -Float.infinity is a value, not a pattern; … x when x == -Float.infinity
+    -Float.infinity => "cold"
     _ => "ok"
 
 -- (l) Nominal record destructure
 record Point = { x: Float, y: Float }
-let Point({ x, y }) = origin        -- OK; bare { x, y } against Point is the nominal-wall error
+let Point({ x, y }) = origin -- OK; bare { x, y } against Point is the nominal-wall error
 
 -- (m) for..in patterns
 for (k, v) in pairs do
@@ -854,19 +863,22 @@ match shape with
 -- (o) The constructor door (§2.2, #763): imported constructors bare in arms
 -- direction.hex: export union Direction = North | East | South | West
 import Direction
-let turn(d: Direction): Direction =          -- type: Modules §5.1 rule 2
+let turn(d: Direction): Direction = -- type: Modules §5.1 rule 2
     match d with
-        North => East                        -- pattern: the door (scrutinee's type);
-        East => South                        --   expression: no door — ERROR: no bare East;
-        South => West                        --   write Direction.East
+        -- pattern: the door (scrutinee's type); expression: no door — ERROR: no bare East; write
+        -- Direction.East
+        North => East
+        East => South
+        South => West
         West => North
 -- with the arm bodies written Direction.East etc., the function compiles;
 -- match is exhaustive, and a missing arm's witness prints bare (§7.3 tier 1)
-let f = match                                -- the match function: parameter undetermined
-    North => 1                               -- ERROR: §6.1's refusal — no pattern names the
-    _ => 0                                   --   head, so no door report
+let f = match -- the match function: parameter undetermined
+    -- ERROR: §6.1's refusal — no pattern names the head, so no door report
+    North => 1
+    _ => 0
 let g = match
-    Direction.North => 1                     -- OK: the qualified pattern fixes the type
+    Direction.North => 1 -- OK: the qualified pattern fixes the type
     _ => 0
 -- prelude reach: Ordering's constructors are qualified-only (Modules §5.5), bare here
 let sign(a: Int, b: Int): Int =
@@ -877,38 +889,40 @@ let sign(a: Int, b: Int): Int =
 
 -- (o2) A module of its own that takes the spelling (a separate file: compass.hex)
 import Direction
-union Compass = North | South                -- in scope module-wide (§2.2), above and below
+union Compass = North | South -- in scope module-wide (§2.2), above and below
 let h(d: Direction): Int =
     match d with
-        North => 1                           -- ERROR: North here is Compass.North; this arm
-        _ => 0                               --   matches a Direction — write Direction.North
+        -- ERROR: North here is Compass.North; this arm matches a Direction — write Direction.North
+        North => 1
+        _ => 0
 
 -- (p) Nested, from declarations; and the record fallback (Modules §5.1 rule 3)
 -- pair.hex: export record Pair = { first: Direction, second: Direction }
 import Pair
 let same(p: Pair): Bool =
     match p with
-        Pair({ first = North, second = North }) => True -- Pair: rule 3; North: the door,
-        _ => False                                      --   from the declared field type
+        -- Pair: rule 3; North: the door, from the declared field type
+        Pair({ first = North, second = North }) => True
+        _ => False
 -- (p2) A separate file (firsts.hex) whose alias is not spelled like the constructor
 import Direction
 import Pair as Pairs
-let first = Pair({ first, second }) => first -- ERROR: no bare Pair here: its type is not
-                                             --   determined at this pattern — write
-                                             --   Pairs.Pair({ first, second }), or bind the
-                                             --   function with its own annotated let
+-- ERROR: no bare Pair here: its type is not determined at this pattern — write Pairs.Pair({ first,
+-- second }), or bind the function with its own annotated let
+let first = Pair({ first, second }) => first
 let firstOf(p: Pairs.Pair): Direction =
     match p with
-        Pair({ first, second }) => first     -- OK: the door, the scrutinee's type known
+        Pair({ first, second }) => first -- OK: the door, the scrutinee's type known
 
 -- (q) Beneath the top, the slot type as it stands (§2.2): arm order can matter
 let a = match None with
-    Some(Direction.North) => 1               -- fixes the payload: Option(Direction)
-    Some(East) => 2                          -- OK: the door reads Direction
+    Some(Direction.North) => 1 -- fixes the payload: Option(Direction)
+    Some(East) => 2 -- OK: the door reads Direction
     _ => 0
 let b = match None with
-    Some(East) => 2                          -- ERROR: the payload is undetermined here —
-    Some(Direction.North) => 1               --   write Direction.East, or ascribe the scrutinee
+    -- ERROR: the payload is undetermined here — write Direction.East, or ascribe the scrutinee
+    Some(East) => 2
+    Some(Direction.North) => 1
     _ => 0
 
 -- (r) Fraction patterns (§2.10, §7.2)
@@ -917,45 +931,48 @@ let describe(r: Rat): String =
         0//_ => "zero"
         n//1 => "the whole number ${n}"
         n//d => "${n} over ${d}"
-describe(6//4)                               -- "3 over 2"
-describe(-8//4)                              -- "the whole number -2"
-let n//d = 4//-5                             -- irrefutable; n = -4n, d = 5n
-let tops = rats.map(n//_ => n)               -- one parameter, a fraction pattern; tops of each
-let f = 1//d => d                            -- ERROR: this pattern can fail: `_//_`; use match
+describe(6//4) -- "3 over 2"
+describe(-8//4) -- "the whole number -2"
+let n//d = 4//-5 -- irrefutable; n = -4n, d = 5n
+let tops = rats.map(n//_ => n) -- one parameter, a fraction pattern; tops of each
+let f = 1//d => d -- ERROR: this pattern can fail: `_//_`; use match
 match r with
-    x when x > 1//2 => a                     -- the guard compares with a fraction; the arrow is the arm's
+    x when x > 1//2 => a -- the guard compares with a fraction; the arrow is the arm's
     _ => b
-let 1//d = r                                 -- ERROR: this pattern can fail: `_//_`; use match
+let 1//d = r -- ERROR: this pattern can fail: `_//_`; use match
 match r with
-    2//6 => a                                -- ERROR: this case is unreachable; a fraction comes apart in
-    _ => b                                   --   lowest terms with a positive bottom, so `2//6` never
-                                             --   matches — write `1//3`
-match r with
-    n//-3 => a                               -- ERROR: … so `n//-3` never matches — write `n//3`,
-    _ => b                                   --   which binds the negated top
-match r with
-    n//0 => a                                -- ERROR: this case is unreachable; a fraction's bottom is never zero — remove the case
+    -- ERROR: this case is unreachable; a fraction comes apart in lowest terms with a positive
+    -- bottom, so `2//6` never matches — write `1//3`
+    2//6 => a
     _ => b
 match r with
-    1//3 | 2//6 => a                         -- ERROR at `2//6` alone: the alternatives are judged one at a time
+    -- ERROR: … so `n//-3` never matches — write `n//3`, which binds the negated top
+    n//-3 => a
     _ => b
 match r with
-    0//_ => a                                -- ERROR: match is missing cases: `_//_`
+    -- ERROR: this case is unreachable; a fraction's bottom is never zero — remove the case
+    n//0 => a
+    _ => b
 match r with
-    1.50d => a                               -- ERROR: the ordinary mismatch; a `Dec` literal pattern does not widen
+    1//3 | 2//6 => a -- ERROR at `2//6` alone: the alternatives are judged one at a time
+    _ => b
+match r with
+    0//_ => a -- ERROR: match is missing cases: `_//_`
+match r with
+    1.50d => a -- ERROR: the ordinary mismatch; a `Dec` literal pattern does not widen
     _ => b
 -- emits, in describe: the top and bottom read once, then if (n === 0n) … else if (d === 1n) …
 
 -- (s) The head and its closing word (§6.1, §6.7; Lexer & Layout §2.4)
 match prefix ++ separator
-        ++ suffix with                       -- the deeper line carries the scrutinee on to `with`
+        ++ suffix with -- the deeper line carries the scrutinee on to `with`
     "" => "empty"
     text => text
 match reading
-    Some(n) => n                             -- ERROR at the `match`: `match` requires `with`
+    Some(n) => n -- ERROR at the `match`: `match` requires `with`
     None => 0
-match reading with Some(n) => n              -- ERROR: a `match`'s arms go on the lines below its head: …
-let f = match with                           -- ERROR: the match function is a bare `match`, with no `with`
+match reading with Some(n) => n -- ERROR: a `match`'s arms go on the lines below its head: …
+let f = match with -- ERROR: the match function is a bare `match`, with no `with`
     Some(n) => n
     None => 0
 ```

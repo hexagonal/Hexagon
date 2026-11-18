@@ -36,53 +36,53 @@ These are the acceptance tests for the design.
 
 ```
 -- (a) Bare literal binding: defaulting fires.
-let x = 1            -- x : Int          emits: const x = 1;
+let x = 1 -- x : Int emits: const x = 1;
 
 -- (b) BigInt literal: monomorphic, no elaboration.
-let y = 1n           -- y : BigInt       emits: const y = 1n;
+let y = 1n -- y : BigInt emits: const y = 1n;
 
 -- (c) Polymorphic function, no literals: ordinary let-polymorphism.
+-- plus : <a: Num> a -> a -> a
 fun plus a b = add a b
-                     -- plus : <a: Num> a -> a -> a
 
 -- (d) Literal in a polymorphic body: stays generic via fromNat.
+-- addOne : <a: Num> a -> a -> a's elaboration:
+--   addOne x = add x (fromNat 1)
+-- emits (dictionary style):
+--   function addOne(dict, x) { return dict.add(x, dict.fromNat(1)); }
 fun addOne x = add x 1
-                     -- addOne : <a: Num> a -> a -> a's elaboration:
-                     --   addOne x = add x (fromNat 1)
-                     -- emits (dictionary style):
-                     --   function addOne(dict, x) { return dict.add(x, dict.fromNat(1)); }
 
 -- (e) Literal pinned by unification: fromNat erased.
+-- 2 elaborates to fromNat(2) : α, Num α
+-- Float.divide forces α := Float
+-- emits: function halve(x) { return x / 2.0; } (the emitted 2 is Float's fromNat applied at compile
+-- time — see §5)
 fun halve x = Float.divide x 2
-                     -- 2 elaborates to fromNat(2) : α, Num α
-                     -- Float.divide forces α := Float
-                     -- emits: function halve(x) { return x / 2.0; }
-                     -- (the emitted 2 is Float's fromNat applied at compile time — see §5)
 
 -- (f) Mixed constraints, still defaultable.
+-- α carries {Num α, Show α}; α unresolved at generalisation; both constraints are defaultable ⇒ α
+-- := Int ⇒ s : String
+-- emits: const s = Int.toString(1 + 2) (or the folded "3", see §5)
 let s = toString (add 1 2)
-                     -- α carries {Num α, Show α}; α unresolved at generalisation;
-                     -- both constraints are defaultable ⇒ α := Int ⇒ s : String
-                     -- emits: const s = Int.toString(1 + 2)  (or the folded "3", see §5)
 
 -- (g) BigInt suffix is monomorphic; widening still needs an exact destination.
-fun f x = add x 1n   -- f : BigInt -> BigInt   (1n pins the tyvar to BigInt)
-add 1.5 1n           -- TYPE ERROR: Float has no FromBigInt instance.
+fun f x = add x 1n -- f : BigInt -> BigInt (1n pins the tyvar to BigInt)
+add 1.5 1n -- TYPE ERROR: Float has no FromBigInt instance.
 
 -- (h) Explicit conversion is the escape hatch.
-Rat.fromBigInt 123456789012345678901n   -- big literal into a Rat: explicit, honest
+Rat.fromBigInt 123456789012345678901n -- big literal into a Rat: explicit, honest
 
 -- (i) BigInt parameter positions pin bare literals.
-Rat.create(1, 3)                        -- emits: Rat.create(1n, 3n)
+Rat.create(1, 3) -- emits: Rat.create(1n, 3n)
 
 -- (j) An established Int widens into an independently established Signed target.
 let count: Int = 3
 let cost: Float = 1.50
-let total = count * cost                -- Float.fromInt(count) * cost : Float
+let total = count * cost -- Float.fromInt(count) * cost : Float
 
 -- (k) A written face is the arithmetic's home: the operation runs at the annotated type.
-let exact: Rat = count + count          -- Rat addition of two injected Ints (§5.1's lift)
-let mean: Float = count / 2             -- Frac<Float> division; Int alone has no Frac
+let exact: Rat = count + count -- Rat addition of two injected Ints (§5.1's lift)
+let mean: Float = count / 2 -- Frac<Float> division; Int alone has no Frac
 ```
 
 **BigInt spelling convention.** The `n` suffix is idiomatic when no surrounding
@@ -373,21 +373,21 @@ let n: Int = 3
 let m: Nat = 2
 let price: Dec = 2.50d
 
-n * 1.5 * price                       -- Dec: the tree's values are n, 1.5, and price
-(n + 0.5) * price                     -- Dec
-(if c then n else 0.5) * price        -- Dec: both branches are parts
-price < n * 1.5                       -- a Dec comparison: <'s operands are siblings
-[m, n, price]                         -- Vector(Dec), in any element order
-let fees: Vector(Dec) = [n, 0.5]      -- Dec: the written element type is the home
-let due: Option(Dec) = Some(n * 1.5)  -- Dec: the face reaches a constructor's argument
-let fee: Dec = if c then n else 0.5   -- Dec: the seat's type is the home
-n * 1.5                               -- Float: nothing in the tree is exact
-let y = n * 1.5                       -- y : Float, for good — the binding ends the tree
-y * price                             -- refused: y is an established Float (tenet 7)
-id(n * 1.5) * price                   -- refused: id's result is a value, already Float
-let w: Option(Dec) = wrap(n)          -- refused: no face travels through wrap's result
-(n * 1.5).multiply(price)             -- refused: the receiver closed at Float before the dot
-price.multiply(n * 1.5)               -- Dec: the argument is the receiver's sibling
+n * 1.5 * price -- Dec: the tree's values are n, 1.5, and price
+(n + 0.5) * price -- Dec
+(if c then n else 0.5) * price -- Dec: both branches are parts
+price < n * 1.5 -- a Dec comparison: <'s operands are siblings
+[m, n, price] -- Vector(Dec), in any element order
+let fees: Vector(Dec) = [n, 0.5] -- Dec: the written element type is the home
+let due: Option(Dec) = Some(n * 1.5) -- Dec: the face reaches a constructor's argument
+let fee: Dec = if c then n else 0.5 -- Dec: the seat's type is the home
+n * 1.5 -- Float: nothing in the tree is exact
+let y = n * 1.5 -- y : Float, for good — the binding ends the tree
+y * price -- refused: y is an established Float (tenet 7)
+id(n * 1.5) * price -- refused: id's result is a value, already Float
+let w: Option(Dec) = wrap(n) -- refused: no face travels through wrap's result
+(n * 1.5).multiply(price) -- refused: the receiver closed at Float before the dot
+price.multiply(n * 1.5) -- Dec: the argument is the receiver's sibling
 ```
 
 The reason is the order it removes. Typed from the inside out, an operation settles its
@@ -581,13 +581,14 @@ is always exact, but which *algebra an operation runs in* decides what the value
 the lift decides it for the written face.
 
 ```hexagon
-let r: Rat = count + count    -- Rat addition of two injected Ints — exact at any magnitude
-let r: Rat = 1 + 2            -- Rat addition already — literals are polymorphic, nothing to lift
-let x: Int = n - m            -- n, m : Nat — both widen; Signed<Int> subtraction, possibly negative
-let mean: Float = sum / size  -- sum, size : Int — Frac<Float> division; Int has no Frac and needs none here
-let s = count + count         -- no written face: Int addition, as ever
-let whole: BigInt = count.add(count)    -- the same lift, spelled by the dot — BigInt addition
-let next: BigInt = count |> Num.add(1)  -- and as a pipe stage — never Int addition injected after
+let r: Rat = count + count -- Rat addition of two injected Ints — exact at any magnitude
+let r: Rat = 1 + 2 -- Rat addition already — literals are polymorphic, nothing to lift
+let x: Int = n - m -- n, m : Nat — both widen; Signed<Int> subtraction, possibly negative
+-- sum, size : Int — Frac<Float> division; Int has no Frac and needs none here
+let mean: Float = sum / size
+let s = count + count -- no written face: Int addition, as ever
+let whole: BigInt = count.add(count) -- the same lift, spelled by the dot — BigInt addition
+let next: BigInt = count |> Num.add(1) -- and as a pipe stage — never Int addition injected after
 ```
 
 A **companion**-qualified spelling of a member (`Float.multiply`, `Int.multiply`) is not a
@@ -628,10 +629,10 @@ at carry the instance, so under a `Float`, `Rat`, or `Dec` face the operation ru
 operands' home and the finished value injects, as at any gate. Consequences:
 
 ```hexagon
-count + count       -- Int; no written face, exact match, no widening
-count * cost        -- Float when cost : Float — the operand establishes the target
-plus(count, 1.5)    -- Float; selects the Float instantiation of plus
-let value: Rat = count        -- value widening at the annotation — exact for any Int
+count + count -- Int; no written face, exact match, no widening
+count * cost -- Float when cost : Float — the operand establishes the target
+plus(count, 1.5) -- Float; selects the Float instantiation of plus
+let value: Rat = count -- value widening at the annotation — exact for any Int
 
 let scale<a: Signed>(count: Int, value: a): a = count * value
 -- generic body: num.multiply(fromInt(count), value), using one Signed<a> dictionary
@@ -792,11 +793,11 @@ This preserves the readable-JS goal: monomorphic code — nearly all code — co
 **Dictionary shape change:** `Num` dictionaries gain a `fromNat` field. Every existing and future `honor Num<T>` must supply it. Prelude instances:
 
 ```
-Nat.fromNat    = identity
-Int.fromNat    = identity
-Float.fromNat  = identity            (payload guaranteed within 2^53 by lexer, §3)
+Nat.fromNat = identity
+Int.fromNat = identity
+Float.fromNat = identity (payload guaranteed within 2^53 by lexer, §3)
 BigInt.fromNat = n => BigInt(n)
-Rat.fromNat    = n => mkFast(BigInt(n), 1n)
+Rat.fromNat = n => mkFast(BigInt(n), 1n)
 ```
 
 All five are total and exact. This is a checked property of the design: keep it true for future instances, and document it as a law of `Num`: `fromNat` preserves zero, addition, and multiplication over Nat payloads.
