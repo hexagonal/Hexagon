@@ -150,7 +150,7 @@ union Route =
 export fun describe(route: Route): String =
     match route with
         Arrive(destination) => destination
-        Leg(stop, rest) => "${stop} -> ${rest.describe()}"   -- error
+        Leg(stop, rest) => "${stop} -> ${rest.describe()}" -- error
 ```
 
 `describe` is subject-first and exported from `Route`'s home module, so elsewhere
@@ -178,8 +178,8 @@ companion of the type it expands to, just as it uses that type's operations else
 The argument list is significant:
 
 ```hexagon
-parcel.status       -- field access, if Parcel has a field named status
-parcel.status()     -- dot call, when status is a companion operation
+parcel.status -- field access, if Parcel has a field named status
+parcel.status() -- dot call, when status is a companion operation
 ```
 
 `value.name` without an immediate argument list never creates a bound method. It is
@@ -218,8 +218,8 @@ box.size() -- error: size could mean the field or Box.size
 There is no silent “fields win” or “operations win” rule. Write the intended meaning:
 
 ```hexagon
-box.size          -- access the Int field
-Box.size(box)     -- call the companion operation
+box.size -- access the Int field
+Box.size(box) -- call the companion operation
 ```
 
 If the field itself were callable, `(box.size)()` would call it. The compiler suggests
@@ -291,8 +291,8 @@ the same family though no operator spells them:
 ```hexagon
 let count: Int = 3
 let price: Float = 2.5
-let total = count.multiply(price)      -- Float, exactly as count * price
-let exact: BigInt = count.add(count)   -- BigInt addition, exactly as count + count
+let total = count.multiply(price) -- Float, exactly as count * price
+let exact: BigInt = count.add(count) -- BigInt addition, exactly as count + count
 ```
 
 The one difference is the receiver. The dot has to know what its receiver is before it

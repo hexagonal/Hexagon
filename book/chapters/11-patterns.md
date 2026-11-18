@@ -314,8 +314,8 @@ The same rule applies to function parameters. Top-level commas still separate
 parameters, preserving ordinary n-ary functions:
 
 ```hexagon
-(x, y) => x + y       -- two parameters
-((x, y)) => x + y     -- one tuple-destructured parameter
+(x, y) => x + y -- two parameters
+((x, y)) => x + y -- one tuple-destructured parameter
 { guest, seats } => "${guest}: ${seats}" -- one record-destructured parameter
 ```
 
@@ -329,7 +329,7 @@ The rule above leaves a gap that callbacks fall into constantly. Mapping over a
 the natural spelling is refused:
 
 ```hexagon
-Vector.map(options, Some(value) => value)   -- error: this pattern can fail: `None`
+Vector.map(options, Some(value) => value) -- error: this pattern can fail: `None`
 ```
 
 A parameter must be irrefutable, and `Some(value)` is not. The honest expansion is a
@@ -396,16 +396,16 @@ because a type written around a function reaches its parameters before the arms 
 checked:
 
 ```hexagon
-let sign: (Int) -> String = match      -- the annotation says it
+let sign: (Int) -> String = match -- the annotation says it
     n when n < 0 => "negative"
     _ => "other"
 
-let labels = Seq.map(counts, match     -- the callee's signature says it
+let labels = Seq.map(counts, match -- the callee's signature says it
     n when n < 0 => "negative"
     _ => "other"
 )
 
-let labels = counts.map(match          -- the receiver's type says it
+let labels = counts.map(match -- the receiver's type says it
     n when n < 0 => "negative"
     _ => "other"
 )
@@ -465,7 +465,7 @@ code for `p` alone, `const [width, height] = size;` above. Where nothing has
 settled a number yet, the claim settles it, as `let ratio: Float = 1` does:
 
 ```hexagon
-let (ratio: Float, label) = (1, "full")    -- ratio : Float
+let (ratio: Float, label) = (1, "full") -- ratio : Float
 ```
 
 A type that disagrees with what the part already is, though, is an error, and a
@@ -475,7 +475,7 @@ and a `let` pattern takes a type after it just as a named binding does:
 
 ```hexagon
 let count: Int = 3
-let (share, label): (Float, String) = (count, "seats")    -- share : Float
+let (share, label): (Float, String) = (count, "seats") -- share : Float
 ```
 
 The binding's type faces the value and converts it, as `let share: Float = count`
@@ -515,12 +515,12 @@ and the compiler refuses them as dead cases:
 
 ```hexagon
 match value with
-    2//6 => "a third"   -- error
+    2//6 => "a third" -- error
     _ => "something else"
 ```
 
 > this case is unreachable; a fraction comes apart in lowest terms with a positive
-> bottom, so `2 // 6` never matches — write `1 // 3`
+> bottom, so `2//6` never matches — write `1//3`
 
 A negative literal bottom is refused the same way, with the sign moved to the top in
 the suggested spelling, and so is a zero bottom, which no fraction has.

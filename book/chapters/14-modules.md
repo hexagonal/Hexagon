@@ -332,7 +332,7 @@ see through.
 The compiler checks the claim against the representation, at the declaration:
 
 ```hexagon
-opaque record Sink(+a) = { accept: a -> Unit }   -- error
+opaque record Sink(+a) = { accept: a -> Unit } -- error
 ```
 
 > `a` cannot be declared covariant in `Sink`: field `accept` uses `a` in argument
