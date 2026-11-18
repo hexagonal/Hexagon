@@ -1343,7 +1343,7 @@ describe("parse", () => {
       const module = parseSource("let p = {x: 1}");
 
       expect(module.diagnostics).toMatchObject([
-        { severity: "error", message: "record fields bind with `=`: `{x = …}`; `:` gives a field its type in record types" },
+        { severity: "error", message: "record fields bind with `=`: `{ x = … }`; `:` gives a field its type in record types" },
       ]);
     });
 
@@ -1362,7 +1362,7 @@ describe("parse", () => {
       const module = parseSource("let {x: Float} = p");
 
       expect(module.diagnostics.map(({ message }) => message)).toEqual([
-        "record fields bind with `=`: `{x = …}`; `:` gives a field its type in record types",
+        "record fields bind with `=`: `{ x = … }`; `:` gives a field its type in record types",
       ]);
     });
 
@@ -1386,7 +1386,7 @@ describe("parse", () => {
       expect(module.diagnostics).toMatchObject([
         {
           severity: "error",
-          message: "did you mean `=`? `=>` is the lambda arrow — a lambda-valued field is `{x = arg => …}`",
+          message: "did you mean `=`? `=>` is the lambda arrow — a lambda-valued field is `{ x = arg => … }`",
         },
       ]);
     });
@@ -1568,7 +1568,7 @@ describe("parse", () => {
       expect(module.diagnostics).toMatchObject([
         {
           severity: "error",
-          message: "records update with `with`: `{p with x = 3.0}`; `{...p}` alone is the copy/crossing",
+          message: "records update with `with`: `{ p with x = 3.0 }`; `{ ...p }` alone is the copy/crossing",
         },
       ]);
       expect(expression(parseSource("{...p, x = 3.0}"))).toMatchObject({
@@ -1582,7 +1582,7 @@ describe("parse", () => {
       const module = parseSource("let q = {x = 1, ...b}");
 
       expect(module.diagnostics).toMatchObject([
-        { message: "records update with `with`: `{p with x = 3.0}`; `{...p}` alone is the copy/crossing" },
+        { message: "records update with `with`: `{ p with x = 3.0 }`; `{ ...p }` alone is the copy/crossing" },
       ]);
     });
 
@@ -1590,7 +1590,7 @@ describe("parse", () => {
       expect(parseSource("let q = {...a, ...b}").diagnostics).toMatchObject([
         {
           severity: "error",
-          message: "Hexagon has no record merge; `{...p}` copies, `{p with f = e}` updates",
+          message: "Hexagon has no record merge; `{ ...p }` copies, `{ p with f = e }` updates",
         },
       ]);
       expect(parseSource("let q = {...a, ...b, ...c}").diagnostics).toHaveLength(1);
@@ -1617,7 +1617,7 @@ describe("parse", () => {
       expect(module.diagnostics).toMatchObject([
         {
           severity: "error",
-          message: "a record update needs at least one override; the no-override copy is `{...p}`",
+          message: "a record update needs at least one override; the no-override copy is `{ ...p }`",
         },
       ]);
     });
@@ -1989,7 +1989,7 @@ describe("parse", () => {
         message.startsWith("tuples are positional")
       );
       expect(hint?.message).toBe(
-        "tuples are positional; for named fields use a record: `{x = 1, y = 2}`",
+        "tuples are positional; for named fields use a record: `{ x = 1, y = 2 }`",
       );
       expect(hint?.primary.start.offset).toBe(HEADER.length + "(x: ".length);
     });

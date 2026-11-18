@@ -513,7 +513,7 @@ describe("item 4 — an exported non-function binding", () => {
     expect(diagnose(
       'extern from "./m.js"\n' +
         "    let cfg: {f: ({n: Int, ...}) -> Unit, rows: Array(Int)}\n",
-    )).toEqual([openRow("{n: Int, ...}")]);
+    )).toEqual([openRow("{ n: Int, ... }")]);
   });
 
   test("an unexported extern row is untouched — the acquisition is supported", () => {
@@ -789,7 +789,7 @@ describe("item 7 — an open structural record at a declaration or the release s
    */
   test("the pair the ruling turns on: open refused, closed refused by item 1", () => {
     expect(diagnose('extern from "./m.js"\n    fun send(r: {n: Int, ...}) ->! Unit\n'))
-      .toEqual([openRow("{n: Int, ...}")]);
+      .toEqual([openRow("{ n: Int, ... }")]);
     expect(diagnose(
       'extern from "./m.js"\n    fun send(r: {n: Int, v: Vector(Array(Int))}) ->! Unit\n',
     )).toEqual([beneath("Array(Int)", "Vector")]);
@@ -807,11 +807,11 @@ describe("item 7 — an open structural record at a declaration or the release s
    */
   test("a parameter, a result and an `extern let` are all refused", () => {
     expect(diagnose('extern from "./m.js"\n    fun send(r: {n: Int, ...}) ->! Unit\n'))
-      .toEqual([openRow("{n: Int, ...}")]);
+      .toEqual([openRow("{ n: Int, ... }")]);
     expect(diagnose('extern from "./m.js"\n    fun get() ->! {n: Int, ...}\n'))
-      .toEqual([openRow("{n: Int, ...}")]);
+      .toEqual([openRow("{ n: Int, ... }")]);
     expect(diagnose('extern from "./m.js"\n    let config: {name: String, ...}\n'))
-      .toEqual([openRow("{name: String, ...}")]);
+      .toEqual([openRow("{ name: String, ... }")]);
   });
 
   /**
@@ -822,7 +822,7 @@ describe("item 7 — an open structural record at a declaration or the release s
     expect(diagnose(
       'extern from "./m.js"\n    fun get() ->! {xs: Array(Int), ...}\n' +
         "\nexport fun cells(): Array(Int) = get!().cells\n",
-    )).toEqual([openRow("{xs: Array(Int), ...}")]);
+    )).toEqual([openRow("{ xs: Array(Int), ... }")]);
   });
 
   /**
@@ -838,7 +838,7 @@ describe("item 7 — an open structural record at a declaration or the release s
     ["a function inside a container", 'fun get() ->! Vector(({n: Int, ...}) -> Unit)'],
     ["a callback at a parameter", 'fun send(f: ({n: Int, ...}) -> Int) ->! Unit'],
   ])("%s is refused", (_what, row) => {
-    expect(diagnose(`extern from "./m.js"\n    ${row}\n`)).toEqual([openRow("{n: Int, ...}")]);
+    expect(diagnose(`extern from "./m.js"\n    ${row}\n`)).toEqual([openRow("{ n: Int, ... }")]);
   });
 
   // An `extern let` takes the same rule, and reaches it through a type that is
@@ -849,7 +849,7 @@ describe("item 7 — an open structural record at a declaration or the release s
     ["a `Vector` of them", "let handlers: Vector(({n: Int, ...}) -> Unit)"],
     ["a record field", "let hooks: {onEach: ({n: Int, ...}) -> Unit}"],
   ])("an `extern let` holding a function through %s is refused", (_what, row) => {
-    expect(diagnose(`extern from "./m.js"\n    ${row}\n`)).toEqual([openRow("{n: Int, ...}")]);
+    expect(diagnose(`extern from "./m.js"\n    ${row}\n`)).toEqual([openRow("{ n: Int, ... }")]);
   });
 
   /**
@@ -864,7 +864,7 @@ describe("item 7 — an open structural record at a declaration or the release s
     expect(diagnose(
       'extern from "./m.js"\n' +
         "    fun get() ->! {onEach: ({n: Int, ...}) -> Unit, other: {p: Int, ...}}\n",
-    )).toEqual([openRow("{p: Int, ...}")]);
+    )).toEqual([openRow("{ p: Int, ... }")]);
   });
 
   /**
@@ -893,7 +893,7 @@ describe("item 7 — an open structural record at a declaration or the release s
     ["no function type at all", "fun make() ->! {a: Holder, b: Option(Holder)}"],
   ])("the declaration is refused at its field, and the extern beside it — %s", (_what, row) => {
     expect(diagnose(`${holder}extern from "./m.js"\n    ${row}\n`))
-      .toEqual([holderField, openRow("{n: Int, ...}")]);
+      .toEqual([holderField, openRow("{ n: Int, ... }")]);
   });
 
   /** And the field alone, with no `extern` in the program at all. */
@@ -939,7 +939,7 @@ describe("item 7 — an open structural record at a declaration or the release s
   test("the release seat has its own rewrite, and the closed neighbour is legal", () => {
     expect(diagnose(
       "let pick(x: {n: Int, ...}): JsValue = JsValue.from(x)\nexport let go(): Int = 1\n",
-    )).toEqual([releasedOpenRow("{n: Int, ...}")]);
+    )).toEqual([releasedOpenRow("{ n: Int, ... }")]);
     expect(diagnose(
       "let pick(x: {n: Int}): JsValue = JsValue.from(x)\nexport let go(): Int = 1\n",
     )).toEqual([]);
@@ -955,7 +955,7 @@ describe("item 7 — an open structural record at a declaration or the release s
   test("at the release seat item 5 is not also reported", () => {
     expect(diagnose(
       "let w(x: {n: a, ...q}): JsValue = JsValue.from(x)\nexport let go(): Int = 1\n",
-    )).toEqual([releasedOpenRow("{n: a, ...}")]);
+    )).toEqual([releasedOpenRow("{ n: a, ... }")]);
   });
 
   /**
@@ -974,7 +974,7 @@ describe("item 7 — an open structural record at a declaration or the release s
     ["a captured `Array`", "Array({n: Int, ...})", ""],
   ])("it is reached through %s", (_what, written, preamble) => {
     expect(diagnose(`${preamble}extern from "./m.js"\n    fun send(r: ${written}) ->! Unit\n`))
-      .toEqual([openRow("{n: Int, ...}")]);
+      .toEqual([openRow("{ n: Int, ... }")]);
   });
 
   /**
@@ -989,7 +989,7 @@ describe("item 7 — an open structural record at a declaration or the release s
     )).toEqual([
       "a `record` names every field of its values; `inner`'s type says the record may have " +
       "more fields — name them, or give the field the type `JsValue`",
-      openRow("{n: Int, ...}"),
+      openRow("{ n: Int, ... }"),
     ]);
   });
 
@@ -1040,12 +1040,12 @@ describe("item 7 — an open structural record at a declaration or the release s
     [
       "an exported constraint's member parameter",
       "export constraint Rowy<a> =\n    rows(self: a, x: {n: Int, ...}) -> Int\n",
-      openRow("{n: Int, ...}"),
+      openRow("{ n: Int, ... }"),
     ],
     [
       "an exported constraint's member result",
       "export constraint Rowy<a> =\n    rows(x: a) -> {n: Int, ...}\n",
-      openRow("{n: Int, ...}"),
+      openRow("{ n: Int, ... }"),
     ],
     [
       "an exported constructor's payload",
@@ -1072,7 +1072,7 @@ describe("item 7 — an open structural record at a declaration or the release s
       .toEqual([]);
     expect(diagnose(
       'extern from "./m.js"\n    fun each(f: ({n: Int, ...}) -> Unit) ->! Unit\n',
-    )).toEqual([openRow("{n: Int, ...}")]);
+    )).toEqual([openRow("{ n: Int, ... }")]);
   });
 
   /**
@@ -1089,7 +1089,7 @@ describe("item 7 — an open structural record at a declaration or the release s
    */
   test("the tail's spelling decides nothing at an extern parameter", () => {
     expect(diagnose('extern from "./m.js"\n    fun send(r: {n: Int, ...q}) ->! Unit\n'))
-      .toEqual([openRow("{n: Int, ...}")]);
+      .toEqual([openRow("{ n: Int, ... }")]);
     expect(diagnose('extern from "./m.js"\n    fun send(r: {n: Int, m: Int}) ->! Unit\n'))
       .toEqual([]);
   });
@@ -1112,7 +1112,7 @@ describe("item 7 — an open structural record at a declaration or the release s
     expect(diagnose(
       "let w(r: {n: Int, ...q}): (Int, JsValue) = (r.n, JsValue.from(r))\n" +
         "export let go(): Int = 1\n",
-    )).toEqual([releasedOpenRow("{n: Int, ...}")]);
+    )).toEqual([releasedOpenRow("{ n: Int, ... }")]);
     // And a tail solved only *partly* — `q` bound to another open row — is
     // still open, and the message quotes the fields the solution contributed.
     // Reading the annotation instead of the solved type would quote `{n: Int,
@@ -1121,7 +1121,7 @@ describe("item 7 — an open structural record at a declaration or the release s
       "let g(r: {n: Int, m: Int, ...z}): Int = r.n\n" +
         "let w(r: {n: Int, ...q}): (Int, JsValue) = (g(r), JsValue.from(r))\n" +
         "export let go(): Int = 1\n",
-    )).toEqual([releasedOpenRow("{n: Int, m: Int, ...}")]);
+    )).toEqual([releasedOpenRow("{ n: Int, m: Int, ... }")]);
   });
 
   /**
@@ -1138,7 +1138,7 @@ describe("item 7 — an open structural record at a declaration or the release s
       "let pick(b: Bool, x: {n: Int, ...p}, y: {m: Int, ...q}): JsValue =\n" +
         "    JsValue.from(if b then x else y)\n" +
         "export let go(): Int = 1\n",
-    )).toEqual([releasedOpenRow("{n: Int, m: Int, ...}")]);
+    )).toEqual([releasedOpenRow("{ n: Int, m: Int, ... }")]);
   });
 
   /**
@@ -1150,7 +1150,7 @@ describe("item 7 — an open structural record at a declaration or the release s
   test("an open row outranks a captured collection beneath a container", () => {
     expect(diagnose(
       'extern from "./m.js"\n    fun send(r: {v: Vector(Array(Int)), ...}) ->! Unit\n',
-    )).toEqual([openRow("{v: Vector(Array(Int)), ...}")]);
+    )).toEqual([openRow("{ v: Vector(Array(Int)), ... }")]);
   });
 
   /**
@@ -1168,21 +1168,21 @@ describe("item 7 — an open structural record at a declaration or the release s
     ["the open branch first", "(Option({n: Int, ...}), Vector(Array(Int)))"],
   ])("a sibling guarded finding does not pre-empt item 7 — %s", (_order, written) => {
     expect(diagnose(`extern from "./m.js"\n    fun send(r: ${written}) ->! Unit\n`))
-      .toEqual([openRow("{n: Int, ...}")]);
+      .toEqual([openRow("{ n: Int, ... }")]);
   });
 
   test("the same at an extern result under a function type", () => {
     expect(diagnose(
       'extern from "./m.js"\n' +
         "    fun get() ->! ((Vector(Array(Int)), Option({n: Int, ...}))) -> Unit\n",
-    )).toEqual([openRow("{n: Int, ...}")]);
+    )).toEqual([openRow("{ n: Int, ... }")]);
   });
 
   test("and at the release seat, where §2 makes it first and alone", () => {
     expect(diagnose(
       "let f(x: (Vector(Array(Int)), Option({n: Int, ...q}))): JsValue = JsValue.from(x)\n" +
         "export let go(): Int = 1\n",
-    )).toEqual([releasedOpenRow("{n: Int, ...}")]);
+    )).toEqual([releasedOpenRow("{ n: Int, ... }")]);
   });
 
   /**
@@ -1461,7 +1461,7 @@ describe("the fixpoint terminates, and answers each occurrence on its own", () =
     expect(diagnose(
       "record R(a) = { x: Option(R(Map(a, a))), n: Int }\n\n" +
         'extern from "./m.js"\n    fun send(v: (R(Int), {n: Int, ...})) ->! Unit\n',
-    )).toEqual([openRow("{n: Int, ...}")]);
+    )).toEqual([openRow("{ n: Int, ... }")]);
     // …and the same declaration with nothing for the walk to decide is
     // undecided, at the same seat.
     expect(diagnose(
@@ -1500,7 +1500,7 @@ describe("the fixpoint terminates, and answers each occurrence on its own", () =
    */
   const partial = "export record R(a) = { x: Option(R(Map(a, a))), n: Int }\n\n";
   const carried = "(R(Int), {n: Int, ...})";
-  const bound = "the type `(R(Int), {n: Int, ...})` at this boundary position expands past " +
+  const bound = "the type `(R(Int), { n: Int, ... })` at this boundary position expands past " +
     "the capture check's bound, so the compiler cannot decide whether it names a captured " +
     "foreign collection, and no declared position crosses undecided (FFI Part 1 §5.4); " +
     "declare a position whose type does not nest without bound, or bind through an opaque " +
@@ -1529,13 +1529,13 @@ describe("the fixpoint terminates, and answers each occurrence on its own", () =
     ["an `extern let`", `extern from "./m.js"\n    let v: ${carried}\n`],
     ["an exported constraint member", `export constraint C<b> =\n    m(x: ${carried}) -> b\n`],
   ])("a seat that can read it takes item 7 instead — %s", (_what, source) => {
-    expect(diagnose(partial + source)).toEqual([openRow("{n: Int, ...}")]);
+    expect(diagnose(partial + source)).toEqual([openRow("{ n: Int, ... }")]);
   });
 
   test("and so does the release seat, with its own rewrite", () => {
     expect(diagnose(
       `${partial}let w(v: ${carried}): JsValue = JsValue.from(v)\nexport let go(): Int = 1\n`,
-    )).toEqual([releasedOpenRow("{n: Int, ...}")]);
+    )).toEqual([releasedOpenRow("{ n: Int, ... }")]);
   });
 
   test("the bound refuses at every seat, not only at an extern row", () => {

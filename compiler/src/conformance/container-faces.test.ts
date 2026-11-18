@@ -101,7 +101,7 @@ describe("the literal forms hand each component its part (#1066)", () => {
     expect(typeOf(wrap + "fun outer(p: Dec) =\n    let t: (Option(Dec), _) = (wrap(p), p + 0.5)\n    t\n", "outer"))
       .toBe("Dec -> (Option(Dec), Dec)");
     expect(typeOf(wrap + "fun outer(p: Dec) =\n    let t: {o: Option(Dec), y: _} = {o = wrap(p), y = p + 0.5}\n    t\n", "outer"))
-      .toBe("Dec -> {o: Option(Dec), y: Dec}");
+      .toBe("Dec -> { o: Option(Dec), y: Dec }");
   });
 
   test("an operation standing down as a vector's element is reported as a component's is", () => {
@@ -115,7 +115,7 @@ describe("the literal forms hand each component its part (#1066)", () => {
     expect(refusals("fun outer(r) = {r with count = r.total + 1}\n"))
       .toEqual(["record update cannot add fields; the input has no field `count`"]);
     expect(typeOf("fun outer(r) = {r with count = r.count + 1}\n", "outer"))
-      .toBe("<a: Num> {count: a, ...b} -> {count: a, ...b}");
+      .toBe("<a: Num> { count: a, ...b } -> { count: a, ...b }");
   });
 
   test("a match function as a tuple component lands its part", () => {

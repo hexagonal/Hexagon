@@ -150,7 +150,7 @@ describe("every shape of concrete non-function reaches it", () => {
           "export let bad: Int = box(1)\n",
       ),
     ).toEqual([
-      "`box` is not a function — it has type `{size: Int}`, and this call supplies 1 argument",
+      "`box` is not a function — it has type `{ size: Int }`, and this call supplies 1 argument",
     ]);
   });
 

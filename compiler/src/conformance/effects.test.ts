@@ -5005,7 +5005,7 @@ describe("Effects §4.2, §4.4 — a refused `>->` reads as its fix wherever it 
       "is only as effectful as what it is handed — write `->!`";
     const shapes = [
       ["(() >-> Unit, Int)", "(save0, 1)", "let (g, _) = mkBad(noop)\n    g", "", "(() ->! Unit) -> (() ->! Unit, Int)"],
-      ["{ run: () >-> Unit, n: Int }", "{ run = save0, n = 1 }", "let g = mkBad(noop).run\n    g", "", "(() ->! Unit) -> {run: () ->! Unit, n: Int}"],
+      ["{ run: () >-> Unit, n: Int }", "{ run = save0, n = 1 }", "let g = mkBad(noop).run\n    g", "", "(() ->! Unit) -> { run: () ->! Unit, n: Int }"],
       ["Option(() >-> Unit)", "Some(save0)", "match mkBad(noop) with\n        Some(g) => g", "\n        None => ()", "(() ->! Unit) -> Option(() ->! Unit)"],
     ] as const;
     for (const [face, value, use, rest, hover] of shapes) {
@@ -6448,7 +6448,7 @@ export let pair(value: a): (a, a) = (value, value)
       "export let handlers: Vector(({n: Int, ...}) ->! Unit) = []\n";
     expect(effectDiagnostics([["/main.hex", source]])).toEqual([]);
     const declarations = declarationsOf([["/main.hex", source]]);
-    expect(declarations).toContain("/** Hexagon: `Vector({n: Int, ...} ->! Unit)` */");
+    expect(declarations).toContain("/** Hexagon: `Vector({ n: Int, ... } ->! Unit)` */");
     expect(declarations).not.toMatch(/\.\.\.t\d/);
   });
 });
@@ -6593,7 +6593,7 @@ ${use}
     const go = (result: string): string => make(`let go = () => run!(() => ())
     ${result}`, "    ()");
     expect(hover(go("Some(go)"), "make() =")).toBe("() -> Option(() -> Unit)");
-    expect(hover(go("{ g = go }"), "make() =")).toBe("() -> {g: () -> Unit}");
+    expect(hover(go("{ g = go }"), "make() =")).toBe("() -> { g: () -> Unit }");
     expect(hover(go("[go]"), "make() =")).toBe("() -> Vector(() -> Unit)");
     // Each function the result carries keeps the colour only where its own
     // parameters hold it: `go` holds none, so it is pure, and the caller's
@@ -6605,7 +6605,7 @@ ${use}
     expect(check(pair)).toEqual([]);
     expect(hover(pair, "make() =")).toBe("() -> ((() ->! Unit) >-> Unit, () -> Unit)");
     // In a record, in a vector, and behind a curried arrow alike.
-    expect(hover(make("{ go = run }", "    ()"), "make() =")).toBe("() -> {go: (() ->! Unit) >-> Unit}");
+    expect(hover(make("{ go = run }", "    ()"), "make() =")).toBe("() -> { go: (() ->! Unit) >-> Unit }");
     expect(hover(make("[run]", "    ()"), "make() =")).toBe("() -> Vector((() ->! Unit) >-> Unit)");
     expect(hover(make("(n: Int) => (run, n)", "    ()"), "make() =")).toBe("() -> Int -> ((() ->! Unit) >-> Unit, Int)");
   });

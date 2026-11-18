@@ -287,7 +287,7 @@ describe("the type of a selection", () => {
   });
 
   test("a selection inside a record field or a `match` arm names the expression, over its text", () => {
-    expect(shown(`${HEAD}let p = { «x = 1», y = "a" }\n`)).toBe('`{x: Int, y: String}` @ { x = 1, y = "a" }');
+    expect(shown(`${HEAD}let p = { «x = 1», y = "a" }\n`)).toBe('`{ x: Int, y: String }` @ { x = 1, y = "a" }');
     expect(shown(`${HEAD}let k = match 1 with\n    «0 => 2»\n    _ => 3\n`)).toBe("`Int` @ match 1 with\n    0 => 2\n    _ => 3\n");
     expect(shown(`${HEAD}let n = 1\nlet s = "a«\${n}»b"\n`)).toBe('`String` @ "a${n}b"');
   });
@@ -347,7 +347,7 @@ describe("the type at an operator, a bracket, a literal or a keyword", () => {
   test("a part of a form's own syntax is the form's: an arm's `=>`, a field's `=`, a string's `${`", () => {
     expect(shown(`${HEAD}let o: Option(Int) = None\nlet k = match o with\n    Some(x) ‸=> x\n    None => 0\n`))
       .toBe("`Int` @ =>");
-    expect(shown(`${HEAD}let p = { x ‸= 1 }\n`)).toBe("`{x: Int}` @ =");
+    expect(shown(`${HEAD}let p = { x ‸= 1 }\n`)).toBe("`{ x: Int }` @ =");
     expect(shown(`${HEAD}let n = 1\nlet s = "‸a\${n}"\n`)).toBe("`String` @ a");
     expect(shown(`${HEAD}let n = 1\nlet s = "a‸\${n}"\n`)).toBe("`String` @ ${");
   });

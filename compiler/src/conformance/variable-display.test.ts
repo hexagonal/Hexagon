@@ -47,8 +47,12 @@ describe("the law: a survivor reaching a report is named", () => {
 
   test("a survivor under a structural head is named too", () => {
     expect(main("export let n: {a: Int} = []\n")).toEqual([
-      "type mismatch: expected {a: Int}, found Vector(a)",
+      "type mismatch: expected { a: Int }, found Vector(a)",
     ]);
+  });
+
+  test("an empty record is shown as `{}`, with no space inside", () => {
+    expect(main("export let n: Int = {}\n")).toEqual(["type mismatch: expected Int, found {}"]);
   });
 
   test("an effect colour is not spent a letter — it prints as a colour", () => {

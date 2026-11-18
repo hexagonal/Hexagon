@@ -87,7 +87,7 @@ describe("inlay hints: a declaration's face, piece by piece", () => {
     ].join("\n"))).toBe([
       "let apply(f: (a) -> b, x⟦: a⟧)⟦: b⟧ = f(x)",
       "let name(r: { name: a }, x⟦: b⟧)⟦: (a, b)⟧ = (r.name, x)",
-      "let same(r: { name: a, ...rest }, s⟦: {name: a, ...rest}⟧)⟦: {name: a, ...rest}⟧ = if True then r else s",
+      "let same(r: { name: a, ...rest }, s⟦: { name: a, ...rest }⟧)⟦: { name: a, ...rest }⟧ = if True then r else s",
       "let m(table: Map(k, v), key⟦: a⟧)⟦: (Map(k, v), a)⟧ = (table, key)",
       "let n(value: Nullable(a), x⟦: b⟧)⟦: (Nullable(a), b)⟧ = (value, x)",
       "let v(values: Vector(a), x⟦: b⟧)⟦: (Vector(a), b)⟧ = (values, x)",
@@ -457,7 +457,7 @@ describe("inlay hints: bindings, lambdas and patterns", () => {
   test("an `as` name takes its type; a record field's pun takes none, having no place for one", () => {
     expect(hinted('let (p, q) as pair = (1, "x")\nlet r = {guest = "x", seats = 2}\nlet {guest, seats = s} = r\n')).toBe(
       'let (p⟦: Int⟧, q⟦: String⟧) as pair⟦: (Int, String)⟧ = (1, "x")\n' +
-        "let r⟦: {guest: String, seats: Int}⟧ = {guest = \"x\", seats = 2}\nlet {guest, seats = s⟦: Int⟧} = r\n",
+        "let r⟦: { guest: String, seats: Int }⟧ = {guest = \"x\", seats = 2}\nlet {guest, seats = s⟦: Int⟧} = r\n",
     );
   });
 

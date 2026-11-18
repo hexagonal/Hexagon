@@ -69,7 +69,7 @@ describe("the table: every hard keyword in every name seat", () => {
 
   test.each(KEYWORDS)("`%s` as a pun is refused, naming the written-out field", (word) => {
     expect(main(`export let r = {${word}}\n`)).toContain(
-      `\`${word}\` is reserved; write the field out: \`{${word} = …}\``,
+      `\`${word}\` is reserved; write the field out: \`{ ${word} = … }\``,
     );
   });
 });
@@ -109,7 +109,7 @@ describe("the seats, one construct at a time", () => {
   });
 
   test.each(KEYWORDS)("a `%s` pun is the one report, in a literal, an update, and a pattern (#1021)", (word) => {
-    const pun = `\`${word}\` is reserved; write the field out: \`{${word} = …}\``;
+    const pun = `\`${word}\` is reserved; write the field out: \`{ ${word} = … }\``;
     expect(main(`let r = {${word} = 1}\nexport let u: {${word}: Int} = {r with ${word}}\n`)).toEqual([pun]);
     expect(main(`export let r: {${word}: Int, x: Int} = {${word}, x = 1}\n`)).toEqual([pun]);
     expect(main(`let r = {${word} = 1}\nexport let v: Int = match r with\n    {${word}} => 1\n`)).toEqual([pun]);

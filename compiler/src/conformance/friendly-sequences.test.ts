@@ -79,14 +79,14 @@ describe("every seat headed by `Seq` adapts (Part 5 §3.4)", () => {
   test("a literal's parts, a `with` override, and an argument's spine", () => {
     expect(typeOf("let p: (Seq(String), Int) = (words, 1)\n", "p")).toBe("(Seq(String), Int)");
     expect(typeOf("let r: {names: Seq(String)} = {names = words}\n", "r"))
-      .toBe("{names: Seq(String)}");
+      .toBe("{ names: Seq(String) }");
     expect(typeOf("let v: Vector(Seq(String)) = [words, moreWords]\n", "v"))
       .toBe("Vector(Seq(String))");
     expect(typeOf(
       "let r0: {names: Seq(String), n: Int} = {names = Vector.toSeq(words), n = 1}\n" +
         "let r1 = {r0 with names = words}\n",
       "r1",
-    )).toBe("{names: Seq(String), n: Int}");
+    )).toBe("{ names: Seq(String), n: Int }");
     expect(typeOf(
       "let usePair(p: (Seq(String), Int)): Int = 0\nlet n = usePair((words, 1))\n",
       "n",

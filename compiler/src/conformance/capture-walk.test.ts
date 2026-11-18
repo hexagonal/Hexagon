@@ -1284,11 +1284,11 @@ describe("an extern declaration writes no open row at all (§5.4 item 7)", () =>
     const declaration = 'extern from "./sink.js"\n' +
       "    fun send(r: {n: Int, ...}) ->! Unit\n";
     expect(projectDiagnostics("module Main\n\n" + declaration))
-      .toEqual([refusal("{n: Int, ...}")]);
+      .toEqual([refusal("{ n: Int, ... }")]);
     expect(projectDiagnostics(
       "module Main\n\n" + declaration +
         "\nexport fun forward(r: {n: Int, v: Array(Int)}): Unit = send!(r)\n",
-    )).toEqual([refusal("{n: Int, ...}")]);
+    )).toEqual([refusal("{ n: Int, ... }")]);
   });
 
   /**
@@ -1302,11 +1302,11 @@ describe("an extern declaration writes no open row at all (§5.4 item 7)", () =>
       "module Main\n\n" +
         'extern from "./src.js"\n    fun get() ->! {xs: Array(Int), ...}\n' +
         "\nexport fun cells(): Array(Int) = get!().cells\n",
-    )).toEqual([refusal("{xs: Array(Int), ...}")]);
+    )).toEqual([refusal("{ xs: Array(Int), ... }")]);
 
     expect(projectDiagnostics(
       "module Main\n\n" + 'extern from "./src.js"\n    let cfg: {n: Int, ...}\n',
-    )).toEqual([refusal("{n: Int, ...}")]);
+    )).toEqual([refusal("{ n: Int, ... }")]);
 
     // The `Holder3` mirror: the record can no longer be written, so Products
     // §4 speaks first and the extern position speaks beside it.
@@ -1318,7 +1318,7 @@ describe("an extern declaration writes no open row at all (§5.4 item 7)", () =>
     )).toEqual([
       "a `record` names every field of its values; `r`'s type says the record may have " +
       "more fields — name them, or give the field the type `JsValue`",
-      refusal("{n: Int, ...}"),
+      refusal("{ n: Int, ... }"),
     ]);
   });
 

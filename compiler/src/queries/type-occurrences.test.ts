@@ -40,10 +40,10 @@ describe("collectTypeOccurrences", () => {
     expect(at("value", text.indexOf("value"))?.displayedType).toBe("a");
     expect(at("value", text.indexOf("value", text.indexOf("value") + 1))?.displayedType).toBe("a");
     expect(at("Person", text.indexOf("Person"))?.displayedType).toBe(
-      "{name: String, age: Int} -> Person",
+      "{ name: String, age: Int } -> Person",
     );
     expect(at("Person", text.lastIndexOf("Person"))?.displayedType).toBe(
-      "{name: String, age: Int} -> Person",
+      "{ name: String, age: Int } -> Person",
     );
     expect(at("name", text.indexOf("name"))?.displayedType).toBe("String");
     expect(at("age", text.indexOf("age"))?.displayedType).toBe("Int");

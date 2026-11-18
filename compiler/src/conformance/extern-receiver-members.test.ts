@@ -877,7 +877,7 @@ describe("`extern class` diagnostics (§11)", () => {
   });
 
   test("every class member slot refuses an open record (Part 1 §5.4 item 7, #962)", () => {
-    const refusal = /^this record may have more fields \(`\{n: Int, \.\.\.\}`\)/u;
+    const refusal = /^this record may have more fields \(`\{ n: Int, \.\.\. \}`\)/u;
     for (
       const row of [
         "        new as create(r: {n: Int, ...}) ->! Url\n",

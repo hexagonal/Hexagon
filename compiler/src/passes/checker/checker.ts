@@ -16087,7 +16087,7 @@ class Checker {
     this.#diagnostics.add({
       severity: "error",
       message: `\`${record.name}\` is a nominal record; destructure it with ` +
-        `\`${record.name}({${fields.join(", ")}})\``,
+        `\`${record.name}(${fields.length === 0 ? "{}" : `{ ${fields.join(", ")} }`})\``,
       primary: pattern.span,
     });
   }
@@ -19689,7 +19689,7 @@ class Checker {
           const witness = witnesses[index];
           return witness === undefined || witness === "_" ? [] : [`${name} = ${witness}`];
         });
-        return shown.length === 0 ? "_" : `{${shown.join(", ")}}`;
+        return shown.length === 0 ? "_" : `{ ${shown.join(", ")} }`;
       },
     };
     return {
@@ -47389,7 +47389,7 @@ class Checker {
         `${name}: ${this.#render(field, place)}`
       );
       if (actual.tail !== undefined) fields.push("...");
-      return `{${fields.join(", ")}}`;
+      return fields.length === 0 ? "{}" : `{ ${fields.join(", ")} }`;
     }
     if (actual.kind === "Effect") return Colour.pointName(actual);
     if (actual.kind === "Join") return "join";
@@ -48993,14 +48993,14 @@ function renderPattern(
       }
       return `[${elements.join(", ")}]`;
     }
-    case "Record":
-      return `{${
-        pattern.fields.map(({ name, pattern: field }) =>
-          field.kind === "Binding" && field.binding.name === name
-            ? name
-            : `${name} = ${render(field)}`
-        ).join(", ")
-      }}`;
+    case "Record": {
+      const fields = pattern.fields.map(({ name, pattern: field }) =>
+        field.kind === "Binding" && field.binding.name === name
+          ? name
+          : `${name} = ${render(field)}`
+      );
+      return fields.length === 0 ? "{}" : `{ ${fields.join(", ")} }`;
+    }
     case "Constructor":
       return `${pattern.text}${renderArguments(pattern.arguments, render)}`;
   }

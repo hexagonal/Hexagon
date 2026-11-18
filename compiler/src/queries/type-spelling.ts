@@ -474,7 +474,7 @@ export function spellType(
         fields.push(`${field.name}: ${spelled.text}`);
       }
       if (type.tail !== undefined) fields.push(`...${variables.nameOf(type.tail)}`);
-      return { text: `{${fields.join(", ")}}` };
+      return { text: fields.length === 0 ? "{}" : `{ ${fields.join(", ")} }` };
     }
     case "Union":
       return nominal(names.unions.get(type.union), type.name, type.arguments);

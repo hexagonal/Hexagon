@@ -261,7 +261,7 @@ describe("AnalysisSession", () => {
     ].join("\n");
     const { session: externSession } = sessionOf({ "/main.hex": externed });
     const externHover = externSession.hover("/main.hex", at(externed, "handlers"));
-    expect(externHover?.displayedType).toBe("Vector({n: Int, ...} -> Unit)");
+    expect(externHover?.displayedType).toBe("Vector({ n: Int, ... } -> Unit)");
 
     const bound = "module Main\n\n" + [
       "export let handlers: Vector(({n: Int, ...}) -> Unit) = []",
@@ -270,7 +270,7 @@ describe("AnalysisSession", () => {
     const { session: boundSession } = sessionOf({ "/main.hex": bound });
     expect(boundSession.diagnostics("/main.hex")).toEqual([]);
     const boundHover = boundSession.hover("/main.hex", at(bound, "handlers"));
-    expect(boundHover?.displayedType).toBe("Vector({n: Int, ...} -> Unit)");
+    expect(boundHover?.displayedType).toBe("Vector({ n: Int, ... } -> Unit)");
 
     const generic = "module Main\n\n" + [
       "let each(rows: Vector({n: Int, ...})) = rows",
@@ -280,7 +280,7 @@ describe("AnalysisSession", () => {
     expect(genericSession.diagnostics("/main.hex")).toEqual([]);
     const genericHover = genericSession.hover("/main.hex", at(generic, "each"));
     expect(genericHover?.displayedType)
-      .toBe("Vector({n: Int, ...a}) -> Vector({n: Int, ...a})");
+      .toBe("Vector({ n: Int, ...a }) -> Vector({ n: Int, ...a })");
 
     for (const rendered of [externHover, boundHover, genericHover]) {
       expect(rendered?.displayedType).not.toMatch(/t\d/);

@@ -441,7 +441,7 @@ describe("the companion fallback outranks the boundary intrinsics", () => {
       "\nexport fun count(): Int = 1\n" + RUNTIME_OPERATIONS,
       [aliasing],
       ["Runtime.HashTrie"],
-    )).toEqual(["type mismatch: expected Node(Int), found {item: a, ...}"]);
+    )).toEqual(["type mismatch: expected Node(Int), found { item: a, ... }"]);
   });
 
   /**

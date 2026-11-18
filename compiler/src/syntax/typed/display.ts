@@ -429,7 +429,7 @@ function displayType(
         // letter, `...a`.
         fields.push(`...${variables.get(type.tail) ?? ""}`);
       }
-      return `{${fields.join(", ")}}`;
+      return fields.length === 0 ? "{}" : `{ ${fields.join(", ")} }`;
     }
     case "Union":
       return type.arguments.length === 0

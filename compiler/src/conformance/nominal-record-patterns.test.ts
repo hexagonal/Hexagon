@@ -375,7 +375,17 @@ describe("the bare record pattern is redirected, not mismatched (§2.4)", () => 
       "export fun size(c: Crate): Float =\n" +
       "    let {n} = c\n" +
       "    n\n",
-    )).toEqual(["`Crate` is a nominal record; destructure it with `Crate({n})`"]);
+    )).toEqual(["`Crate` is a nominal record; destructure it with `Crate({ n })`"]);
+  });
+
+  test("an empty bare record pattern is redirected to `Crate({})`", () => {
+    expect(projectDiagnostics(
+      "module Main\n\n" +
+      CRATE +
+      "export fun size(c: Crate): Int =\n" +
+      "    let {} = c\n" +
+      "    1\n",
+    )).toEqual(["`Crate` is a nominal record; destructure it with `Crate({})`"]);
   });
 
   test("in a `match` arm, the same redirect", () => {
@@ -389,7 +399,7 @@ describe("the bare record pattern is redirected, not mismatched (§2.4)", () => 
       // One error, not two: a record pattern is structurally irrefutable, so
       // the arm still reads as a catch-all for coverage and no missing-case
       // report piles on behind the redirect.
-      "`Crate` is a nominal record; destructure it with `Crate({n, tag})`",
+      "`Crate` is a nominal record; destructure it with `Crate({ n, tag })`",
     ]);
   });
 
@@ -441,7 +451,7 @@ describe("the bare record pattern is redirected, not mismatched (§2.4)", () => 
       "cannot destructure opaque record `Crate`; use an operation exported by its home module",
     ]);
     expect(reached("export")).toEqual([
-      "`Crate` is a nominal record; destructure it with `Crate({n})`",
+      "`Crate` is a nominal record; destructure it with `Crate({ n })`",
     ]);
   });
 
@@ -455,7 +465,7 @@ describe("the bare record pattern is redirected, not mismatched (§2.4)", () => 
         "    let {n} = c\n" +
         "    n\n"],
     ]).diagnostics.map(({ message }) => message)).toEqual([
-      "`Crate` is a nominal record; destructure it with `Crate({n})`",
+      "`Crate` is a nominal record; destructure it with `Crate({ n })`",
     ]);
   });
 
@@ -591,7 +601,7 @@ describe("outside the home module the name carries it, and only the name", () =>
         "export let v: Float = size(Geo.make())\n"],
     ]).diagnostics.map(({ message }) => message)).toEqual([
       "no bare `Crate` here: its type is not determined at this pattern — " +
-        "write `Geo.Crate({n})`, or bind the function with its own annotated `let`",
+        "write `Geo.Crate({ n })`, or bind the function with its own annotated `let`",
     ]);
   });
 
@@ -861,7 +871,7 @@ describe("the bare record pattern is redirected, not mismatched (§2.4)", () => 
       "export fun size(c: Crate): Float =\n" +
       "    let {n} = c\n" +
       "    n\n",
-    )).toEqual(["`Crate` is a nominal record; destructure it with `Crate({n})`"]);
+    )).toEqual(["`Crate` is a nominal record; destructure it with `Crate({ n })`"]);
   });
 
   test("in a `match` arm, the same redirect", () => {
@@ -875,7 +885,7 @@ describe("the bare record pattern is redirected, not mismatched (§2.4)", () => 
       // One error, not two: a record pattern is structurally irrefutable, so
       // the arm still reads as a catch-all for coverage and no missing-case
       // report piles on behind the redirect.
-      "`Crate` is a nominal record; destructure it with `Crate({n, tag})`",
+      "`Crate` is a nominal record; destructure it with `Crate({ n, tag })`",
     ]);
   });
 
@@ -927,7 +937,7 @@ describe("the bare record pattern is redirected, not mismatched (§2.4)", () => 
       "cannot destructure opaque record `Crate`; use an operation exported by its home module",
     ]);
     expect(reached("export")).toEqual([
-      "`Crate` is a nominal record; destructure it with `Crate({n})`",
+      "`Crate` is a nominal record; destructure it with `Crate({ n })`",
     ]);
   });
 
@@ -941,7 +951,7 @@ describe("the bare record pattern is redirected, not mismatched (§2.4)", () => 
         "    let {n} = c\n" +
         "    n\n"],
     ]).diagnostics.map(({ message }) => message)).toEqual([
-      "`Crate` is a nominal record; destructure it with `Crate({n})`",
+      "`Crate` is a nominal record; destructure it with `Crate({ n })`",
     ]);
   });
 
@@ -1077,7 +1087,7 @@ describe("outside the home module the name carries it, and only the name", () =>
         "export let v: Float = size(Geo.make())\n"],
     ]).diagnostics.map(({ message }) => message)).toEqual([
       "no bare `Crate` here: its type is not determined at this pattern — " +
-        "write `Geo.Crate({n})`, or bind the function with its own annotated `let`",
+        "write `Geo.Crate({ n })`, or bind the function with its own annotated `let`",
     ]);
   });
 
