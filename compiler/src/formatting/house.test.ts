@@ -28,8 +28,8 @@
  * `module A` above it where it has no header. In the Book that is each
  * `hexagon` block; in the spec, each `hexagon`, `hex` or untagged block. A
  * block with one line the compiler refuses does not parse, so the first four
- * checks pass it by; H10 asks only the lexer, so it reads every block that
- * lexes. The spec's chapters are read but for its decision records, which keep
+ * checks pass it by; H10 asks only the lexer, which reads on past a token it
+ * refuses, so it reads every block. The spec's chapters are read but for its decision records, which keep
  * history as it was written, and Canonical Layout and Lexer & Layout, whose
  * examples are the layouts those chapters change or refuse. Its notes, in
  * `spec/notes/`, are not chapters and are not read.
@@ -210,8 +210,8 @@ const ruleOf = (entry: string): string => entry.split(" · ")[0]!;
 /**
  * Writes `rule`'s entries afresh: each that was held keeps its reason, and the
  * rest are written above every reason. The other checks' groups keep their
- * order, and `rule`'s that are new to it come after them; groups are parted by
- * a blank line.
+ * order, and `rule`'s own groups come after them in the order found; groups
+ * are parted by a blank line.
  */
 function writeBaseline(rule: Rule, found: readonly string[]): void {
   const old = baseline();
@@ -274,18 +274,28 @@ function trailingComments(text: string): TrailingComment[] {
   const { tokens, comments } = scan(text).lexed;
   const found: TrailingComment[] = [];
   const lineEnd = (offset: number): number => text.indexOf("\n", offset) === -1 ? text.length : text.indexOf("\n", offset);
-  for (const { span } of comments) {
-    const code = tokens.some(({ span: token }) =>
-      token.start.line === span.start.line && token.end.offset <= span.start.offset
-    );
-    if (!code || text.slice(span.end.offset, lineEnd(span.end.offset)).trim() !== "") continue;
-    const lineStart = text.lastIndexOf("\n", span.start.offset - 1) + 1;
-    found.push({
-      line: span.start.line,
-      gap: /\s*$/u.exec(text.slice(lineStart, span.start.offset))![0],
-      whole: text.slice(lineStart, lineEnd(span.start.offset)).replace(/\r$/u, ""),
-      spans: span.end.line !== span.start.line,
-    });
+  // Comments with only whitespace between them on a line are one run, read
+  // as one comment from its first comment's start to its last one's end.
+  const joined = (left: (typeof comments)[number], right: (typeof comments)[number]): boolean =>
+    left.span.end.line === right.span.start.line &&
+    text.slice(left.span.end.offset, right.span.start.offset).trim() === "";
+  for (let first = 0; first < comments.length; first += 1) {
+    let last = first;
+    while (last + 1 < comments.length && joined(comments[last]!, comments[last + 1]!)) last += 1;
+    const start = comments[first]!.span.start;
+    const end = comments[last]!.span.end;
+    const code = tokens.some(({ span: token }) => token.start.line === start.line && token.end.offset <= start.offset);
+    const ends = text.slice(end.offset, lineEnd(end.offset)).trim() === "";
+    if (code && ends) {
+      const lineStart = text.lastIndexOf("\n", start.offset - 1) + 1;
+      found.push({
+        line: start.line,
+        gap: /\s*$/u.exec(text.slice(lineStart, start.offset))![0],
+        whole: text.slice(lineStart, lineEnd(start.offset)).replace(/\r$/u, ""),
+        spans: end.line !== start.line,
+      });
+    }
+    first = last;
   }
   return found;
 }
@@ -311,6 +321,9 @@ describe("The house test", () => {
       "let d = 4 {- runs",
       "   on -}",
       "let e = 5 -- before a carriage return\r",
+      "let f = 6  {- a -} -- b",
+      "let g = 7 {- runs",
+      "   on -}  -- more",
       "",
     ].join("\n");
     expect(trailingComments(text)).toEqual([
@@ -318,6 +331,8 @@ describe("The house test", () => {
       { line: 3, gap: "   ", whole: "let b = 2   -- three spaces", spans: false },
       { line: 6, gap: " ", whole: "let d = 4 {- runs", spans: true },
       { line: 8, gap: " ", whole: "let e = 5 -- before a carriage return", spans: false },
+      { line: 9, gap: "  ", whole: "let f = 6  {- a -} -- b", spans: false },
+      { line: 10, gap: " ", whole: "let g = 7 {- runs", spans: true },
     ]);
   });
 
@@ -414,10 +429,11 @@ describe("The house test", () => {
 
   it("puts one space before a comment that ends a line, and keeps its line within 100 (H10)", async () => {
     const found: Finding[] = [];
-    // A fragment that does not parse is read too, where it lexes: its
-    // comments are comments, though its code is not a module.
-    const fragments = [...bookSamples.fragments, ...specSamples.fragments]
-      .filter(({ text }) => !scan(text).lexed.diagnostics.some(({ severity }) => severity === "error"));
+    // A fragment that does not parse is read too, even where the lexer
+    // refuses a token in it: its comments are comments, though its code is
+    // not a module. Another language's text in an untagged fence would be
+    // read as Hexagon, so such a fence is tagged.
+    const fragments = [...bookSamples.fragments, ...specSamples.fragments];
     for (const { place, text, offset } of [...await houseText(), ...fragments]) {
       for (const { line, gap, whole, spans } of trailingComments(text)) {
         const width = [...whole].length;
