@@ -16101,7 +16101,7 @@ class Checker {
     // Pattern Matching §2.10: the prelude `Rat` is taken apart with `//`.
     const fraction = home?.fraction !== undefined &&
         this.#declaredPatternNominalKey(this.#declaredPatternSubject(home.fraction, 0)) === key
-      ? ["top // bottom"]
+      ? ["top//bottom"]
       : [];
     return [...fraction, ...(home?.patterns ?? []).flatMap((reference) =>
       this.#declaredPatternNominalKey(this.#declaredPatternSubject(reference, 0)) === key
@@ -19388,7 +19388,7 @@ class Checker {
         slots,
         // Pattern Matching §2.10: a fraction's witness prints with `//`.
         print: (witnesses) => pattern.fraction === true
-          ? `${witnesses[0] ?? "_"} // ${witnesses[1] ?? "_"}`
+          ? `${witnesses[0] ?? "_"}//${witnesses[1] ?? "_"}`
           : `(${witnesses.join(", ")})${pattern.name}`,
       });
     }
@@ -20578,7 +20578,7 @@ class Checker {
         const divisor = greatestCommonDivisor(top, bottom);
         if (divisor === 1n && bottom > 0n) continue;
         const sign = bottom < 0n ? -1n : 1n;
-        const rewrite = `${(top / divisor) * sign} // ${(bottom / divisor) * sign}`;
+        const rewrite = `${(top / divisor) * sign}//${(bottom / divisor) * sign}`;
         // The fix rewrites bare literals only: a side under `as` or a type keeps
         // what it binds or says, which the rewrite would delete.
         const bare = topPattern.kind === "Integer" && bottomPattern.kind === "Integer";
@@ -20597,7 +20597,7 @@ class Checker {
       if (!simple || topText === undefined) {
         return { severity: "error", message: lead, primary: node.span };
       }
-      const rewrite = `${topText} // ${-bottom}`;
+      const rewrite = `${topText}//${-bottom}`;
       return {
         severity: "error",
         message: `${lead} — write \`${rewrite}\`` +
@@ -35181,7 +35181,7 @@ class Checker {
           `pattern — \`${rewritten}\` — or remove the type`
         : `\`${variable.rigidName}\` is a declared type variable, but \`${literal.literal}\` ` +
           `can be only a \`${literal.name}\` type; ascribe the concrete type you mean — ` +
-          `\`(${literal.literal} : Int)\` — or remove the ascription to let the literal ` +
+          `\`(${literal.literal}: Int)\` — or remove the ascription to let the literal ` +
           "default to `Int`",
       primary: span,
     });
@@ -40207,7 +40207,7 @@ class Checker {
       return undefined;
     }
     const pinned = this.#replaceVariables(type, new Map([[variable.id, honors]]));
-    return { span: supplier.span, written: `(${spelled} : ${this.#display(pinned)})` };
+    return { span: supplier.span, written: `(${spelled}: ${this.#display(pinned)})` };
   }
 
   /**
@@ -48981,7 +48981,7 @@ function renderPattern(
       })`;
     case "Declared":
       return pattern.fraction === true
-        ? pattern.components.map((component) => render(component)).join(" // ")
+        ? pattern.components.map((component) => render(component)).join("//")
         : `(${pattern.components.map((component) => render(component)).join(", ")})${pattern.name}`;
     case "Vector": {
       const elements = pattern.elements.map((element) => render(element));

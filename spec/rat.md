@@ -248,14 +248,14 @@ not merely round-trips.
 - Attempts to access fields outside Rat's home module receive the standard opaque
   record diagnostic and point to `Rat.top` / `Rat.bottom`. A constructor or record
   pattern over `Rat` abroad is refused naming the fraction pattern: "cannot destructure
-  opaque record `Rat`; match it with `top // bottom`".
+  opaque record `Rat`; match it with `top//bottom`".
 - A `//` side that is a `Rat`, `Dec`, or `Float` is refused at that side with the
   division that was meant (Operators §6.4): "a fraction's top and bottom are integers,
   and `r` is a `Rat` — to divide, write `r / 2`", and at a `Dec` side
   `Rat.fromDec(d) / 2`. `1 // 2 // 3` is refused as a chain.
 - A dead `//` pattern is refused as Pattern Matching §7.2 words it, with the spelling
   that matches where one exists: "this case is unreachable; a fraction comes apart in
-  lowest terms with a positive bottom, so `2 // 6` never matches — write `1 // 3`"; at
+  lowest terms with a positive bottom, so `2//6` never matches — write `1//3`"; at
   a zero bottom, "this case is unreachable; a fraction's bottom is never zero — remove
   the case".
 - A non-integer exponent at `**` or `Rat.pow` is a compile-time type error at

@@ -117,7 +117,7 @@ describe("a declared type variable occurring only in a function's result (#1042)
     // evidence-seat decline instead of the ascription's own refusal.
     expect(verdict("let (g, k) = (((() => 0) : () -> a), 1)\n")).toEqual([
       "`a` is a declared type variable, but `0` can be only a `Num` type; ascribe the " +
-        "concrete type you mean — `(0 : Int)` — or remove the ascription to let the " +
+        "concrete type you mean — `(0: Int)` — or remove the ascription to let the " +
         "literal default to `Int`",
     ]);
   });

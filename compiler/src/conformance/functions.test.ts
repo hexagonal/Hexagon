@@ -254,15 +254,15 @@ describe("Functions specification conformance", () => {
     // carries it — an argument, or a dot call's argument — where one does.
     // Where no blocking constraint holds at `Int`, `Int` is never named, and a
     // declared variable in scope that honors every one of them is the fix
-    // (#1352): `b` holds `u`, so `(None : Option(u))` compiles.
+    // (#1352): `b` holds `u`, so `(None: Option(u))` compiles.
     const frac = "fun<u: Frac>\n    b(x: u, go: Bool): Int =\n        let y = x / x\n        if go then a(False, NONE) else 1\n" +
       "    a(flag: Bool, w: Option(u)): Int =\n        if flag then 1 else 0\n";
     const stuck = checkSource(frac.replace("NONE", "None")).diagnostics;
     expect(stuck.map(({ message }) => message)).toEqual([
-      "nothing chooses this expression's type, and its `Frac` evidence needs one: write `(None : Option(u))`",
+      "nothing chooses this expression's type, and its `Frac` evidence needs one: write `(None: Option(u))`",
     ]);
-    expect(stuck[0]!.fixes?.flatMap((fix) => fix.edits.map((edit) => edit.replacement))).toEqual(["(None : Option(u))"]);
-    expect(checkSource(frac.replace("NONE", "(None : Option(u))")).diagnostics).toEqual([]);
+    expect(stuck[0]!.fixes?.flatMap((fix) => fix.edits.map((edit) => edit.replacement))).toEqual(["(None: Option(u))"]);
+    expect(checkSource(frac.replace("NONE", "(None: Option(u))")).diagnostics).toEqual([]);
     // No variable is offered whose evidence does not reach the site, nor one
     // that misses a demand the blocked one does not name.
     const c = "let c<v: Frac>(w: Option(v)): Int = 0\n";
@@ -323,7 +323,7 @@ describe("Functions specification conformance", () => {
       )).toContain("nothing chooses the type this use of `Frac.divide`");
     }
     // The repair it names compiles.
-    expect(reports(tag + "let label<a: Tag>(x: Option(a)): String = \"s\"\nlet v = label((None : Option(String)))"))
+    expect(reports(tag + "let label<a: Tag>(x: Option(a)): String = \"s\"\nlet v = label((None: Option(String)))"))
       .toEqual([]);
     // Where the result carries it, the use keeps the report.
     expect(reports(tag + "let pair<a: Tag>(x: Option(a)): (Option(a), Int) = (x, 1)\nlet v = pair(None)")
