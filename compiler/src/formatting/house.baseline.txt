@@ -1,0 +1,33 @@
+# Taught: Book chapter 5 shows a comment-only line at a deeper indentation, to teach that it does not reshape the block.
+Format document · book/chapters/05-layout.md · -- Comment-only indentation is ignored.
+
+# Formatter bug #1607: Format document over-indents the alternatives of an `enum` in `extern from`.
+Format document · book/chapters/26-javascript-input.md · | Down
+Format document · book/chapters/26-javascript-input.md · | ARROW_DOWN as Down
+Format document · spec/ffi-foreign-enums.md · | Down
+Format document · spec/ffi-foreign-enums.md · | ARROW_DOWN as Down
+
+# Taught: Book chapter 5 carries a condition on to its `then`, which the prose beside it teaches.
+H9 · book/chapters/05-layout.md · one line · and/or · delayed and hours > 24
+
+# Taught: Book chapter 17 shows loops with their body beneath `do` before it brings in the body on the head's line.
+H9 · book/chapters/17-loops-and-ranges.md · one line · loop · for number in 1..5 do Debug.log("Number ${number}")
+H9 · book/chapters/17-loops-and-ranges.md · one line · loop · for number in 1..limit do total := total + number
+H9 · book/chapters/17-loops-and-ranges.md · one line · loop · for pattern in source do body
+H9 · book/chapters/17-loops-and-ranges.md · one line · loop · for number in 1..5 do number * number
+
+# Taught (decision 5): Operators §11.3 shows a conditional spread and a condition carried on to its `then`.
+H9 · spec/operators-logic-precedence.md · one line · conditional · if condition then trueExpression else falseExpression
+H9 · spec/operators-logic-precedence.md · one line · and/or · configured and connected and notExpired(session)
+
+# Taught (decision 5): Pattern Matching §6.1 carries a scrutinee on to its `with`.
+H9 · spec/pattern-matching.md · one line · arithmetic · prefix ++ separator ++ suffix
+
+# Refused: Book chapter 15 shows a recursive dot call the compiler refuses, so the checker types no knot.
+N6 · book/chapters/15-dot-calls.md · describe
+
+# Taught (decision 5): Intrinsics §3.2 quotes the wrapper as it was written before the `extern` block.
+N6 · spec/intrinsics.md · at
+
+# Read as one module: Method Syntax §14's rows share one block, where row (h)'s `let b` takes the name of row (p)'s `fun` member `b`; read alone, `a` and `b` are one knot.
+N6 · spec/method-syntax.md · b

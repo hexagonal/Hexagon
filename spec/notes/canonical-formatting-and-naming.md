@@ -175,7 +175,14 @@ declarations through this list before considering the segment done.
 This section is the house style's own record, not a restatement. The
 formatter leaves these choices to the author (Canonical Layout §13), and
 house text makes them this way. **House text** is the standard library,
-the Book, the Playground's tutorials and the spec's own examples.
+the Book, the Playground's tutorials and the spec's own examples. One
+test, the house test, holds each to this section: Format document at the
+house settings changes nothing, and the test checks what the formatter
+does not make, which is H6's loops, H9, H10 and N6. It reads every example
+that parses, and the examples left as written stand in its baseline, each
+beneath its reason. The spec's decision records keep their history as
+written, and the examples of Canonical Layout and Lexer & Layout are the
+layouts those chapters change or refuse, so the test reads neither.
 
 - **H1** House text is formatted at Maximum line length 100. A line that
   cannot be broken, such as one holding a long string or a comment that
@@ -308,10 +315,9 @@ the Book, the Playground's tutorials and the spec's own examples.
   written on one line wherever that line fits, even where it was written
   spread. For a call's arguments and a record, on one line means their
   brackets are; for a declaration, its braces or its alternatives
-  (Canonical Layout §15.2). A test holds the standard library, the
-  Playground's tutorials and the Book's samples to both halves, and names
-  each construct in the wrong shape (#1602). (Canonical Layout §3.5, §12,
-  §15)
+  (Canonical Layout §15.2). The house test holds house text to both
+  halves, and names each construct in the wrong shape (#1602). (Canonical
+  Layout §3.5, §12, §15)
 
   | Kind | On one line |
   |---|---|
