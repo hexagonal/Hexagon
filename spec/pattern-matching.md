@@ -792,8 +792,8 @@ match count with -- count: Int — the identity law at Int (§7.2)
     7 => "seven"
     007 => "never" -- ERROR: this literal case is unreachable; it is already handled above
     0 => "zero"
-    -- ERROR: this literal case is unreachable; it is already handled above (`-0` is the literal
-    -- `0`)
+    -- ERROR: this literal case is unreachable; it is already handled above (`-0` is the
+    -- literal `0`)
     -0 => "never"
     _ => "ok"
 match ratio with -- ratio: Rat — the restriction is checked on the resolved type
@@ -836,8 +836,8 @@ match size with -- size: Nat (a match at Nat: #519 lifts today's gate)
     _ => "ok"
 match temp with
     1.0e309 => "hot" -- ERROR (lexer): Float literal is too large; use `Float.infinity`
-    -- ERROR: Float.nan is a value, not a pattern; bind a name and test it in a guard: x when x ==
-    -- Float.nan
+    -- ERROR: Float.nan is a value, not a pattern; bind a name and test it in a guard:
+    -- x when x == Float.nan
     Float.nan => "not a number"
     -- ERROR: -Float.infinity is a value, not a pattern; … x when x == -Float.infinity
     -Float.infinity => "cold"
@@ -907,8 +907,8 @@ let same(p: Pair): Bool =
 -- (p2) A separate file (firsts.hex) whose alias is not spelled like the constructor
 import Direction
 import Pair as Pairs
--- ERROR: no bare Pair here: its type is not determined at this pattern — write Pairs.Pair({ first,
--- second }), or bind the function with its own annotated let
+-- ERROR: no bare Pair here: its type is not determined at this pattern — write
+-- Pairs.Pair({ first, second }), or bind the function with its own annotated let
 let first = Pair({ first, second }) => first
 let firstOf(p: Pairs.Pair): Direction =
     match p with

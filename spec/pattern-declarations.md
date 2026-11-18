@@ -352,8 +352,8 @@ import Color
 import Paint -- OK: imports never collide on a pattern
 let g(c: Color): Float =
     match c with
-        -- ERROR: rgb is exported by Color and Paint; declare pattern rgb = Color.rgb or pattern rgb
-        -- = Paint.rgb
+        -- ERROR: rgb is exported by Color and Paint; declare pattern rgb = Color.rgb or
+        -- pattern rgb = Paint.rgb
         (r, _, _)rgb => r
 -- module Palette: import Color; export let black(): Color = ...
 -- module One:

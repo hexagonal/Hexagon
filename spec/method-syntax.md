@@ -625,8 +625,8 @@ n.subtract(m) -- ERROR (row 15): exactly `n - m`'s refusal — no face
 -- Pow.pow(i, 2n)
 i.pow(2n)
 b.pow(i) -- OK — the door; i injected: pow(b, BigInt(i)) [was refused]
--- OK — one Signed<a> dictionary, count injected through fromInt; value.multiply(count) and count *
--- value elaborate identically [was refused]
+-- OK — one Signed<a> dictionary, count injected through fromInt; value.multiply(count) and
+-- count * value elaborate identically [was refused]
 let scale<a: Signed>(count: Int, value: a): a = count.multiply(value)
 
 -- (u) Every spelling of an operator-backed member at a primitive representation emits
@@ -659,8 +659,8 @@ r.add(r)
 -- and x.add(y) |> Num.multiply(z) give [was …976n: inner at Int]
 let r: BigInt = x.add(y).multiply(z)
 let r: BigInt = (x + y).multiply(z) -- OK — the same; emits (BigInt(x) + BigInt(y)) * BigInt(z)
--- OK — the base lifts to BigInt, so the dot addresses the door (§6.1) and z injects: pow(BigInt(x)
--- + BigInt(y), BigInt(z))
+-- OK — the base lifts to BigInt, so the dot addresses the door (§6.1) and z injects:
+-- pow(BigInt(x) + BigInt(y), BigInt(z))
 let r: BigInt = (x + y).pow(z)
 -- OK — Float honors Pow: the base lifts to Float and the dot addresses Float's door; yields the
 -- reciprocal, 0.5 for i + j = 2, where Pow<Int> threw [was NegativeExponentFault]
@@ -758,9 +758,9 @@ let n: BigInt =
         catch
             JsError(e) => p
     ).gcd(s)
+-- OK, all three — the ascription repairs every refused shape above
 let n: BigInt = (i.add(p): Foo).gcd(s)
 let n: BigInt = (p + (i + j): Foo).gcd(s)
--- OK, all three — the ascription repairs every refused shape above
 let n: BigInt = (if c then i + j else p: Foo).gcd(s)
 -- ERROR — literals reach anything: the receiver lifts to BigInt and Integral<BigInt>'s gcd refuses
 -- s; unannotated, the literals take s's Foo and Integral<Foo> is missing — refused either way, and

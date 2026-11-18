@@ -277,13 +277,13 @@ JSDoc — the design target (§1) — has module-level documentation, and has it
 Each snippet is its own source file. Golden: attachment table (declaration → doc content), diagnostics, emitted JSDoc.
 
 ```
-{-- Doubles a number. -}
 -- attaches; .js and .d.ts (if exported) carry /** Doubles a number. */
+{-- Doubles a number. -}
 let double(x: Int): Int = x * 2
 
+-- one block, content "Line one.\n\nLine two."; attaches through `export`
 {-- Line one. -}
 {-- Line two. -}
--- one block, content "Line one.\n\nLine two."; attaches through `export`
 export let f(x: Int): Int = x
 
 {-- Overview paragraph.
@@ -344,32 +344,32 @@ export {-- misplaced -} let m(): Unit = ()
 The throws manifest (§6.1, §7.4) — golden adds the derived-tag column:
 
 ```
+-- recognized: sentence verbatim in both JSDoc blocks; generated position gains
+-- `@throws {ParseError} when the input is malformed`
 {-- Parses. Throws `ParseError` when the input is malformed. -}
--- recognized: sentence verbatim in both JSDoc blocks; generated position gains `@throws
--- {ParseError} when the input is malformed`
 export fun parse(s: String): Ast = ...
 
-{-- Throws `ParseError` when a, and `IndexFault` when b. -}
 -- refused entirely (manifest head inside the condition): ordinary prose, no tag — not one mangled
 -- tag (§6.1)
+{-- Throws `ParseError` when a, and `IndexFault` when b. -}
 export fun bad(s: String): Ast = ...
 
-{-- Throws `IndexFault` when the timeout exceeds 1.5 seconds. -}
 -- recognized: the decimal's dot is interior (no whitespace after it), the sentence ends at the
 -- final dot (§6.1)
+{-- Throws `IndexFault` when the timeout exceeds 1.5 seconds. -}
 export fun wait(s: String): Ast = ...
 
-{-- **Throws `IndexFault` when the index is bad.** The caller must check first. -}
 -- recognized: the terminator is the emphasized dot, whitespace reached across the closing `**`; the
 -- marks stay out of the condition (§6.1)
+{-- **Throws `IndexFault` when the index is bad.** The caller must check first. -}
 export let at(i: Int): Int = ...
 
 {-- Throws `parseError` when lowercase. -}
 export fun odd(s: String): Ast = ... -- deviant (lowercase name): ordinary prose, no tag
 
-{-- Throws `ParseError` when the input is malformed. -}
 -- unexported: manifest is house style, .js block carries the sentence verbatim, no tag generated
 -- (§7.4)
+{-- Throws `ParseError` when the input is malformed. -}
 fun helper(s: String): Ast = ...
 ```
 

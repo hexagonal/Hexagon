@@ -60,8 +60,8 @@ fun addOne x = add x 1
 fun halve x = Float.divide x 2
 
 -- (f) Mixed constraints, still defaultable.
--- α carries {Num α, Show α}; α unresolved at generalisation; both constraints are defaultable ⇒ α
--- := Int ⇒ s : String
+-- α carries {Num α, Show α}; α unresolved at generalisation; both constraints are defaultable
+-- ⇒ α := Int ⇒ s : String
 -- emits: const s = Int.toString(1 + 2) (or the folded "3", see §5)
 let s = toString (add 1 2)
 

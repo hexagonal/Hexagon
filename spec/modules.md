@@ -731,8 +731,10 @@ import "./config"
 -- (j) Cross-module duplicate instance
 -- module A: honor Show<Weird> = ...         -- (module A declares Weird: home, legal)
 -- module B: import A; honor Show<Weird> = ...
--- ERROR in B: orphan instance — B declares neither Show nor Weird; Show<Weird> is already declared
--- in module A (Constraints §5.3: B's one report)
+                                             -- ERROR in B: orphan instance — B declares
+                                             --   neither Show nor Weird; Show<Weird> is
+                                             --   already declared in module A (Constraints
+                                             --   §5.3: B's one report)
 -- module C: import A; import B              -- ERROR at program check: duplicate
                                              -- instance of Show<Weird>: declared in
                                              -- module A and in module B (labels at both)
@@ -756,9 +758,10 @@ let mk = Tag -- referenced as a value: the function
 --   Deep/world.js beside the emitted file — a file Hexagon does not write (FFI Part 4 §2.1;
 --   the shape is representative, §2.3 there — the specifier is the pin)
 -- /src/app.hex, module Main: extern from "./util", and /src/util.hex exists
--- ERROR: use import for Hexagon modules; extern from is for foreign JavaScript — the one reading,
--- from the importing file's own directory (FFI Part 4 §2.1); "./util.js" beside it is legal, a
--- foreign file
+                                             -- ERROR: use import for Hexagon modules; extern from is
+                                             --   for foreign JavaScript — the one reading, from the
+                                             --   importing file's own directory (FFI Part 4 §2.1);
+                                             --   "./util.js" beside it is legal, a foreign file
 
 -- (l) Transparent representation reaches through an un-imported home (§4.2)
 -- module Crate: export record Crate = { n: Float }
@@ -908,9 +911,11 @@ import Acme.Geometry as AcmeGeo -- OK: the package's, by its full name
 import Geometry
 import Hex.Option as Opt -- OK: a second alias onto a prelude module
 -- project depending on Acme (module Tools) and Bolt (module Acme.Tools; Bolt lists no Acme):
--- ERROR at program check: module Acme.Tools of package Bolt begins with the name of the package
--- Acme, also in this program; drop the dependency that brings Acme or the one that brings Bolt, or
--- combine them once Acme is renamed or Bolt renames its module (§2.2)
+                                             -- ERROR at program check: module Acme.Tools of package
+                                             --   Bolt begins with the name of the package Acme, also
+                                             --   in this program; drop the dependency that brings Acme
+                                             --   or the one that brings Bolt, or combine them once
+                                             --   Acme is renamed or Bolt renames its module (§2.2)
 -- project depending on Bolt alone:
 -- OK: Bolt's module, by its declared name — no package Acme is in the program, so the spelling has
 -- one reading (§2.3); binds Tools
