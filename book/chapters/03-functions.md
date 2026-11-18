@@ -106,8 +106,8 @@ Hexagon functions are genuinely n-ary: each function has a fixed arity. A functi
 declared with two parameters must be called with two arguments:
 
 ```hexagon
-orderTotal(80, 12)    -- two arguments: correct
-orderTotal(80)        -- error: expected 2 arguments, got 1
+orderTotal(80, 12) -- two arguments: correct
+orderTotal(80) -- error: expected 2 arguments, got 1
 ```
 
 Call parentheses are always required. Hexagon has no whitespace application such as

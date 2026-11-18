@@ -268,8 +268,8 @@ late pedagogy pass, not a commitment to the current order.
   suffix constructs in expressions and destructures in patterns; the running
   example is a user module `Time` with `(h, m)clock` in both directions (#1542:
   `Rat` has no declared pattern). A fraction comes apart with the language form
-  `top // bottom`, seeing lowest terms and a positive bottom at `BigInt`; a literal
-  case that can never match (`2 // 6`, `n // -3`, `n // 0`) is refused as dead.
+  `top//bottom`, seeing lowest terms and a positive bottom at `BigInt`; a literal
+  case that can never match (`2//6`, `n//-3`, `n//0`) is refused as dead.
   Imports activate exported pattern names;
   collision repairs add fresh aliases and rewrite the affected uses. Generic
   imports cannot silently replace the expected type's home pattern. Construction
@@ -556,7 +556,7 @@ late pedagogy pass, not a commitment to the current order.
   `let exactCelsius(f: Int): Rat = (f - 32) * 5 / 9` — the doctrine's own specimen
   (spec/friendly-numerics.md §1) — in both the book and the Playground (#529). `Rat`
   is a prelude module (#1542, seated after `Dec`), so no example writes
-  `import Rat`; the line stays legal and binds nothing new. `top // bottom` writes
+  `import Rat`; the line stays legal and binds nothing new. `top//bottom` writes
   a fraction (Operators), through `Rat.create`; a `Dec` enters a `Rat` silently where
   a `Rat` is the home, and `Rat` to `Dec` stays named.
 - Primitive boundary table (seven rows, #158): `Nat`/`Int`/`Float` → `number`,
@@ -643,10 +643,10 @@ late pedagogy pass, not a commitment to the current order.
   the canonical flags example.
 - `/` is fractional. Integer `div`/`mod` are Euclidean; `quot`/`rem` are truncated,
   with `rem` matching JavaScript `%`.
-- `top // bottom` writes an exact fraction (a `Rat`) from two integers, in lowest
+- `top//bottom` writes an exact fraction (a `Rat`) from two integers, in lowest
   terms with a positive bottom (#1542). It is not division; it has its own
-  precedence level between unary minus and `*` `/` (`half * 1 // 2` is
-  `half * (1 // 2)`), does not chain, and refuses a `Rat`, `Dec` or `Float` side.
+  precedence level between unary minus and `*` `/` (`half * 1//2` is
+  `half * (1//2)`), does not chain, and refuses a `Rat`, `Dec` or `Float` side.
   `half`, `price: Dec = 1.50d` are the section's names. A fraction shows as `3/5`.
   Fault names in the fraction passages are `DivideByZeroFault`.
 - `0 <= discount <= 100` is the canonical comparison chain. Chain operands evaluate
@@ -806,8 +806,8 @@ late pedagogy pass, not a commitment to the current order.
   suffix constructs in expressions and destructures in patterns; the running
   example is a user module `Time` with `(h, m)clock` in both directions (#1542:
   `Rat` has no declared pattern). A fraction comes apart with the language form
-  `top // bottom`, seeing lowest terms and a positive bottom at `BigInt`; a literal
-  case that can never match (`2 // 6`, `n // -3`, `n // 0`) is refused as dead.
+  `top//bottom`, seeing lowest terms and a positive bottom at `BigInt`; a literal
+  case that can never match (`2//6`, `n//-3`, `n//0`) is refused as dead.
   Imports activate exported pattern names;
   collision repairs add fresh aliases and rewrite the affected uses. Generic
   imports cannot silently replace the expected type's home pattern. Construction

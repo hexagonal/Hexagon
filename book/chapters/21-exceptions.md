@@ -256,8 +256,10 @@ One more error is worth expecting. A clause whose scrutinee cannot possibly thro
 dead code, and dead handlers are errors here exactly as dead arms are:
 
 ```hexagon
-match result with                      -- ERROR: this `catch` can never run:
-    Ok(ast) => generate(ast)           -- evaluating result cannot throw
+-- ERROR: this `catch` can never run:
+-- evaluating result cannot throw
+match result with
+    Ok(ast) => generate(ast)
     Err(reason) => report(reason)
 catch
     ParseError(_, _) => fallback

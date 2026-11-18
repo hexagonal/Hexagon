@@ -236,7 +236,7 @@ The restriction does not prevent the operations that motivated the feature:
 - `for` may use the statically known `Iterable` instance for its source.
 
 ```hexagon
-let next = bag.toSeq()               -- Seq(Int), when bag: Bag(Int)
+let next = bag.toSeq() -- Seq(Int), when bag: Bag(Int)
 let converted = convert(parser, "8080")
 ```
 

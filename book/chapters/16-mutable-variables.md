@@ -139,7 +139,7 @@ answer := 43 -- error: answer was bound with let
 Fields and tuple positions are not assignment targets either:
 
 ```hexagon
-point.x := 10       -- error: records are immutable
+point.x := 10 -- error: records are immutable
 pair.item1 := "new" -- error: tuples are immutable
 ```
 

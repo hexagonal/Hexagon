@@ -293,7 +293,7 @@ let early(point: Point): String = "${point}"
 honor Show<Point> =
     show(point) = "(${point.x}, ${point.y})"
 
-let late(point: Point): String = "${point}"   -- fine
+let late(point: Point): String = "${point}" -- fine
 ```
 
 Every way of relying on an instance counts as a use: interpolation, an operator, a
