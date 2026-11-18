@@ -114,7 +114,7 @@ This table is the exhaustive **status map** of core-type `Hash`; each row record
 The derivable constraints in v1 are **`Eq`, `Ord`, `Show`, `Hash`** (Constraints §4.5). All derivation machinery applies unchanged:
 
 ```
-record Point derives (Eq, Hash) = {x: Float, y: Float}
+record Point derives (Eq, Hash) = { x: Float, y: Float }
 -- elaborates to:
 --   honor Eq<Point> = derive
 --   honor Hash<Point> = derive
@@ -446,8 +446,8 @@ The v2 implied-types remainder is also routed here: deferred `Item(α)` goals, t
 
 ```
 -- (1) Derives Hash; usable as a key-shaped value
-record Point derives (Eq, Hash) = {x: Float, y: Float}
-let h = Point({x = 1.0, y = 2.0}).hash()           -- OK : Int
+record Point derives (Eq, Hash) = { x: Float, y: Float }
+let h = Point({ x = 1.0, y = 2.0 }).hash()         -- OK : Int
 
 -- (2) Law-relevant Float normalisation
 (-0.0).hash() == (0.0).hash()                    -- true
@@ -464,7 +464,7 @@ honor Hash<UserId> =
                                                  --   declaration of `UserId`
 
 -- (5) Eq-agreement rule
-record Weird = {s: String}
+record Weird = { s: String }
 honor Eq<Weird> =
     equals(a, b) = String.lower(a.s) == String.lower(b.s)
 honor Hash<Weird> = derive                       -- ERROR: `Weird` has a hand-written `Eq`
@@ -472,7 +472,7 @@ honor Hash<Weird> = derive                       -- ERROR: `Weird` has a hand-wr
                                                  --   consistent with a derived equality
 
 -- (6) Missing base constraint, hinted
-record P derives Hash = {n: Int}                 -- ERROR: missing Eq
+record P derives Hash = { n: Int }               -- ERROR: missing Eq
                                                  --   hint: add `Eq` to the `derives` list
 
 -- (7) Whitelist message names all four
@@ -522,9 +522,9 @@ constraint Queue<c> =
 
 ```
 -- (15) `same`: derived, and finer than `==` where a function can see the difference
-record Reading derives (Eq, Hash) = {at: Float, label: String}
-Reading({at = 0.0, label = "a"}) == Reading({at = -0.0, label = "a"})          -- true
-Reading({at = 0.0, label = "a"}).same(Reading({at = -0.0, label = "a"}))       -- false
+record Reading derives (Eq, Hash) = { at: Float, label: String }
+Reading({ at = 0.0, label = "a" }) == Reading({ at = -0.0, label = "a" })      -- true
+Reading({ at = 0.0, label = "a" }).same(Reading({ at = -0.0, label = "a" }))   -- false
 Hash.same((1, "a"), (1, "a"))                                                  -- true
 (0.0 / 0.0).same(Float.nan)                                                    -- true
 1.0d == 1.00d                                                                  -- true
@@ -533,7 +533,7 @@ Map.fromVector([("Aa", 1), ("BB", 2)]) == Map.fromVector([("BB", 2), ("Aa", 1)])
 Hash.same(Map.fromVector([("Aa", 1), ("BB", 2)]), Map.fromVector([("BB", 2), ("Aa", 1)])) -- false
 
 -- (16) The member claims its spelling
-record Tag derives (Eq, Hash) = {name: String}
+record Tag derives (Eq, Hash) = { name: String }
 let same(a: Tag, b: Tag): Bool = a == b          -- ERROR: `same` is already bound: the
                                                  --   `Hash<Tag>` instance binds it as a member
 

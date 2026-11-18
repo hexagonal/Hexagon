@@ -350,8 +350,8 @@ listed positions:
 | `widened` | the complete RHS of a member line in an `honor` block — `pow = widened` (Constraints §4.7; #546). The position is otherwise always an error (member RHSs must be lambdas), so recognition is total; elsewhere `widened` is an ordinary name |
 
 Contextual status is observable: `let when = True` is legal, while the same spelling
-after an arm pattern introduces its guard. Likewise `{with = 3}` is a field and `{with}`
-a pun, while `{p with x = 3}` is an update and `match p with` closes a `match` head. And `let union = 3` binds, `Set.union(a, b)`
+after an arm pattern introduces its guard. Likewise `{ with = 3 }` is a field and `{ with }`
+a pun, while `{ p with x = 3 }` is an update and `match p with` closes a `match` head. And `let union = 3` binds, `Set.union(a, b)`
 and the bare `union(a, b)` are ordinary calls, while `union Suit = Hearts | Spades` at
 declaration head declares the type — the follower disambiguates, since Hexagon has no
 juxtaposition: a declaration head puts a name there, and a term puts `(`, an operator,
@@ -374,13 +374,13 @@ A hard keyword is reserved where it could be syntax: the **bare seat**, any term
 pattern, type, or statement position where a construct can begin. Elsewhere a name
 must stand however it is spelled, and the neighbouring tokens already say so. In
 those **name seats** a hard keyword is an ordinary name — JavaScript's own rule for
-property names, and the reason `ev.type`, `task.then(f)`, and `{type = "click"}`
+property names, and the reason `ev.type`, `task.then(f)`, and `{ type = "click" }`
 need no workaround spelling:
 
 | Name seat | Recognized by | Examples |
 |---|---|---|
 | **Dotted** | the token straight after a `.`: field access, a dot call, a module- or type-qualified name (Method Syntax §1) | `ev.type`, `task.then(f)`, `Regex.match(re, text)`, `Symbol.for("app")` |
-| **Label** | a name straight before `:` or `=` inside a bracket pair — at the top level of a block, `let = 1` is a half-typed declaration, not a label: record types and literals, the `with` update's overrides, record patterns, a union constructor's or exception's named slots (Products §3.1, Pattern Matching §2.4, Unions §2.1) | `{type: String}`, `{type = "click"}`, `{ev with type = t}`, `{type = t} =>`, `Click(type: String)` |
+| **Label** | a name straight before `:` or `=` inside a bracket pair — at the top level of a block, `let = 1` is a half-typed declaration, not a label: record types and literals, the `with` update's overrides, record patterns, a union constructor's or exception's named slots (Products §3.1, Pattern Matching §2.4, Unions §2.1) | `{ type: String }`, `{ type = "click" }`, `{ ev with type = t }`, `{ type = t } =>`, `Click(type: String)` |
 | **Declaration name** | straight after `let`, `var`, or `fun` on the same line — a bare `fun` ending its line heads a member block instead, whose items are not name seats — and on an extern row — a line indented under an `extern from` head, `method`, `get`, or `set` opening it past only its modifiers — straight after that member keyword, a `type`, `fun`, or `let` row's foreign name straight before `as` (`type match as Match`), and the local name straight after it; elsewhere `get`, `set`, `method`, and `as` are ordinary names, and `if r.get then 1 else 2` keeps its `then` (FFI Part 4 §3.2, Part 5 §2.4) | `export fun match(pattern: String) -> Matcher`, `export let or(a: Flag, b: Flag): Flag = …`, `method then(…)` |
 
 The table is exhaustive. In particular a member-block item's head is not a name seat:
@@ -409,7 +409,7 @@ decidable from neighbouring tokens alone.
   local or parameter name is only ever written bare — choose another name", never a
   parse error. A lambda, tuple, constructor, `for`, or `catch` binder is not in a
   name seat and takes the ordinary hard-keyword report (§10).
-- **A pun is a bare name.** `{type}` in a literal, an update (`{ev with type}`), or
+- **A pun is a bare name.** `{ type }` in a literal, an update (`{ ev with type }`), or
   a pattern reads or binds `type` bare, so a keyword field is written out: "`type`
   is reserved; write the field out: `{ type = … }`".
 - **A pattern declaration's name stays bare.** It is written against its
@@ -752,8 +752,8 @@ let café2 = 1_000                 -- Unicode NonUpperName + Integer
 let 用户 = "小明"                  -- caseless-script NonUpperName
 let $税率 = 0.10                  -- JavaScript-compatible `$` start
 let _折扣 = 5                     -- `_name` is a name; bare `_` remains wildcard
-record Résultat(a) = {value: a}   -- Unicode UpperName
-record T用户 = {名字: String}       -- uppercase role by ordinary Latin prefix
+record Résultat(a) = { value: a } -- Unicode UpperName
+record T用户 = { 名字: String }     -- uppercase role by ordinary Latin prefix
 let greeting = "Hello ${name}."   -- one composite String token
 let lines = "first\r\nsecond"      -- escapes retain explicit CRLF
 let multi = "first
@@ -764,7 +764,7 @@ let big = 0x1F_FFFF_FFFF_FFFFn    -- a BigInt in hexadecimal
 let subtract = x - -1             -- x - (-1); the space keeps the second minus out of a comment
 let kept = x --1                  -- kept is x: the comment begins at the dashes
 let quiet = {- inline -} 2        -- a block comment is trivia
-let third = 1 // 3                -- Integer, Fraction, Integer
+let third = 1//3                  -- Integer, Fraction, Integer
 for x in xs do visit(x)           -- `do` is a hard keyword (§4.1)
 match value with                  -- `with` is a NonUpperName, closing the head (§4.2)
     Some(x) | None as whole when ready => whole

@@ -132,7 +132,7 @@ while cond do
 - `while` is **load-bearing** in v1: with no `break`/`continue` (§9.4), every "loop until" pattern lives here, with the exit condition in the head and progress via `var`/`:=`:
 
 ```
-fun collatzSteps(n0) =
+let collatzSteps(n0) =
     var n = n0
     var steps = 0
     while n != 1 do
@@ -325,7 +325,7 @@ Diagnostics obey the Rewrite Rule (Declarations Preamble §1.1): where a legal s
 
 ```
 -- (a) The accumulator idiom, at last (completes Statements §9.1(a))
-fun sumTo(n) =
+let sumTo(n) =
     var total = 0
     for i in 1..n do
         total := total + i
@@ -337,7 +337,7 @@ fun sumTo(n) =
 sumTo(0)                       -- 0
 
 -- (c) General-path iteration
-fun printAll(xs) =
+let printAll(xs) =
     for x in xs do
         print(x)                   -- assuming print : String -> Unit
 -- xs : Vector(String) at a call site → for (const x of xs) { print(x); }
@@ -349,7 +349,7 @@ for x in 1..10 do
     ignore(compute(x))           -- fine
 
 -- (e) while, load-bearing
-fun countdown(n0) =
+let countdown(n0) =
     var n = n0
     while n > 0 do
         n := n - 1
@@ -361,7 +361,7 @@ for i in 1..3 do               -- fine: head binder shadows
     i := 5                       -- ERROR: loop variable cannot be assigned
 
 -- (g) Seq as the generic idiom (v1's answer to "any iterable" parameters)
-fun firstOrZero(s: Seq(Int)): Int =
+let firstOrZero(s: Seq(Int)): Int =
     ...Seq.next(s)...            -- Seq has an Iterable instance; for..in over s is fine
 
 -- (h) Range escaping a loop head
@@ -382,7 +382,7 @@ for (k, v) in m do             -- m : Map(String, Int); k : String, v : Int
 -- emits: for (const [k, v] of m.entries()) { ... }
 
 -- (k) A computed end is read once, before the loop; a computed start before it
-fun total(lo: () ->! Int, hi: () ->! Int) =
+let total(lo: () ->! Int, hi: () ->! Int) =
     var t = 0
     for i in lo!()..hi!() do
         t := t + i
@@ -391,7 +391,7 @@ fun total(lo: () ->! Int, hi: () ->! Int) =
 --        for (let i = __start; i <= __end; i++) { t = t + i; }
 
 -- (l) An established Nat widens into `..`'s Int seats; arithmetic there runs at Int
-fun below(n: Nat): Int =
+let below(n: Nat): Int =
     var t = 0
     for i in 1..(n - 1) do       -- n widens to Int, then subtracts: Range.up(1, n - 1)
         t := t + i

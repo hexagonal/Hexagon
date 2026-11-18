@@ -49,7 +49,7 @@ The vector pattern is one form in the single pattern grammar (Pattern Matching �
 [p1, ..., pn]               -- at least 2; anonymous rest between
 ```
 
-- Element slots take the **full nested grammar** — constructor patterns, tuples, records, literals, or-patterns, as-patterns, further vector patterns: `[Some(x), _, ...rest]`, `[{name}, ...]` are legal.
+- Element slots take the **full nested grammar** — constructor patterns, tuples, records, literals, or-patterns, as-patterns, further vector patterns: `[Some(x), _, ...rest]`, `[{ name }, ...]` are legal.
 - **At most one rest per vector pattern**, at any position (Rust slice-pattern precedent). Two rests: hard error, "a vector pattern may contain at most one `...`". The trie deque makes any-position honest: both ends are O(1) amortized (Part 1 §2), so none of `[x, ...rest]`, `[...init, last]`, `[first, ..., last]` hides a cost cliff — the cons-list objection to left-rests does not apply to this representation and the doc says so.
 - A rest may be a binder (`...rest` — binds a `Vector(a)` of the unmatched middle) or anonymous (`...`).
 - **Spelling is `...`** (three dots). `..rest` or a bare `..` in a vector pattern is an error with the fixit "Hexagon spells rest patterns with `...`" — `..` is the range operator and does not appear in patterns.

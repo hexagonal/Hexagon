@@ -66,8 +66,8 @@ The message a running program's own fault or exception carries is not shown text
 ## 2. The shared header grammar
 
 ```
-record Point = {x: Float, y: Float}
-record Pair(a, b) derives (Eq, Show) = {first: a, second: b}
+record Point = { x: Float, y: Float }
+record Pair(a, b) derives (Eq, Show) = { first: a, second: b }
 
 union Option(a) derives (Eq, Show) = Some(value: a) | None
 union Shape
@@ -212,7 +212,7 @@ Aliases may freely *mention* nominal names declared later in the module, and rec
 
 ```
 export type UserName = String
-export fun greet(name: UserName): String = ...
+export let greet(name: UserName): String = ...
 ```
 
 ```ts
@@ -313,7 +313,7 @@ Apply on next touch; until then this doc governs.
 
 ```
 -- (a) Header grammar tour
-record Pair(a, b) derives (Eq, Show) = {first: a, second: b}
+record Pair(a, b) derives (Eq, Show) = { first: a, second: b }
 union Option(a) derives (Eq, Show) = Some(value: a) | None
 type Lookup(k, v) = k -> Option(v)
 
@@ -327,17 +327,17 @@ union Shape
 -- is a one-line diff that does not touch the derives clause
 
 -- (c) Constrained header parameter
-record Sorted(a: Ord) = {items: List(a)}
+record Sorted(a: Ord) = { items: List(a) }
 -- ERROR: type parameters of a declaration are unconstrained
 
 -- (d) derives elaboration is ordinary instances
-record Point derives (Eq) = {x: Float, y: Float}
--- ≡ record Point = {...}; honor Eq<Point> = derive
+record Point derives (Eq) = { x: Float, y: Float }
+-- ≡ record Point = { ... }; honor Eq<Point> = derive
 -- coherence: a later hand-written `honor Eq<Point> = ...` is the duplicate-instance error
 
 -- (e) Alias transparency round trip
 export type UserName = String
-export fun greet(name: UserName): String = "hi ${name}"
+export let greet(name: UserName): String = "hi ${name}"
 greet("ada")                         -- OK: String is UserName
 -- .d.ts: export type UserName = string;
 --         export declare function greet(name: UserName): string;
@@ -360,10 +360,10 @@ union Tree(a) = Node(a, Forest(a)) | Leaf
 
 -- (i) Fully applied
 type Handler(a) = a -> Unit
-fun register(h: Handler): Unit = ... -- ERROR: `Handler` takes 1 type parameter
+let register(h: Handler): Unit = ... -- ERROR: `Handler` takes 1 type parameter
 
 -- (j) Order-insensitivity
-fun area(s: Shape): Float = ...      -- Shape declared below: legal
+let area(s: Shape): Float = ...      -- Shape declared below: legal
 union Shape derives (Eq) = Circle(radius: Float) | Point
 
 -- (k) Display stickiness

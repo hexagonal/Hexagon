@@ -111,7 +111,7 @@ Int.gcd(-7, 0)      -- 7
 Int.gcd(0, 0)       -- 0
 
 -- Polymorphic use: the Rat down payment
-fun normalize<a: Integral>(n: a, d: a): (a, a) =
+let normalize<a: Integral>(n: a, d: a): (a, a) =
     let g = n.gcd(d)
     if g == 0 then (0, 1)                    -- 0/0 input; literals via Num super
     else

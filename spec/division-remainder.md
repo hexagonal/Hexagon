@@ -169,9 +169,9 @@ BigInt.rem(1n, -0n)       -- ERROR: a sign does not hide a written zero
 Int.div(0, (0: Int))      -- ERROR: nor does a written type; the dividend is not read
 let r: Rat = 1 / 0.0      -- ERROR: division by zero: `1 / 0.0` has no value; write the divisor that was meant
 1.5d.divide(0.00d, 2)     -- ERROR: division by zero: `1.5d.divide(0.00d, 2)` has no value; write the divisor that was meant
-1 // 0                    -- ERROR: a fraction's bottom is never zero, so `1 // 0` has no value; write the bottom that was meant
+1//0                      -- ERROR: a fraction's bottom is never zero, so `1//0` has no value; write the bottom that was meant
 Rat.create(1n, 0n)        -- ERROR: a fraction's bottom is never zero, so `Rat.create(1n, 0n)` has no value; write the bottom that was meant
-fun never() = Int.div(1, 0)                          -- ERROR, though nothing calls it
+let never() = Int.div(1, 0)                          -- ERROR, though nothing calls it
 try Int.div(1, 0) catch DivideByZeroFault(_) => 0    -- ERROR: the check reads the text, not the run
 
 -- Not checked: each faults or answers when it runs
@@ -181,7 +181,7 @@ let g = Int.div
 g(1, 0)                   -- throws DivideByZeroFault: a function value is never checked
 let f = x => x / 0
 f(1.0)                    -- Infinity: a division at a type variable is never checked
-f(1 // 2)                 -- throws DivideByZeroFault, for the same reason
+f(1//2)                   -- throws DivideByZeroFault, for the same reason
 Rat.reciprocal(0)         -- throws DivideByZeroFault: not a checked division
 1.0 / 0.0                 -- Infinity: `Float` is not checked
 ```
@@ -219,7 +219,7 @@ A division by zero has no value, and where the divisor is a literal zero the pro
 
 A **written zero** is a numeric literal whose value is zero, in any spelling Lexer §5 admits (`0`, `0n`, `0x0`, `0.0`, `0d`, `0.00d`), alone or under any signs, parentheses and written types: `-0`, `(0)`, `(0: BigInt)`. Its value is the one it has at the type of the seat it stands at, so an unsuffixed decimal literal is a written zero at a `Rat` or `Dec` seat, where it is promoted (Numeric Literals §3, §5.1).
 
-Nothing else is a written zero. A name is never read: after `let zero = 0`, `1 // zero` compiles and faults when it runs, and that is how a program, a test among them, meets the fault on purpose, as Regex §8 has it for a pattern. Nothing is computed: `1 // (2 - 2)` and `r / (0 // 5)` fault when they run, though their divisors are zero every time. A fraction written with `//` is built, not a literal (Operators §6.4).
+Nothing else is a written zero. A name is never read: after `let zero = 0`, `1//zero` compiles and faults when it runs, and that is how a program, a test among them, meets the fault on purpose, as Regex §8 has it for a pattern. Nothing is computed: `1//(2 - 2)` and `r / (0//5)` fault when they run, though their divisors are zero every time. A fraction written with `//` is built, not a literal (Operators §6.4).
 
 ### 12.2 The checked divisions
 
@@ -227,7 +227,7 @@ The check reads the divisor of every exact division the language owns, and nothi
 
 | Division | The divisor it reads |
 |---|---|
-| `top // bottom` (Operators §6.4) | `bottom` |
+| `top//bottom` (Operators §6.4) | `bottom` |
 | `Rat.create(top, bottom)` (`rat.md` §3) | `bottom` |
 | `a / b`, where the division runs at `Rat` (§12.3; Operators §6.1) | `b` |
 | `div`, `mod`, `quot` and `rem`, where they run at `Nat`, `Int` or `BigInt` (§3, §4; Integral spec §2) | the second parameter |
@@ -243,17 +243,17 @@ These are never checked:
 
 ### 12.3 The type a division runs at
 
-`a / b` is checked where it runs at `Rat`, and a call of an `Integral` member where it runs at `Nat`, `Int` or `BigInt`; at `Float` a zero divisor is an answer, not a fault. So whether such a division is checked depends on the type it runs at. That is the type the checker solved for it, whether the program wrote it or inference gave it: `let r: Rat = 1 / 0` is refused, and so is `x / 0` where `x` was bound above to `3 // 4`. The type tells the check only that the division is exact. It chooses no interpretation: the program means the same with the check or without it, and the division it refuses faults every time it is reached.
+`a / b` is checked where it runs at `Rat`, and a call of an `Integral` member where it runs at `Nat`, `Int` or `BigInt`; at `Float` a zero divisor is an answer, not a fault. So whether such a division is checked depends on the type it runs at. That is the type the checker solved for it, whether the program wrote it or inference gave it: `let r: Rat = 1 / 0` is refused, and so is `x / 0` where `x` was bound above to `3//4`. The type tells the check only that the division is exact. It chooses no interpretation: the program means the same with the check or without it, and the division it refuses faults every time it is reached.
 
-A division at a type variable is never checked, whatever types its callers bring. After `let f = x => x / 0`, `f(1.0)` answers `Infinity` and `f(1 // 2)` faults when it runs: the division runs at `Float` for one caller and at `Rat` for another, and each answers as its type does. The check reads each division once, as it is written, and never a copy of it that a compiler makes for a caller's type. A call of an `Integral` member at a type variable, or at an instance a program declares, is not checked either.
+A division at a type variable is never checked, whatever types its callers bring. After `let f = x => x / 0`, `f(1.0)` answers `Infinity` and `f(1//2)` faults when it runs: the division runs at `Float` for one caller and at `Rat` for another, and each answers as its type does. The check reads each division once, as it is written, and never a copy of it that a compiler makes for a caller's type. A call of an `Integral` member at a type variable, or at an instance a program declares, is not checked either.
 
 ### 12.4 Where it reaches
 
-The report is an error, since Hexagon has no warning tier (Declarations Preamble §1.1). It is made at every checked division wherever its text stands: in a function nobody calls, in a branch no run takes, and inside a `try` whose `catch` would take the fault. A division by a written zero is wrong text wherever it stands, as a bad pattern is (Regex §8). The dividend is not read: `0 // 0` and `x / 0` are refused as `1 // 0` is. The installed compiler, the language server and the playground refuse the same divisions, since the check is the checker's own.
+The report is an error, since Hexagon has no warning tier (Declarations Preamble §1.1). It is made at every checked division wherever its text stands: in a function nobody calls, in a branch no run takes, and inside a `try` whose `catch` would take the fault. A division by a written zero is wrong text wherever it stands, as a bad pattern is (Regex §8). The dividend is not read: `0//0` and `x / 0` are refused as `1//0` is. The installed compiler, the language server and the playground refuse the same divisions, since the check is the checker's own.
 
 The report takes the fault's place only for a written zero at a checked division. `DivideByZeroFault` does not change: who throws it, the message it carries, and the guards that throw it stay as §3, §4, §7, `dec.md` §6 and `rat.md` §3 and §4 have them, for every zero divisor this section does not refuse.
 
-A fraction pattern with a zero bottom is a different judgment, on the other side of `=>`: `n // 0 =>` is a dead case, refused as unreachable (Pattern Matching §7.2). This section reads a fraction written as a value.
+A fraction pattern with a zero bottom is a different judgment, on the other side of `=>`: `n//0 =>` is a dead case, refused as unreachable (Pattern Matching §7.2). This section reads a fraction written as a value.
 
 ### 12.5 The report
 
@@ -261,7 +261,7 @@ The report is a phrase (Declarations Preamble §1.3) that states the fact and th
 
 | Situation | Message and note |
 |---|---|
-| A fraction's bottom written as a literal zero: `top // 0`, and `Rat.create(top, 0)` in any spelling | "a fraction's bottom is never zero, so `1 // 0` has no value; write the bottom that was meant", with the note "a fraction's bottom written as a literal is checked when the program is compiled" |
+| A fraction's bottom written as a literal zero: `top//0`, and `Rat.create(top, 0)` in any spelling | "a fraction's bottom is never zero, so `1//0` has no value; write the bottom that was meant", with the note "a fraction's bottom written as a literal is checked when the program is compiled" |
 | Any other checked divisor written as a literal zero: `a / 0` at `Rat`; `div`, `mod`, `quot` or `rem` at `Nat`, `Int` or `BigInt`; `Dec.divide` or `Dec.divideEven`; in any spelling | "division by zero: `Int.mod(7, 0)` has no value; write the divisor that was meant", with the note "a divisor written as a literal is checked when the program is compiled" |
 
 §9 carries the acceptance lines.

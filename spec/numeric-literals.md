@@ -136,10 +136,10 @@ Consequences worth asserting in tests:
 - A tyvar with `{Num α, SomeUserConstraint α}`: does **not** default; proceeds to ordinary generalisation if the binding form allows it, or produces an ambiguity error if it doesn't. Error message should name the non-defaultable constraint (§6).
 - A tyvar with an empty constraint set: never defaults (it's not a literal var; ordinary generalisation applies).
 - Defaulting is per-tyvar, not per-binding: `let pair = (1, 1.5)` defaults the first component's tyvar to `Int` independently; the `1.5` was never polymorphic.
-- A **declared** type variable: never defaults — at a function binding it quantifies (`fun zero<t: Num>(): t = 0` is `<t: Num>() -> t`), and anywhere else it is left as it is.
+- A **declared** type variable: never defaults — at a function binding it quantifies (`let zero<t: Num>(): t = 0` is `<t: Num>() -> t`), and anywhere else it is left as it is.
 - The **expression home** (§5.1, #1062) is not a defaulting rule and adds no candidate. It fixes a type only inside the one expression tree it is chosen for, from the seat's expected type or from a type the tree's own values establish; it never proposes a type for a variable nothing in the tree established, never outlives the tree, and leaves an integer literal whose tree establishes nothing to this rule at its binding. A decimal literal in a tree with no exact home is `Float` because a decimal literal is a `Float` (§1), not by a second candidate — ruling out the second candidate is what §7's rejection of polymorphic decimal literals keeps.
 
-**Declared type variables** *(#1042)*. The rule is for variables inference introduced. A type variable the program *declared* — on a binder, in an annotation, or in an ascription — is the author's statement of polymorphism, and where the binding's one evaluated value is a function (Functions §8 item 2's evidence seat) that statement is representable: the variable is quantified with its constraints, and a caller chooses it. So defaulting never proposes `Int` for it, and a declared variable occurring only in a function's result — `fun widen<t: Num>(value: Nat): t = value` — is an ordinary polymorphic result. A use that supplies no type defaults at *its own* binding: `let z = zero()` is `Int`, exactly as `let z = 0` is. At a non-function value binding there is no seat, so the rule applies unchanged and rigidity refuses the proposal: `let x: a = 42` is refused (Functions §10's forced-to-a-concrete-type row; Ascription §5 words the ascription spelling). An expansive binding's declared variables are Functions §8 item 7's to decide, never this rule's. And nowhere else does this rule propose `Int` for a declared variable *(#704)*, as GHC never defaults a signature's variable: one that reaches the end of its module unquantified is a recursive knot's survivor, whose knot has already refused (Functions §10's fence — a refusal never surfaces a type the body did not demand), or one no declaration can carry, which Functions §10's unmentioned-variable and evidence rows refuse. Only a declared variable at a binding with no evidence seat — annotated (`let x: a = 42`, `let p: ((a) -> a, Int) = …`), ascribed (`let n = (42: a)`), or escaped into one — still meets the proposal, and rigidity refuses it there.
+**Declared type variables** *(#1042)*. The rule is for variables inference introduced. A type variable the program *declared* — on a binder, in an annotation, or in an ascription — is the author's statement of polymorphism, and where the binding's one evaluated value is a function (Functions §8 item 2's evidence seat) that statement is representable: the variable is quantified with its constraints, and a caller chooses it. So defaulting never proposes `Int` for it, and a declared variable occurring only in a function's result — `let widen<t: Num>(value: Nat): t = value` — is an ordinary polymorphic result. A use that supplies no type defaults at *its own* binding: `let z = zero()` is `Int`, exactly as `let z = 0` is. At a non-function value binding there is no seat, so the rule applies unchanged and rigidity refuses the proposal: `let x: a = 42` is refused (Functions §10's forced-to-a-concrete-type row; Ascription §5 words the ascription spelling). An expansive binding's declared variables are Functions §8 item 7's to decide, never this rule's. And nowhere else does this rule propose `Int` for a declared variable *(#704)*, as GHC never defaults a signature's variable: one that reaches the end of its module unquantified is a recursive knot's survivor, whose knot has already refused (Functions §10's fence — a refusal never surfaces a type the body did not demand), or one no declaration can carry, which Functions §10's unmentioned-variable and evidence rows refuse. Only a declared variable at a binding with no evidence seat — annotated (`let x: a = 42`, `let p: ((a) -> a, Int) = …`), ascribed (`let n = (42: a)`), or escaped into one — still meets the proposal, and rigidity refuses it there.
 
 Note the closed list means a literal used *only* under a user-defined constraint keeps `Num` in its set too (elaboration always adds `Num`), so the "solely defaultable" test correctly fails on the user constraint, not on `Num`.
 
@@ -279,7 +279,7 @@ chosen once for the whole expression — never operation by operation from the i
   type (above). A seat whose type is a type variable supplies no home: the tree's
   home is chosen from its values, and its finished value then meets the seat as any
   value does — by exact unification or one of the four conversions, a declared variable
-  the body can name being an established target (`fun widen<t: Num>(value: Nat): t =
+  the body can name being an established target (`let widen<t: Num>(value: Nat): t =
   value`). Otherwise the home is
   chosen from the types the tree's values **establish**, each a value whose type the text
   decides (below): concrete types; declared type
@@ -401,7 +401,7 @@ It moves programs that operation-by-operation typing accepts, in three ways. An
 operation runs at the wider home: `n * m * price` (`n, m : Int`) runs its first
 multiplication at `Dec` rather than at `Int` with the product injected — equal wherever
 the `Int` product is exact, and exact where it is not, which is the lift's own reason
-(below). An unannotated variable takes its tree's home: in `fun ff(x) = x + m + n` (`m :
+(below). An unannotated variable takes its tree's home: in `let ff(x) = x + m + n` (`m :
 Nat`, `n : Int`), `x` is an `Int`, so `ff : (Int) -> Int`, and a later `useNat(x)` is
 refused. And a type's partiality follows the home: `(i ** k) * f` (`f : Float`) runs the
 power at `Float`, whose `pow` is total, so a negative `k` yields a reciprocal rather than
@@ -728,12 +728,12 @@ else n` beside `if c then n else m`, and the same two `match` arm orders, unanno
 price)` and `h(price, n * 1.5)`; the schedule residue at a receiver, `h3((n * 1.5).multiply(price),
 decs, 0.5)` refused beside `h3(0.5, decs, (n * 1.5).multiply(price))` accepted (`h3<t:
 Num>(x: t, v: Vector(t), y: t)`, `decs : Vector(Dec)`); the declared and constrained
-variables kept — `passed`'s `accept(value)`, `scale`, and `fun k5(count: Int, value) = { let
+variables kept — `passed`'s `accept(value)`, `scale`, and `let k5(count: Int, value) = { let
 z = value + 1; count * value }` at `(Int, Int) -> Int`; the boundaries, each refused — `let y = n * 1.5` then `y *
 price`, `id(n * 1.5) * price`, and `(n * 1.5).multiply(price)` with §6's receiver report —
 beside `price.multiply(n * 1.5)` and `let a: Dec = (n * 1.5).multiply(price)`, accepted;
 the gate `(n band 3) * f`, `band` at `Int`; the moved programs — `n * i * price` (`i :
-Int`) value-checked at `Dec` where the `Int` product passes 2^53, `fun ff(x) = { let s = x
+Int`) value-checked at `Dec` where the `Int` product passes 2^53, `let ff(x) = { let s = x
 + m + n; useNat(x) }` refused, and `(i ** k) * f` with `k` negative value-checked as a
 reciprocal; the seats a face now homes, `let g: () ->
 Dec = () => n` and `t := n * 1.5` at `var t: Dec`; one report for a `**` base that cannot
@@ -750,9 +750,9 @@ Dec))`, `wrap((0.5: Dec))`, and `wrap((n: Dec))`, while `bits(n)` at `Option(Dec
 (`bits<a: Bitwise>(x: a): Option(a)`) draws the ordinary mismatch, `Dec` carrying no
 `Bitwise`; the faces a container carries (#1066), each at `Dec` — `let p: (Dec, Dec) = (n,
 0.5)`, `let v: Vector(Dec) = [n, 0.5]` and `[n]`, `let o: Option(Dec) = Some(n * 1.5)`,
-and `Point({x = n, y = price})` at `record Point = {x: Dec, y: Dec}`; the
-targets kept — `fun widen<t: Num>(value: Nat): t = value`, `let y: t = value`, and
-`fun k(count: Int, value) = { let z = value / value; count * value }` at `<a: Frac>
+and `Point({ x = n, y = price })` at `record Point = { x: Dec, y: Dec }`; the
+targets kept — `let widen<t: Num>(value: Nat): t = value`, `let y: t = value`, and
+`let k(count: Int, value) = { let z = value / value; count * value }` at `<a: Frac>
 (Int, a) -> a` accepted; the callback pair at `apply2<a>(x: a, g: (a) -> a)` —
 `apply2(m, (v: Int) => v + n)` accepted, `apply2(m, (v) => v + n)` refused once with
 §6's settled-callback report, in either argument order (ruling A2), and so, nested on an
@@ -761,7 +761,7 @@ argument's spine, `g6(m, Some((v) => v + n))` at `g6<t>(x: t, p: Option((t) -> t
 [n])` at `both<a>(x: a, y: Vector(a))` and `bothR([0.5], price)`, at `Dec`; the literal
 receivers `1.5.multiply(price)`, `(1.5).multiply(price)`, and `(-1.5).multiply(price)` at
 `Dec` beside `(if c then 1.5 else 2.5).multiply(price)` refused (ruling b′); and the
-exclusions standing — `fun half<a: Frac>(x: a): a = x * 0.5`
+exclusions standing — `let half<a: Frac>(x: a): a = x * 0.5`
 refused, and a decimal literal pattern at `Dec` refused (#1054). The order removed outside
 the tower owes (#1107): `let r: Dec = if c then "x" else f` and its mirror refused once, at
 the first path in its own words — the ordinary mismatch at `"x"`, §6's entry report at `f` —
@@ -853,7 +853,7 @@ A branch or item whose type is *structured* — `(1, 2)`, `[1, 2]` — can never
 
 **Haskell-style extensible defaulting** (multiple candidate types, `default` declarations). Rejected: single candidate (`Int`), closed defaultable-constraint list, no per-module configuration. See §4.
 
-**Polymorphic decimal literals** (#525). Rejected. A decimal literal whose type a type variable decided — `x * 0.5` in `fun half<a: Frac>(x: a)` meaning whatever each caller picks — would need a new `Frac` member to build it and `Float` as a second defaulting candidate beside `Int` (§4), and its type would be decided where no reader can see it. §5.1's promotion covers the concrete targets instead. The `fromFloat` route was never open: a `Rat` `fromFloat` exists in no spelling (friendly-numerics tenet 7 — exact binary conversion would mint exactness the double never had).
+**Polymorphic decimal literals** (#525). Rejected. A decimal literal whose type a type variable decided — `x * 0.5` in `let half<a: Frac>(x: a)` meaning whatever each caller picks — would need a new `Frac` member to build it and `Float` as a second defaulting candidate beside `Int` (§4), and its type would be decided where no reader can see it. §5.1's promotion covers the concrete targets instead. The `fromFloat` route was never open: a `Rat` `fromFloat` exists in no spelling (friendly-numerics tenet 7 — exact binary conversion would mint exactness the double never had).
 
 **Re-homing settled operations** (#1062). Settle each operation from its operands, then retarget the finished inner operations — their evidence, widenings, and literal promotions — when a wider exact type appears further out. Rejected: it gives an expression a first reading and replaces it by a second chosen from inferred state, the re-elaboration Method Syntax §16.3 rejects. §5.1's expression home decides once instead.
 

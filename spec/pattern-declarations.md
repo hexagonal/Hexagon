@@ -80,7 +80,7 @@ match t with
     (h, m)clock => Other(h, m)
 
 let (h, m)clock = t                        -- irrefutable: the view is total
-fun hourOf((h, _)clock) = h                -- a lambda head; the §3.1 gate is satisfied
+let hourOf((h, _)clock) = h                -- a lambda head; the §3.1 gate is satisfied
 match c with
     (0.0, 0.0, 0.0)rgb => "black"
     (_, 0.0, _)hsl | (1.0, 1.0, 1.0)rgb => "achromatic"
@@ -150,7 +150,7 @@ match c with
 Pattern Matching §7's usefulness matrix treats a total view as a **one-constructor shape**. Three clauses say what that means — specialisation, completeness, and the witness — and Pattern Matching §7.1 carries them by reference:
 
 - **Signatures.** In a column, the heads the arms write sort into **signatures**: the *constructor signature* — the constructors of the column's type present in the column, complete iff every constructor of the type is (Pattern Matching §7.1's ordinary rule) — and **one signature per declared pattern present**, each complete by itself, since a total view is a one-constructor shape. A pattern the arms do not write enters no column: **declaring a pattern over a type changes the verdict of no existing match.**
-- **Specialising a column on a head `c` of a signature** replaces the column by `c`'s sub-columns — a pattern's *n* components, a constructor's payload. A row headed by `c` contributes its sub-patterns; a wildcard or variable row contributes wildcards; a row headed by **any other signature's head** — another pattern over the type, or a constructor where a pattern is the head specialised on — is **dropped**, unless the row's pattern is **irrefutable at this column's type** — Pattern Matching §5.1's judgment, whatever form satisfies it: a declared pattern's row whose components are all irrefutable, a sole-constructor row whose components are, an exhaustive or-pattern, a tuple or record row of irrefutable parts; never a constructor of a union with more than one, whose row is refutable there — in which case it matches every value here and contributes wildcards, as a wildcard row does. Dropping is sound: the checker knows nothing about how two views of one value relate, and a claim that `(_, 0.0, _)hsl` covers some `(…)rgb` case would be a claim it cannot verify. It is conservative: partial coverage through different views cannot be combined to establish exhaustiveness; one signature must cover the subject on its own, or a catch-all must do so. The home module matching a nominal record both ways — `Point({x, y})` and `(r, t)polar` — takes the same rule.
+- **Specialising a column on a head `c` of a signature** replaces the column by `c`'s sub-columns — a pattern's *n* components, a constructor's payload. A row headed by `c` contributes its sub-patterns; a wildcard or variable row contributes wildcards; a row headed by **any other signature's head** — another pattern over the type, or a constructor where a pattern is the head specialised on — is **dropped**, unless the row's pattern is **irrefutable at this column's type** — Pattern Matching §5.1's judgment, whatever form satisfies it: a declared pattern's row whose components are all irrefutable, a sole-constructor row whose components are, an exhaustive or-pattern, a tuple or record row of irrefutable parts; never a constructor of a union with more than one, whose row is refutable there — in which case it matches every value here and contributes wildcards, as a wildcard row does. Dropping is sound: the checker knows nothing about how two views of one value relate, and a claim that `(_, 0.0, _)hsl` covers some `(…)rgb` case would be a claim it cannot verify. It is conservative: partial coverage through different views cannot be combined to establish exhaustiveness; one signature must cover the subject on its own, or a catch-all must do so. The home module matching a nominal record both ways — `Point({ x, y })` and `(r, t)polar` — takes the same rule.
 - **Completeness, and the verdict.** A wildcard is *useful* in a column — the match is not exhaustive there — iff it is useful under **every complete signature present**, which for each means useful in the specialisation on some head of it, **and**, where the constructor signature present is incomplete or no signature is present, useful in the default matrix of the wildcard rows (Pattern Matching §7's ordinary incomplete-signature clause). The match is exhaustive, then, iff *some* complete signature's every specialisation is exhaustive: a value matched through any one view is matched, and a value the constructor arms cover is covered whatever pattern arms stand beside them.
 - **The witness is deterministic, and always pastable.** It is built from one signature, in a fixed order: the constructor signature where present, else the declared patterns in the order their names first appear in the arms, top to bottom — so a report names the type's own shape where the arms use it, and `(_, _, _)rgb` for arms that use only views. A pattern's name in a witness prints **as the arms wrote it**: a signature is built from names the arms resolved, every such name is bare (§3.1), and a name the arms resolved pastes back where they stand — Pattern Matching §7.3's first tier, and the only one a pattern ever needs.
 - **Reachability** is the same usefulness judgment with the arm's own pattern as the query, and the specialisation clause serves it unchanged. An arm under one pattern is shadowed by an arm under another only where that arm is a catch-all at the column: `(_, _, _)hsl` after `(_, _, _)rgb` is **dead** — the first arm is irrefutable, and Pattern Matching §7.2's catch-all rule stands — while `(_, 0.0, _)hsl` after `(0.0, 0.0, 0.0)rgb` is live, and stays live even where every black colour has zero saturation: the relation between two views is not the checker's to decide, so a dead arm under another view is not reported — the posture Pattern Matching §7.2 takes for a guard it cannot prove total. Exactness holds over what the checker can decide, and a cross-view relation is outside it. What it can decide it does: a query, **whatever its head**, is judged in its own specialisation **and**, as the wildcard is, beneath every other complete signature present — where the rows above are exhaustive under any of them — the type's constructors, or another view's — the arm is dead, so `(0)p` after `A` and `B` of `union Shade = A | B` is reported, no arm named as its shadower, since the constructor arms cover it jointly (Pattern Matching §7.2), and `(0)size` after `(True)flag` and `(False)flag` is reported the same way — as is a constructor arm `True` beneath them: exhaustiveness under some complete signature present means no value reaches the arm, whatever the arm's head, and an or-pattern row expands per alternative before any of this is judged (Pattern Matching §7.1). A wildcard row above shadows every form, and `(h, m)clock` after `(_, _)clock` is dead as any covered arm is. Within one view a literal component's identity is Pattern Matching §7.2's — its value at the component's type under that type's `Eq`, never its spelling — so `(-0.0, _, _)rgb` after `(0.0, _, _)rgb` is dead, `0.0` and `-0.0` being one `Float` literal under SameValueZero, exactly as `(-0, _)clock` after `(0, _)clock` is, `clock`'s components being `Int`, where the key is the value.
@@ -289,7 +289,7 @@ import Time
 let t = (1, 90)clock                         -- emits: Time.__patt_clock.build(1, 90)
 let (h, m)clock = t                          -- irrefutable; h = 2, m = 30
 let same = (1, 90)clock == (2, 30)clock      -- True
-fun classify(t: Time): String =
+let classify(t: Time): String =
     match t with
         (0, 0)clock => "midnight"
         (_, 0)clock => "on the hour"
@@ -297,7 +297,7 @@ fun classify(t: Time): String =
 -- emits, in classify: const [h, m] = Time.__patt_clock.view(t); if (h === 0 && m === 0) …
 
 -- (b) The door: an unimported home; a term of the same name blocks nothing
--- module Mid: import Time; export fun make(): Time = Time.create(9, 30)
+-- module Mid: import Time; export let make(): Time = Time.create(9, 30)
 import Mid                                   -- Time never imported here
 let (h, m)clock = Mid.make()                 -- OK: the door, Time being the subject's home
 let x = (9, 30)clock                         -- ERROR: no clock here; import Time
@@ -305,29 +305,29 @@ let clock = 3                                -- a term; the pattern namespace is
 let (p, q)clock = Mid.make()                 -- OK
 
 -- (c) Match-only, and the door on an opaque type abroad
--- module Color: opaque record Color = {...}
+-- module Color: opaque record Color = { ... }
 --               export pattern rgb(r: Float, g: Float, b: Float): Color    -- channels in [0.0, 1.0]
 --                   view(c) = ...
 --               export pattern hsl(h: Float, s: Float, l: Float): Color    -- hue in degrees
 --                   view(c) = ...
 import Color
-fun name(c: Color): String =
+let name(c: Color): String =
     match c with
         (0.0, 0.0, 0.0)rgb => "black"        -- each component through Eq<Float> (Pattern Matching §2.5)
         (_, 0.0, _)hsl => "grey"
         _ => "colour"                        -- required: rgb and hsl rows never specialise together
-fun bad(c: Color): String =
+let bad(c: Color): String =
     match c with
         (0.0, 0.0, 0.0)rgb => "black"
         (_, 0.0, _)hsl => "grey"             -- ERROR: match is missing cases: (_, _, _)rgb
-fun any(c: Color): String =
+let any(c: Color): String =
     match c with
         (0.0, 0.0, 0.0)rgb => "black"
         (h, s, l)hsl => "any"                -- OK: exhaustive — the hsl row is irrefutable;
                                              --   h, s, l are Float bindings
         (1.0, 1.0, 1.0)rgb => "never"        -- ERROR: this case is unreachable; the arm
                                              --   (h, s, l)hsl above already covers it
-fun zeros(c: Color): String =
+let zeros(c: Color): String =
     match c with
         (0.0, _, _)rgb => "no red"
         (-0.0, _, _)rgb => "never"           -- ERROR: this case is unreachable; the arm
@@ -335,9 +335,9 @@ fun zeros(c: Color): String =
         _ => "some red"
 let x = (0.0, 0.0, 0.0)rgb                   -- ERROR: rgb is a match-only pattern: its
                                              --   declaration has no build
-fun channels(c: Color): Float =
+let channels(c: Color): Float =
     match c with                             -- ERROR: cannot destructure opaque record Color;
-        Color({channels}) => channels        --   match it with (r, g, b)rgb or (h, s, l)hsl
+        Color({ channels }) => channels      --   match it with (r, g, b)rgb or (h, s, l)hsl
 
 -- (d) The door is closed where the type is undetermined; contests; the alias
 -- module Lone (sees Color, and no other module exporting rgb):
@@ -348,16 +348,16 @@ let g = ((r, _, _)rgb) => r                  -- ERROR: no rgb here: its type is 
 -- module Two:
 import Color
 import Paint                                 -- OK: imports never collide on a pattern
-fun g(c: Color): Float =
+let g(c: Color): Float =
     match c with
         (r, _, _)rgb => r                    -- ERROR: rgb is exported by Color and Paint;
                                              --   declare pattern rgb = Color.rgb or
                                              --   pattern rgb = Paint.rgb
--- module Palette: import Color; export fun black(): Color = ...
+-- module Palette: import Color; export let black(): Color = ...
 -- module One:
 import Paint                                 -- Color never imported: the contest is keyed on
 import Palette                               --   Paint.rgb's declared subject, no type read
-fun k(): Float =
+let k(): Float =
     match Palette.black() with
         (r, _, _)rgb => r                    -- ERROR: rgb here is Paint.rgb, over Color, whose
                                              --   home exports its own rgb — import Color, then
@@ -368,17 +368,17 @@ import Color
 import Paint
 pattern rgb = Color.rgb                      -- own: the contest is over (a use above this line
                                              --   would be the declared-later error, never a contest)
-fun h(c: Color): Float =
+let h(c: Color): Float =
     match c with
         (r, _, _)rgb => r                    -- OK: Color.rgb
 export pattern rgb2 = Paint.rgb              -- ERROR: an exported alias is a re-export;
                                              --   re-exports are deferred (Modules §12.2)
 
 -- (e) A private, unheaded pattern; a one-component pattern; the purity demand
-opaque record UserId = {n: Int}
+opaque record UserId = { n: Int }
 pattern id                                   -- infers: subject UserId, one component Int
     view(u: UserId) = u.n                    --   (unannotated, u.n would infer a structural
-    build(n) = UserId({n = n})               --   row, and build's UserId would not unify)
+    build(n) = UserId({ n = n })             --   row, and build's UserId would not unify)
 let (n)id = (7)id                            -- n = 7
 let t = (7)id.n                              -- 7: the dot is on the built UserId, and this is its home
 pattern noisy
@@ -386,8 +386,8 @@ pattern noisy
         Debug.log!("viewed")                 --   is pure — the demand is the pattern head's, and
         u.n                                  --   this function's face is ->! (Effects §4.3)
 
--- (f) The declaration's own errors (module Fraction: opaque record Fraction = {top: BigInt, bottom: BigInt};
---     export let create/top/bottom as Rat's; record Box = {n: Int}; let box(a: BigInt, b: BigInt): Box = …; record Span(a) = {lo: a, hi: a})
+-- (f) The declaration's own errors (module Fraction: opaque record Fraction = { top: BigInt, bottom: BigInt };
+--     export let create/top/bottom as Rat's; record Box = { n: Int }; let box(a: BigInt, b: BigInt): Box = …; record Span(a) = { lo: a, hi: a })
 pattern zero: Fraction                       -- ERROR: a pattern has at least one component;
     view(x) = ()                             --   a test with no components is a guard
 pattern lonely(top: BigInt, bottom: BigInt): Fraction   -- ERROR: a pattern declares view
@@ -405,7 +405,7 @@ export pattern rat(top: BigInt, bottom: BigInt): Fraction   -- OK: exports __pat
     view(x) = (top(x), bottom(x))
 export pattern parts                         -- ERROR: an exported pattern writes its head:
     view(x) = (top(x), bottom(x))            --   pattern parts(c1: BigInt, c2: BigInt): Fraction
-fun k() =
+let k() =
     pattern local                            -- ERROR: declarations live at module level
         view(x) = x
 pattern sorted<a: Ord>(lo: a, hi: a): Span(a)  -- ERROR: a pattern's binders carry no constraints

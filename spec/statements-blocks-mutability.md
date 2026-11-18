@@ -122,17 +122,17 @@ Two classes of binders, decided by one criterion:
 
 The criterion is a syntactic check against the AST — no judgment call per form, and new binding positions (list patterns from the collections spec, any future comprehension form) classify themselves on arrival. The docs-facing paraphrase: a head binder's governed region is *syntactically attached* to the binder-bearing construct; a sequential binder's region is the open-ended rest of whatever block it sits in.
 
-**Sequential binders** bind a name for *the rest of the enclosing block* — a scope with no visible right edge; the enclosing block is a *superterm* of the binding form. These are **every name bound by the LHS of a `let`, `var`, or `fun`** — including every name bound by a `let` destructuring pattern (`let (x, y) = t`, `let {name, total} = order`, `let UserId(n) = id`) — and module-level declarations, within their own namespaces (layered against the prelude per Modules §5.4; see §5.2).
+**Sequential binders** bind a name for *the rest of the enclosing block* — a scope with no visible right edge; the enclosing block is a *superterm* of the binding form. These are **every name bound by the LHS of a `let`, `var`, or `fun`** — including every name bound by a `let` destructuring pattern (`let (x, y) = t`, `let { name, total } = order`, `let UserId(n) = id`) — and module-level declarations, within their own namespaces (layered against the prelude per Modules §5.4; see §5.2).
 
 **Head binders** govern a region delimited by their own construct, always a proper subterm of it: function parameters — whether written in a lambda (`x => ...`) or in header sugar (`let f(x) = ...`, `fun f(x) = ...`), which desugars to the same thing (scope: the lambda body); `match`-arm pattern binders (scope: the arm body; Unions §4.2, Pattern Matching §2.1); `catch`-arm pattern binders (the arm body; Exceptions §5.2); and the loop variable or pattern of `for..in` (the loop body; §7.4, Pattern Matching §6.4).
 
-The classification is **per-binder, not per-form**: `let f(x) = x + 1` binds `f` sequentially and `x` as a head binder — one form, both classes, and always has (§5.2). Pattern-ness is orthogonal to binder class: the same record pattern `{name}` binds a head binder in a lambda head or match arm and a sequential binder on a `let` LHS. Class is determined by *position*, never by the grammar of the pattern.
+The classification is **per-binder, not per-form**: `let f(x) = x + 1` binds `f` sequentially and `x` as a head binder — one form, both classes, and always has (§5.2). Pattern-ness is orthogonal to binder class: the same record pattern `{ name }` binds a head binder in a lambda head or match arm and a sequential binder on a `let` LHS. Class is determined by *position*, never by the grammar of the pattern.
 
 ### 5.1 The rules
 
-1. **A sequential binder may not reuse any name in scope** — whether the existing binding is itself sequential or a head binder, at any nesting depth, anywhere within the current function or its enclosing functions' local scopes. This applies to every name a `let` LHS pattern binds, punned record fields included: `let x = 10` followed by `let (x, y) = getPair()` is an error, as is `let name = currentUser()` followed by `let {name, total} = order`. Hard error at the second binding, naming the first: "`x` is already bound (line N); Hexagon does not allow rebinding — choose a different name". When the second binding is a destructuring pattern, the fixit is pattern-aware: discard with `_`, or rename the field — `{name = orderName}` (§9.3).
+1. **A sequential binder may not reuse any name in scope** — whether the existing binding is itself sequential or a head binder, at any nesting depth, anywhere within the current function or its enclosing functions' local scopes. This applies to every name a `let` LHS pattern binds, punned record fields included: `let x = 10` followed by `let (x, y) = getPair()` is an error, as is `let name = currentUser()` followed by `let { name, total } = order`. Hard error at the second binding, naming the first: "`x` is already bound (line N); Hexagon does not allow rebinding — choose a different name". When the second binding is a destructuring pattern, the fixit is pattern-aware: discard with `_`, or rename the field — `{ name = orderName }` (§9.3).
 
-   **One layer is exempt: the prelude.** A sequential binder may shadow a binding from the prelude layer (Modules §5.4) — `let nan = balance()` inside a function is legal even though the prelude exports `nan`, and so is `let {show, hash} = record`, whose punned fields shadow two prelude names the pattern's author never wrote. All four sequential forms carry the exemption identically: `let`, `var`, `fun`, and `let`-destructuring. The shadowed name is then **reserved for the whole enclosing block** — the prelude's binding is invisible from the block's first item onward, and every reference in the block outside the binder's own RHS (the pending-clause seam, second boundary below) resolves **as if the prelude did not bind the name**. A use above the binder therefore draws exactly what it would for a user-written name: Functions §7.2's declared-later error in the ordinary case, or the legal mutual reference inside a `fun` block (Functions §7.3) — never, in any case, the prelude's meaning. Two boundaries keep the exemption from spreading:
+   **One layer is exempt: the prelude.** A sequential binder may shadow a binding from the prelude layer (Modules §5.4) — `let nan = balance()` inside a function is legal even though the prelude exports `nan`, and so is `let { show, hash } = record`, whose punned fields shadow two prelude names the pattern's author never wrote. All four sequential forms carry the exemption identically: `let`, `var`, `fun`, and `let`-destructuring. The shadowed name is then **reserved for the whole enclosing block** — the prelude's binding is invisible from the block's first item onward, and every reference in the block outside the binder's own RHS (the pending-clause seam, second boundary below) resolves **as if the prelude did not bind the name**. A use above the binder therefore draws exactly what it would for a user-written name: Functions §7.2's declared-later error in the ordinary case, or the legal mutual reference inside a `fun` block (Functions §7.3) — never, in any case, the prelude's meaning. Two boundaries keep the exemption from spreading:
 
    - It is **layer-tested against the colliding binding**, not name-tested. A name from the module's own layers — a module-level binding (including one that itself occludes a prelude name, Modules §5.4), a parameter, another local — stays under the full rule. The rule's line is *you may not rebind a name you wrote*.
    - Within the shadowing binder's **own RHS**, the pending clause below governs unchanged: a `let`'s or `var`'s own name is absent for reference there, so the RHS reaches the prelude's binding — which is what makes the wrapping idiom work (`let show = (v) => "«" ++ show(v) ++ "»"` wraps the prelude's `show` once). A `fun`'s own name is genuinely in scope in its own body, so the same spelling as a `fun` self-calls instead (Modules §5.4's adjacent facts).
@@ -154,11 +154,11 @@ The classification is **per-binder, not per-form**: `let f(x) = x + 1` binds `f`
 - Header-sugar parameters are head binders by definition (§5), so `let x = 42` then `let f(x) = x + 1` is legal — inside `f`, `x` is the parameter; outside, still `42`; `f` itself is a sequential binder and must be fresh. Implementations that check shadowing before desugaring must treat header parameters identically to lambda parameters.
 - Head-binder shadowing of a `var` is legal per rule 2 — but the shadowing binder is *not* a `var`, so `:=` against the name inside the lambda hits the "not assignable" diagnostic (§6.3), never the outer `var` (which is unreachable across the lambda boundary anyway, §6.2). No ambiguity can arise.
 - A `let` inside a lambda may not reuse the lambda's own parameter name (`x => { let x = ... }`) — rule 1: sequential binder, name in scope, banned.
-- **A pattern parameter's binders collide with the parameters beside them, and with nothing else.** They are head binders (Pattern Matching §6.5), so everything outside the lambda is theirs to shadow — `let total = ...` then `orders |> map({total} => ...)` is legal, exactly as `map(total => ...)` is. Inside the head they are *simultaneous* with the sibling parameters, so a name a sibling already binds is rule 3 duplication, not shadowing: `f(p, {p})` and `f({p}, (p, q))` both get the parameter-shaped "duplicate parameter `p`", the same diagnostic `f(p, p)` gets, while a name repeated within one parameter's own pattern keeps the pattern-shaped "`p` is bound twice in this pattern" (Unions §4.2). This is the sharpening of the §5.2 pre-desugar warning above for the case where the desugaring is a body-level `let`: that `let` must contribute the pattern's *checking* — the irrefutability gate included — and none of its class.
+- **A pattern parameter's binders collide with the parameters beside them, and with nothing else.** They are head binders (Pattern Matching §6.5), so everything outside the lambda is theirs to shadow — `let total = ...` then `orders |> map({ total } => ...)` is legal, exactly as `map(total => ...)` is. Inside the head they are *simultaneous* with the sibling parameters, so a name a sibling already binds is rule 3 duplication, not shadowing: `f(p, { p })` and `f({ p }, (p, q))` both get the parameter-shaped "duplicate parameter `p`", the same diagnostic `f(p, p)` gets, while a name repeated within one parameter's own pattern keeps the pattern-shaped "`p` is bound twice in this pattern" (Unions §4.2). This is the sharpening of the §5.2 pre-desugar warning above for the case where the desugaring is a body-level `let`: that `let` must contribute the pattern's *checking* — the irrefutability gate included — and none of its class.
 - The sequential-binder ban is what makes `:=` resolution trivial: within any function, a `var` name is globally unique among sequential binders, so an assignment target resolves to exactly one candidate, always. `let`-pattern names being sequential (§5.4) adds only rejected collisions, never a second live candidate.
 - **Binder class is positional, not pattern-determined.** The full pattern grammar (Pattern Matching spec) is legal at both sequential and head positions; the pattern contributes the *names*, the position contributes the *class*. Still exactly two classes; no pattern form may ever create a third (§5.4).
 - **Module aliases can never be shadowed by any binder**, head or sequential — not by a new restriction, but by the start-class rule: module aliases are mandatorily uppercase-start (Modules §3.1) and an uppercase-start name in any pattern position is a constructor reference, never a binder (Pattern Matching §2.1). `let f(Json) = ...` therefore binds nothing; it resolves `Json` as a constructor and fails as unknown. The near-miss diagnostic for that failure is owed to the Modules diagnostics table (edit note §9.2).
-- **Scope of rule 1 vs module/prelude names:** owned by Modules §5.4 (which retires this doc's §10.2 interim rule) and mirrored in rule 1's prelude exemption. A sequential binder at *either* level may shadow a prelude name — a module-level one occludes it module-wide, a function-local one shadows it for its block — and in both positions the name is reserved from the top of the enclosing scope — references outside the binder's own RHS (§5.1's seam) resolve as if the prelude did not bind it, so a use above the binding is the declared-later error (Functions §7.2) or a `fun` block's legal mutual reference (§7.3), never the prelude's meaning. Rule 1's full ban continues to govern the module's own layers at every depth. Destructuring names participate identically at both levels: a module-level `let {parse} = ...`-style binding occludes a prelude `parse` exactly as `let parse = ...` would, and a function-local one shadows it the same way.
+- **Scope of rule 1 vs module/prelude names:** owned by Modules §5.4 (which retires this doc's §10.2 interim rule) and mirrored in rule 1's prelude exemption. A sequential binder at *either* level may shadow a prelude name — a module-level one occludes it module-wide, a function-local one shadows it for its block — and in both positions the name is reserved from the top of the enclosing scope — references outside the binder's own RHS (§5.1's seam) resolve as if the prelude did not bind it, so a use above the binding is the declared-later error (Functions §7.2) or a `fun` block's legal mutual reference (§7.3), never the prelude's meaning. Rule 1's full ban continues to govern the module's own layers at every depth. Destructuring names participate identically at both levels: a module-level `let { parse } = ...`-style binding occludes a prelude `parse` exactly as `let parse = ...` would, and a function-local one shadows it the same way.
 
 ### 5.3 Lineage note (for the docs, not the compiler)
 
@@ -171,7 +171,7 @@ The Head Binder Shadowing rule is mildly novel as a crisp rule. Nearest relative
 **Why the classification is forced, not preferred:**
 
 1. **Refactoring invariance.** Replacing `let x = ...` with `let (x, y) = ...` produces the identical scope for `x`; it must not change whether shadowing is legal. This is the same argument that motivated the sequential ban, applied to the rule itself.
-2. **Punning is the aggravating case.** With record-pattern punning (Pattern Matching §2.4), `let {name, total} = order` binds a name the programmer *never wrote* — inherited from a field of a type declared elsewhere. Every genuine head binder has an explicitly-typed name at the binding site; only `let` would combine an implicit name with an unbounded scope.
+2. **Punning is the aggravating case.** With record-pattern punning (Pattern Matching §2.4), `let { name, total } = order` binds a name the programmer *never wrote* — inherited from a field of a type declared elsewhere. Every genuine head binder has an explicitly-typed name at the binding site; only `let` would combine an implicit name with an unbounded scope.
 3. The criterion classifies every position correctly with no exceptions, including module level (destructuring names are module-layer sequential binders, so Modules §5.4 occlusion applies to them unchanged).
 
 **Rejected alternative — head-class `let`-pattern names for state-threading (do not relitigate):**
@@ -234,7 +234,7 @@ best := candidate
 
 - **`name := expr` is an expression of type `Unit`.** The RHS unifies with the `var`'s monotype — "cannot change type" is a *consequence* of unification against the binding's monotype, not a separate rule, and its failure is an ordinary type error phrased against the `var`: "`count` has type `Int`; cannot assign a `String`."
 - **The value may begin beneath `:=`.** A line ending in `:=` opens a block, as a line ending in a binding's `=` does, and the block's value, its final expression, is the value assigned (Lexer & Layout §2.1).
-- **Target grammar: a bare name, only.** Everything else is rejected with a targeted diagnostic (checklist §9.3): `p.x := e` (records are immutable — suggest `{p with x = e}`), `t.item1 := e` (tuples are immutable), `f(x) := e` (parse error: assign to a name).
+- **Target grammar: a bare name, only.** Everything else is rejected with a targeted diagnostic (checklist §9.3): `p.x := e` (records are immutable — suggest `{ p with x = e }`), `t.item1 := e` (tuples are immutable), `f(x) := e` (parse error: assign to a name).
 - **Target must be `var`-bound.** `:=` to a `let`-bound name: "`y` was bound with `let`; declare it with `var` if you need to update it." To a head binder (parameter, pattern binder): "`x` is a parameter and cannot be assigned; declare a `var`." To an undeclared name: ordinary unbound-name error — **no** implicit declaration, ever (the JS `x = 5`-creates-a-global disease does not exist here, and the diagnostic should not suggest it).
 - Targets resolve uniquely by construction (§5.2). Assignment before the `var`'s declaration line is impossible for the same reason any use is: the name is not yet in scope (blocks are sequential; the pending-binder machinery already covers the RHS case).
 - `:=` respects the lambda boundary (§6.2): assignment from inside a nested lambda is the boundary error, reported as such (not as an unbound name).
@@ -296,40 +296,40 @@ This spec imposed two requirements on loops, both now normative in `loops-ranges
 
 ```
 -- (a) The accumulator shape (loop form per loops-ranges-iteration.md)
-fun sumTo(n) =
+let sumTo(n) =
     var total = 0
     ... total := total + i ...        -- however iterated
     total
 -- total : Int; emits let total = 0; ... total = total + i; ... return total;
 
 -- (b) Block-final assignment: Unit function, no ceremony
-fun bump() = count := count + 1     -- ERROR if count is outer (crosses `fun`'s lambda);
+let bump() = count := count + 1     -- ERROR if count is outer (crosses the function's lambda);
                                     -- legal only for a var in the same body — so:
-fun step(n) =
+let step(n) =
     var x = n
     x := x + 1
     x                                  -- step : Int -> Int
 
 -- (c) Discarded value
-fun process(items) =
+let process(items) =
     validateAll(items)                 -- ERROR: value discarded; use ignore(...)
     saveAll(items)
 
-fun process2(items) =
+let process2(items) =
     ignore(validateAll(items))         -- fine; emits validateAll(items);
     saveAll(items)
 
 -- (d) Block-final binding
-fun f() =
+let f() =
     let x = compute()                  -- ERROR: block cannot end with a let;
                                      -- did you mean to return x?
 
 -- (e) Lambda boundary
-fun g(xs) =
+let g(xs) =
     var shift = 1
     xs |> Seq.map(x => x + shift)   -- ERROR: shift is a var; copy to a let first
 
-fun g2(xs) =
+let g2(xs) =
     var shift = 1
     ...
     let s = shift
@@ -349,14 +349,14 @@ let x = 10
 let (x, y) = getPair()               -- ERROR: x is already bound (destructure with _
                                      -- or fresh names)
 let name = currentUser()
-let {name, total} = order            -- ERROR: name is already bound; rename the
-                                     -- field: {name = orderName}
+let { name, total } = order          -- ERROR: name is already bound; rename the
+                                     -- field: { name = orderName }
 match order with
-    {name, total} => use(name, total)  -- fine: match-arm binder is a head binder;
+    { name, total } => use(name, total) -- fine: match-arm binder is a head binder;
                                      -- same pattern, different position, different class
 
 -- (g) Monomorphic var, value restriction
-fun h() =
+let h() =
     var xs = emptyList()               -- xs : List(?1)
     xs := ints                         -- pins ?1 := Int
     xs := strings                      -- ERROR: xs has type List(Int)
@@ -386,13 +386,13 @@ fun h() =
 | Function-typed `var` — at the declaration, or at the pinning use that settles the monotype to an arrow | "`step` is a `var`, and a `var` cannot hold a function — vars accumulate data; model changing behavior as a union and `match` on it" (§6.1, #700) |
 | `var` name reuses a name in scope / any sequential rebinding | "`x` is already bound (line N); Hexagon does not allow rebinding — choose a different name" (§5.1) |
 | Sequential binder claims a name whose definition is in progress | "`y` is already being defined by the enclosing `let` (line N); Hexagon does not allow rebinding — choose a different name" — "by the enclosing `var`" / "by the enclosing member definition" as the pending form dictates; primary span the inner binder, line N the outer binder's name (§5.1) |
-| `let`-pattern binds a name already in scope (incl. punned fields) | same "already bound" error, pattern-aware fixits: "discard it with `_`", "rename the field: `{name = orderName}`"; for the state-threading shape, suggest fresh names or a `for`/fold (§5.1, §5.4) |
+| `let`-pattern binds a name already in scope (incl. punned fields) | same "already bound" error, pattern-aware fixits: "discard it with `_`", "rename the field: `{ name = orderName }`"; for the state-threading shape, suggest fresh names or a `for`/fold (§5.1, §5.4) |
 | Lambda reads an outer `var` | "`shift` is a `var` and cannot be used inside a lambda; copy it to a `let` first" (§6.2) |
 | Lambda assigns an outer `var` | "`total` is a `var` and cannot be updated inside a lambda; use a `for` loop for mutable iteration, or have the lambda return the updated value and assign it outside" (§6.2) |
 | `:=` to a `let`-bound name | "`y` was bound with `let`; declare it with `var` if you need to update it" (§6.3) |
 | `:=` to a parameter / pattern binder | "`x` is a parameter and cannot be assigned; declare a `var`" (§6.3) |
 | `:=` to an undeclared name | ordinary unbound-name error; never suggest implicit declaration (§6.3) |
-| `p.x := e` on a record | "records are immutable; build an updated copy: `{p with x = e}`" (§6.3) |
+| `p.x := e` on a record | "records are immutable; build an updated copy: `{ p with x = e }`" (§6.3) |
 | `t.itemN := e` on a tuple | "tuples are immutable; construct a new tuple with the changed slot" (§6.3) |
 | Non-name `:=` target | parse error: "`:=` assigns to a `var` name" (§6.3) |
 | Assignment type mismatch | "`count` has type `Int`; cannot assign a `String`" — phrased against the `var`, not as generic unification (§6.3) |

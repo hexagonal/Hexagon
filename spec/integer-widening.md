@@ -161,7 +161,7 @@ new constrained result or require an unavailable conversion dictionary. A
 caller-owned rigid variable can establish a target, and so can an
 already-constrained inferred variable, where the text decides the value that
 carries it; one that only inference gave a caller's value establishes none
-(Numeric Literals §5.1, #1195), so `fun f(value) =` with `establish(value)`
+(Numeric Literals §5.1, #1195), so `let f(value) =` with `establish(value)`
 above `choose(1n, value)` makes `value` a `BigInt`, as the lines swapped do. The same evidence may arrive through corresponding
 container arguments or explicitly shared record fields; unknown row-tail
 contents establish nothing. Unrelated parameter variables do not share targets,
@@ -372,7 +372,7 @@ determined result type.
 ```hexagon
 let price: Dec = 1.50d
 let share: Rat = price          -- 3/2
-let third = price * 1 // 3      -- Rat: 1/2
+let third = price * 1//3        -- Rat: 1/2
 let ratio: Rat = price / 0.25d  -- 6/1: exact division at the written Rat
 let back: Rat = price ** -2     -- 4/9: Rat's power, the exponent staying Int
 ```
@@ -387,7 +387,7 @@ named doors between the two (Numeric Literals §6). A decimal-point literal besi
 
 **Division.** `Dec` honors no `Frac`, and gains none. Where `Rat` is the home, `/` on
 two `Dec`s runs at `Rat`, exactly, the `Dec`s entering it: a written `Rat` gives that
-home, and so does a `Rat` part of the same expression, as in `price / 0.25d * (1 // 3)`
+home, and so does a `Rat` part of the same expression, as in `price / 0.25d * (1//3)`
 (Numeric Literals §5.1). Without a `Rat` home, `a / c` on two `Dec`s is refused for the
 missing `Frac<Dec>`, and the refusal names both routes:
 "write a `Rat` type, or use `Dec.divide` with a place count". `Dec` does not join
@@ -396,7 +396,7 @@ Method Syntax's ownership clause for unhonored tower members: `Dec.hex` exports 
 that function's call under any home — the receiver decides what is called.
 
 **Literal patterns** do not widen (§5): a `1.50d` pattern at a `Rat` subject is
-refused; the fraction's own pattern is `3 // 2` (`rat.md` §3).
+refused; the fraction's own pattern is `3//2` (`rat.md` §3).
 
 Acceptance cases: `Dec` to `Rat` at annotations, argument, return, and assignment
 seats, in both operand orders, at comparison seats, and through every tower call

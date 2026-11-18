@@ -159,7 +159,7 @@ A qualifier in particular is **not a name for the type**. It names a *binding* �
 
    ```hexagon
    import Lib
-   export fun mk(p: Lib.Point): Lib.Point = p
+   export let mk(p: Lib.Point): Lib.Point = p
    ```
 
    ```ts
@@ -228,7 +228,7 @@ None of it is a rendering question. The faces a file will render are known from 
 An exported non-opaque record exports its type and its constructor (Modules §4.1). Both cross:
 
 ```hexagon
-export record Point = {x: Float, y: Float}
+export record Point = { x: Float, y: Float }
 ```
 
 ```ts
@@ -299,8 +299,8 @@ This section carried a normative generated-documentation obligation — a warnin
 `opaque record` and `opaque union` export **the type only**: raw fields and constructors are absent from JavaScript exports and `.d.ts`, while explicitly exported smart constructors and accessors cross as ordinary functions. The TypeScript face hides the representation behind a private `unique symbol` brand:
 
 ```hexagon
-opaque record UserId = {value: Int}
-export fun parse(text: String): Option(UserId) = ...
+opaque record UserId = { value: Int }
+export let parse(text: String): Option(UserId) = ...
 ```
 
 ```ts
@@ -423,7 +423,7 @@ export let version: String = "1.0"         -- export const version; const versio
 export let double(x: Int): Int = x * 2     -- export function double; raw identity
 
 -- (b) Record: type + identity-permitted constructor (§3)
-export record Point = {x: Float, y: Float}
+export record Point = { x: Float, y: Float }
 
 -- (c) Union constructors materialized at export (§4)
 export union Shape = Circle(radius: Float) | Point
@@ -436,8 +436,8 @@ export union Color = Red | Green | Blue    -- export const Red = {tag: "Red"}; .
 --   .d.ts: export type Color = {tag: "Red"} | {tag: "Green"} | {tag: "Blue"};
 
 -- (e) Opaque: brand only; smart constructor crosses (§5)
-opaque record UserId = {value: Int}
-export fun parse(text: String): Option(UserId) = ...
+opaque record UserId = { value: Int }
+export let parse(text: String): Option(UserId) = ...
 -- .d.ts: declare const userIdBrand: unique symbol; export type UserId = ...
 
 -- (f) Nullary exception: function-shaped for JS (§6)
