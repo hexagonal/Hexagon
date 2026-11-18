@@ -16087,7 +16087,7 @@ class Checker {
     this.#diagnostics.add({
       severity: "error",
       message: `\`${record.name}\` is a nominal record; destructure it with ` +
-        `\`${record.name}({${fields.join(", ")}})\``,
+        `\`${record.name}(${fields.length === 0 ? "{}" : `{ ${fields.join(", ")} }`})\``,
       primary: pattern.span,
     });
   }

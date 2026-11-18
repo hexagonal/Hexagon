@@ -350,7 +350,7 @@ describe("the nominal wall still stands in front of a bare record pattern (#587)
       "export fun reading(): Float =\n" +
       "    let {n} = Mid.make(1.5)\n" +
       "    n\n"]])).toEqual([
-      "`Crate` is a nominal record; destructure it with `Crate({n})`",
+      "`Crate` is a nominal record; destructure it with `Crate({ n })`",
     ]);
   });
 });

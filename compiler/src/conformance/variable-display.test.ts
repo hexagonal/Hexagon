@@ -51,6 +51,10 @@ describe("the law: a survivor reaching a report is named", () => {
     ]);
   });
 
+  test("an empty record is shown as `{}`, with no space inside", () => {
+    expect(main("export let n: Int = {}\n")).toEqual(["type mismatch: expected Int, found {}"]);
+  });
+
   test("an effect colour is not spent a letter — it prints as a colour", () => {
     // `#display` skips effect-slot variables when it names: an unsolved colour
     // reaches the reader through the arrow (`>->`), never as a name, so naming
