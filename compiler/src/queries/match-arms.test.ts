@@ -605,9 +605,9 @@ describe("arms combined, refused", () => {
 
   test("record types that differ, shown as written", () => {
     for (const [written, one, another] of [
-      ["Two({x: Int}, {x: String})", "{x: Int}", "{x: String}"],
-      ["Two({x: Int, y: Int}, {y: Int, x: String})", "{x: Int, y: Int}", "{y: Int, x: String}"],
-      ["Two({y: Int, x: Int}, {x: String, y: Int})", "{y: Int, x: Int}", "{x: String, y: Int}"],
+      ["Two({x: Int}, {x: String})", "{ x: Int }", "{ x: String }"],
+      ["Two({x: Int, y: Int}, {y: Int, x: String})", "{ x: Int, y: Int }", "{ y: Int, x: String }"],
+      ["Two({y: Int, x: Int}, {x: String, y: Int})", "{ y: Int, x: Int }", "{ x: String, y: Int }"],
     ]) {
       expect(rewritten(program(
         `export let g(t: ${written}): Int =`,

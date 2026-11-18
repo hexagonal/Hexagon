@@ -167,7 +167,7 @@ describe("finite shapes are checked exactly (§7.1)", () => {
       "    match r with\n" +
       "        {a = True} => 2\n" +
       "        {b = True} => 1\n",
-    )).toEqual(["match is missing cases: `{a = False, b = False}`"]);
+    )).toEqual(["match is missing cases: `{ a = False, b = False }`"]);
   });
 });
 
@@ -300,7 +300,7 @@ describe("§7.3's witnesses", () => {
       "    match r with\n" +
       "        {status = Running} => 1\n" +
       "        {status = Done} => 2\n",
-    )).toEqual(["match is missing cases: `{status = Queued}`"]);
+    )).toEqual(["match is missing cases: `{ status = Queued }`"]);
   });
 
   test("the list is capped at three, then counted", () => {
@@ -741,7 +741,7 @@ describe("the witness printer keeps a record's private fields at home (Modules �
       "export fun pick(c: Crate): Int =\n" +
       "    match c with\n" +
       "        Crate({n = True}) => 1\n",
-    )).toEqual(["match is missing cases: `Crate({n = False})`"]);
+    )).toEqual(["match is missing cases: `Crate({ n = False })`"]);
   });
 });
 

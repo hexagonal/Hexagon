@@ -306,7 +306,7 @@ describe("the function channel: none, and `ignore`", () => {
   test("the qualified route at a structural value compiles; the dot form does not", () => {
     expect(projectDiagnostics("module Main\n\n" + "export let n: Int = Hash.hash((1, 2))\n")).toEqual([]);
     expect(projectDiagnostics("module Main\n\n" + "export let n: Int = (1, 2).hash()\n"))
-      .toEqual(["type mismatch: expected (a, b), found {hash: a, ...}"]);
+      .toEqual(["type mismatch: expected (a, b), found { hash: a, ... }"]);
   });
 
   /**

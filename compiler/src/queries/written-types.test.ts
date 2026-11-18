@@ -78,7 +78,7 @@ describe("write down the inferred type, at one place", () => {
     expect(rewritten(program("let apply(f, ‸x) = f(x)"), writeTitle("parameter", "x")))
       .toBe(program("let apply(f, x: a) = f(x)"));
     expect(rewritten(program("let getX(r‸) = r.x"), writeTitle("parameter", "r")))
-      .toBe(program("let getX(r: {x: a, ...b}) = r.x"));
+      .toBe(program("let getX(r: { x: a, ...b }) = r.x"));
     // The parameter alone: its header's action stands on the header's name.
     expect(titles(program("let apply(‸f, x) = f(x)"))).toEqual([writeTitle("parameter", "f")]);
   });
@@ -271,13 +271,13 @@ describe("write down this header's types", () => {
 
   test("an open row stays open, where writing its result alone would close it", () => {
     const source = program("fun ‸copy(r) = {...r}");
-    expect(rewritten(source, HEADER_TITLE)).toBe(program("fun copy(r: {...a}): {...a} = {...r}"));
+    expect(rewritten(source, HEADER_TITLE)).toBe(program("fun copy(r: { ...a }): { ...a } = {...r}"));
     expect(faceOf(program("fun copy(r: {...a}): {...a} = {...r}"), "copy")).toBe(faceOf(marked(source).text, "copy"));
     expect(applied(program("fun copy(r) =‸ {...r}"), writeTitle("result", "copy")))
-      .toBe("refused: Writing `: {...a}` would change the type of `copy` from `{...a} -> {...a}` to `{} -> {}`.");
+      .toBe("refused: Writing `: { ...a }` would change the type of `copy` from `{ ...a } -> { ...a }` to `{} -> {}`.");
     // A local, whose face is no module's: its own type is compared.
     expect(applied(program("let outer() =", "    let copy(r) =‸ {...r}", "    copy({})"), writeTitle("result", "copy")))
-      .toBe("refused: Writing `: {...a}` would change the type of `copy` from `{...a} -> {...a}` to `{} -> {}`.");
+      .toBe("refused: Writing `: { ...a }` would change the type of `copy` from `{ ...a } -> { ...a }` to `{} -> {}`.");
   });
 
   test("an exported function's whole signature, which ends its report", () => {
@@ -293,7 +293,7 @@ describe("write down this header's types", () => {
 
   test("refused, naming the header", () => {
     expect(applied(program("let keep(f) = f", "fun ‸m(z) = keep((r) => {...r})"), HEADER_TITLE))
-      .toBe("refused: Writing the types of `m`'s header would change the type of `m` from `a -> {...b} -> {...b}` to `a -> {} -> {}`.");
+      .toBe("refused: Writing the types of `m`'s header would change the type of `m` from `a -> { ...b } -> { ...b }` to `a -> {} -> {}`.");
   });
 
   test("an exported `fun` block member's, whose binder list goes on the block's head", () => {
@@ -405,7 +405,7 @@ describe("every name the module declares keeps its type", () => {
 
   test("a row's tail, tied or not", () => {
     expect(applied(program("let ignore(f) = ()", "let outer() = ignore((r: {...a}, ‸s: {...a}) => {...s})"), removeTitle("parameter", "s")))
-      .toBe("refused: Removing `: {...a}` would change the type of `s` from `{...a}` to `{...b}`.");
+      .toBe("refused: Removing `: {...a}` would change the type of `s` from `{ ...a }` to `{ ...b }`.");
   });
 
   test("a face, and a pattern's variable's", () => {
@@ -471,9 +471,9 @@ describe("refused, with the reason", () => {
   test("an edit that changes a face another module reads", () => {
     const use = { "/use.hex": ["module Use", "import Main", "export let use(): Int = Main.m()({x = 1}).x", ""].join("\n") };
     expect(applied(program("let keep(f) = f", "export fun m()‸ = keep((r) => {...r})"), writeTitle("result", "m"), use))
-      .toBe("refused: Writing `: {...a} -> {...a}` would break `/use.hex`: record fields do not match; unexpected `x`.");
+      .toBe("refused: Writing `: { ...a } -> { ...a }` would break `/use.hex`: record fields do not match; unexpected `x`.");
     expect(applied(program("let keep(f) = f", "export fun m()‸ = keep((r) => {...r})"), writeTitle("result", "m")))
-      .toBe("refused: Writing `: {...a} -> {...a}` would change the type of `m` from `() -> {...a} -> {...a}` to `() -> {} -> {}`.");
+      .toBe("refused: Writing `: { ...a } -> { ...a }` would change the type of `m` from `() -> { ...a } -> { ...a }` to `() -> {} -> {}`.");
   });
 });
 

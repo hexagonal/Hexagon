@@ -1222,7 +1222,7 @@ describe("Pattern Matching §15 (o2) — scope first, module-wide", () => {
         "        Box({n = 0}) => 1\n"],
     ])).toEqual([
       "`Box` here is this module's `Box`; this pattern matches a `H.Box` — " +
-        "write `H.Box({n = 0})`",
+        "write `H.Box({ n = 0 })`",
     ]);
   });
 
@@ -1259,7 +1259,7 @@ describe("Pattern Matching §15 (o2) — scope first, module-wide", () => {
         "        Box({q = 0}) => 1\n"],
     ])).toEqual([
       "`Box` here is `Box.Box`; this pattern matches a `H.Box` — " +
-        "write `H.Box({q = 0})`",
+        "write `H.Box({ q = 0 })`",
     ]);
   });
 
@@ -1349,7 +1349,7 @@ describe("Pattern Matching §15 (o2) — scope first, module-wide", () => {
         "        Box({n}) => n\n"],
     ])).toEqual([
       "`Box` here is this module's `Box`; this pattern matches a `Lib.Box` — " +
-        "write `Lib.Box({n})` — `Box` is declared in module `Lib`, and this module " +
+        "write `Lib.Box({ n })` — `Box` is declared in module `Lib`, and this module " +
         "binds another `Box`; `import Lib` and spell it `Lib.Box`",
     ]);
   });
@@ -1546,7 +1546,7 @@ describe("Pattern Matching §15 (p2) — the lambda-parameter seat, one-sided", 
         "let first = Pair({first, second}) => first\n"],
     ])).toEqual([
       "no bare `Pair` here: its type is not determined at this pattern — write " +
-        "`Pairs.Pair({first, second})`, or bind the function with its own annotated `let`",
+        "`Pairs.Pair({ first, second })`, or bind the function with its own annotated `let`",
     ]);
   });
 
@@ -1560,10 +1560,10 @@ describe("Pattern Matching §15 (p2) — the lambda-parameter seat, one-sided", 
         ["/main.hex", "module Main\n\n" + 'import Pair as Pairs\n' + `let f = ${head} => 1\n`],
       ])[0] ?? "";
     expect(refusal("Pair({first = a, second = _})")).toContain(
-      "write `Pairs.Pair({first = a, second = _})`",
+      "write `Pairs.Pair({ first = a, second = _ })`",
     );
     expect(refusal("Pair(whole)")).toContain("write `Pairs.Pair(whole)`");
-    expect(refusal("Pair({first} as p)")).toContain("write `Pairs.Pair({first} as p)`");
+    expect(refusal("Pair({first} as p)")).toContain("write `Pairs.Pair({ first } as p)`");
   });
 
   test("a nullary head takes no argument list at all", () => {

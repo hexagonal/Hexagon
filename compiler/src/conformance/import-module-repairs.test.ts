@@ -446,7 +446,7 @@ describe("the type seat (Modules §5.1 rule 1)", () => {
         "module Main\n\n" + "export union Colour = Red | Green\n" +
         "export let n: Int = Red.at\n"],
     ])).toEqual([
-      "type mismatch: expected Colour, found {at: a, ...}",
+      "type mismatch: expected Colour, found { at: a, ... }",
     ]);
   });
 });

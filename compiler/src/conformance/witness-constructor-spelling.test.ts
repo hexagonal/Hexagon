@@ -218,7 +218,7 @@ describe("the tiers reach the nominal record's constructor too", () => {
         "    match b with\n" +
         "        H.Box({m = True}) => 1\n",
       ],
-    ])).toEqual(["match is missing cases: `Box({m = False})`"]);
+    ])).toEqual(["match is missing cases: `Box({ m = False })`"]);
   });
 
   test("and that spelling pastes — §2.2's door reaches a nominal record's constructor", () => {
@@ -246,7 +246,7 @@ describe("the tiers reach the nominal record's constructor too", () => {
         "    match b with\n" +
         "        H.Box({m = True}) => 1\n",
       ],
-    ])).toEqual(["match is missing cases: `H.Box({m = False})`"]);
+    ])).toEqual(["match is missing cases: `H.Box({ m = False })`"]);
   });
 });
 
@@ -755,7 +755,7 @@ describe("the obligation reaches the nominal record's constructor pattern too", 
       ],
     ])).toEqual([
       "`Box` here is this module's `Box`; this pattern matches a `H.Box` — " +
-        "write `H.Box({n = 0})`",
+        "write `H.Box({ n = 0 })`",
     ]);
   });
 

@@ -47,7 +47,7 @@ describe("the law: a survivor reaching a report is named", () => {
 
   test("a survivor under a structural head is named too", () => {
     expect(main("export let n: {a: Int} = []\n")).toEqual([
-      "type mismatch: expected {a: Int}, found Vector(a)",
+      "type mismatch: expected { a: Int }, found Vector(a)",
     ]);
   });
 

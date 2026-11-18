@@ -1024,7 +1024,7 @@ describe("code actions: infer return type", () => {
     const annotated = "module Main\n\n" + "export fun copy(r: {...a}) = {...r}\n";
     const { session: paired } = sessionOf({ "/main.hex": annotated });
     expect(applied(annotated, sole(actionsOn(paired, "/main.hex", annotated, "copy"))))
-      .toBe("module Main\n\n" + "export fun copy(r: {...a}): {...a} = {...r}\n");
+      .toBe("module Main\n\n" + "export fun copy(r: {...a}): { ...a } = {...r}\n");
   });
 
   test("refuses an annotation that would silently change the type", () => {
@@ -1050,8 +1050,8 @@ describe("code actions: infer return type", () => {
     const action = sole(actionsOn(session, "/main.hex", source, "m("));
     expect(action.edits).toEqual([]);
     expect(action.disabled).toBe(
-      "Writing `: {...a} -> {...a}` would change the type of `m` " +
-        "from `() -> {...a} -> {...a}` to `() -> {} -> {}`.",
+      "Writing `: { ...a } -> { ...a }` would change the type of `m` " +
+        "from `() -> { ...a } -> { ...a }` to `() -> {} -> {}`.",
     );
   });
 
@@ -1066,7 +1066,7 @@ describe("code actions: infer return type", () => {
     const action = sole(actionsOn(session, "/main.hex", source, "m("));
     expect(action.disabled).toBe(undefined);
     expect(applied(source, action))
-      .toBe("module Main\n\n" + "export fun m(): {...a} -> {...a} = (r) => {...r}\n");
+      .toBe("module Main\n\n" + "export fun m(): { ...a } -> { ...a } = (r) => {...r}\n");
   });
 });
 

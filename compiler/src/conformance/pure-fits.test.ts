@@ -1207,7 +1207,7 @@ describe("a colour no parameter holds is published function by function (#1169)"
     const source = ident + "let make() =\n    let run = ident((f) => f!())\n    let go = () => run!(() => ())\n" +
       "    { run = run, go = go }\nexport let go(): Unit =\n    let m = make()\n    (m.run)!(save0)\n    (m.go)()\n";
     expect(reports(source)).toEqual([]);
-    expect(hovered(source, "make() =")).toBe("() -> {run: (() ->! Unit) >-> Unit, go: () -> Unit}");
+    expect(hovered(source, "make() =")).toBe("() -> { run: (() ->! Unit) >-> Unit, go: () -> Unit }");
   });
 });
 
@@ -1291,7 +1291,7 @@ describe("a function in the data a signature returns is a signature of its own (
 
   test("a non-function binding's carried functions are widened too, and a carried function's parameters", () => {
     const source = "let p = {run = (f) => (g: () ->! Unit) => f!()}\n";
-    expect(hovered(source, "p =")).toBe("{run: (() ->! a) -> (() ->! Unit) >-> a}");
+    expect(hovered(source, "p =")).toBe("{ run: (() ->! a) -> (() ->! Unit) >-> a }");
     expect(reports(source + user(["p.run(() => ())(save0)"])))
       .toEqual([["p.run(() => ())(save0)", "this call is impure and may fail, so this call wants `!`, not no mark"]]);
     // What a caller puts into a carried function is widened with what it runs

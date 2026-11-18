@@ -1075,7 +1075,7 @@ describe("§12 a claim the part does not fit (#1510)", () => {
     }
     // Where this module cannot spell the part, the rewrite removes the type.
     const record = refusal("let g(): Unit =\n    let (r: Int) = {a = 1}\n    ()\n" + OUT);
-    expect(record.message).toBe("type mismatch: expected Int, found {a: a}");
+    expect(record.message).toBe("type mismatch: expected Int, found { a: a }");
     expect(diagnostic("let g(): Unit =\n    let (r: Int) = {a = 1}\n    ()\n" + OUT).fixes![0]!.message).toBe("remove the type");
     expect(record.fixed).toEqual(["let g(): Unit =\n    let (r) = {a = 1}\n    ()\n" + OUT]);
     expect(messages(record.fixed[0]!)).toEqual([]);

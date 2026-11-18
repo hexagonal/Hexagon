@@ -161,14 +161,14 @@ describe("displayScheme", () => {
         },
       });
 
-    expect(row(false)).toBe("Vector({n: Int, ...} -> Unit)");
+    expect(row(false)).toBe("Vector({ n: Int, ... } -> Unit)");
     expect(row(false)).not.toMatch(/t\d/);
     // A quantified tail is a variable the signature *does* name, and it keeps
     // its letter wherever it stands.
-    expect(row(true)).toBe("Vector({n: Int, ...a} -> Unit)");
+    expect(row(true)).toBe("Vector({ n: Int, ...a } -> Unit)");
     // And outside a container, the same: unquantified, so bare.
     expect(displayScheme({ variables: [], constraints: [], type: record }))
-      .toBe("{n: Int, ...}");
+      .toBe("{ n: Int, ... }");
   });
 
   test("letters a variable inside every container kind, never a number (#995)", () => {

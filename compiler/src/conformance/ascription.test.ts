@@ -251,7 +251,7 @@ describe("§5 the diagnostics this spec re-mechanizes and retires", () => {
   test("`(x: 1, y: 2)` still errors with Products §2.2's record hint", () => {
     const messages = projectDiagnostics("module Main\n\n" + "let p = (x: 1, y: 2)\nexport let out: Int = 1\n");
     expect(messages).toContain(
-      "tuples are positional; for named fields use a record: `{x = 1, y = 2}`",
+      "tuples are positional; for named fields use a record: `{ x = 1, y = 2 }`",
     );
     // The Rewrite Rule: the named rewrite compiles.
     expect(projectDiagnostics("module Main\n\n" + "let p = {x = 1, y = 2}\nexport let out: Int = p.x\n",

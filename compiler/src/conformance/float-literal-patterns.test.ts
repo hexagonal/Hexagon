@@ -1130,7 +1130,7 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
     const nested: readonly (readonly [string, string, string, string])[] = [
       ["o", "Option(Int)", "Some(Helper.count)", "Some(y)"],
       ["p", "(Int, Int)", "(Helper.count, _)", "(y, _)"],
-      ["r", "{x: Int}", "{x = Helper.count}", "{x = y}"],
+      ["r", "{x: Int}", "{x = Helper.count}", "{ x = y }"],
       ["v", "Vector(Int)", "[Helper.count, _]", "[y, _]"],
       ["o", "Option(Option(Int))", "Some(Some(Helper.count))", "Some(Some(y))"],
       ["i", "Int", "Helper.count as z", "y as z"],
@@ -1343,7 +1343,7 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
         `        ${sibling} => "y"\n` +
         "        _ => \"o\"\n";
     expect(projectDiagnostics(late("Some({x = _})")))
-      .toEqual(["type `{x: a, ...}` has no `Num` instance"]);
+      .toEqual(["type `{ x: a, ... }` has no `Num` instance"]);
     expect(projectDiagnostics(late("Some(\"s\")")))
       .toEqual(["integer literal cannot have type `String`"]);
     expect(projectDiagnostics(late("Some((_, _))")))

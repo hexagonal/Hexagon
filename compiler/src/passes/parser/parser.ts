@@ -6943,7 +6943,7 @@ class Parser {
     const closing = this.#expect("RightBrace", "expected `}` after record fields");
     const span = spanFrom(opening.span, closing?.span ?? fields.at(-1)?.span ?? opening.span);
     if (update && fields.length === 0 && !retiredSpread) {
-      this.#errorAt(span, "a record update needs at least one override; the no-override copy is `{...p}`");
+      this.#errorAt(span, "a record update needs at least one override; the no-override copy is `{ ...p }`");
     }
     return {
       kind: "Record",
@@ -6961,8 +6961,8 @@ class Parser {
   #reportRetiredSpread(merge: boolean): void {
     this.#error(
       merge
-        ? "Hexagon has no record merge; `{...p}` copies, `{p with f = e}` updates"
-        : "records update with `with`: `{p with x = 3.0}`; `{...p}` alone is the copy/crossing",
+        ? "Hexagon has no record merge; `{ ...p }` copies, `{ p with f = e }` updates"
+        : "records update with `with`: `{ p with x = 3.0 }`; `{ ...p }` alone is the copy/crossing",
     );
   }
 
@@ -7204,7 +7204,7 @@ class Parser {
       // always carried. Reserved for the shape that habit actually produces: a
       // bare lowercase name ascribed to something that cannot be a type.
       const message = expression.kind === "Name" && expression.name.startClass === "non-upper"
-        ? "tuples are positional; for named fields use a record: `{x = 1, y = 2}`"
+        ? "tuples are positional; for named fields use a record: `{ x = 1, y = 2 }`"
         : "expected a type annotation";
       this.#error(message);
       this.#synchronize(insideBrackets(stops, "Comma", "RightParen", "Eof"));
@@ -8921,7 +8921,7 @@ class Parser {
         this.#advance();
         return { kind: "NonUpperName", text: spelling, span: token.span };
       }
-      this.#error(`\`${spelling}\` is reserved; write the field out: \`{${spelling} = …}\``);
+      this.#error(`\`${spelling}\` is reserved; write the field out: \`{ ${spelling} = … }\``);
       this.#advance();
       this.#refusedPuns.add(token.span.start.offset);
       return { kind: "NonUpperName", text: spelling, span: token.span };
@@ -9176,7 +9176,7 @@ class Parser {
     if (this.#at("Equal")) return this.#advance();
     if (this.#at("Colon")) {
       this.#error(
-        `record fields bind with \`=\`: \`{${field} = …}\`; \`:\` gives a field its type in record types`,
+        `record fields bind with \`=\`: \`{ ${field} = … }\`; \`:\` gives a field its type in record types`,
       );
       return this.#advance();
     }
@@ -9186,7 +9186,7 @@ class Parser {
     }
     if (this.#at("FatArrow")) {
       this.#error(
-        `did you mean \`=\`? \`=>\` is the lambda arrow — a lambda-valued field is \`{${field} = arg => …}\``,
+        `did you mean \`=\`? \`=>\` is the lambda arrow — a lambda-valued field is \`{ ${field} = arg => … }\``,
       );
       return this.#advance();
     }
