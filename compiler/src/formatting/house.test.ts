@@ -4,6 +4,7 @@
  * samples and the spec's examples, meets five checks.
  *
  * - **Format document** at the house settings (H1, H2, H9) changes nothing.
+ *   A text it changes is named by the first line it changes.
  * - **H9**: every construct is in its shape (Canonical Layout §12 item 6).
  *   Format document makes the half of H9 that spreads; the other half, a
  *   construct within its width limit written on one line, is made by hand, so
@@ -16,8 +17,8 @@
  *   Whether it is recursive is the checker's own answer, read from the knots it
  *   typed (`knotlessFuns`), so each text is compiled.
  * - **H10**: a comment that ends a line has exactly one space before it, and
- *   the line, comment included, fits within 100. A comment that begins its
- *   line is not this check's.
+ *   the line, comment included, fits within 100; and a comment that ends a
+ *   line is one line long. A comment that begins its line is not this check's.
  *
  * Format document cannot do the work of H9's second half, H6, N6 or H10: it
  * never joins lines, never changes a token and keeps a comment's gap as
@@ -25,10 +26,13 @@
  *
  * A sample is a fenced block that parses, read as a module of its own, with
  * `module A` above it where it has no header. In the Book that is each
- * `hexagon` block; in the spec, each `hexagon`, `hex` or untagged block. The
- * spec's chapters are read but for its decision records, which keep history
- * as it was written, and Canonical Layout and Lexer & Layout, whose examples
- * are the layouts those chapters change or refuse.
+ * `hexagon` block; in the spec, each `hexagon`, `hex` or untagged block. A
+ * block with one line the compiler refuses does not parse, so the first four
+ * checks pass it by; H10 asks only the lexer, so it reads every block that
+ * lexes. The spec's chapters are read but for its decision records, which keep
+ * history as it was written, and Canonical Layout and Lexer & Layout, whose
+ * examples are the layouts those chapters change or refuse. Its notes, in
+ * `spec/notes/`, are not chapters and are not read.
  *
  * `house.baseline.txt` holds what house text leaves as written, one finding to
  * a line, as `rule · place · …`: by file and by text, never by line number, so
@@ -48,7 +52,7 @@ import { describe, expect, it } from "vitest";
 import { knotlessFuns } from "../passes/checker/checker.js";
 import { STDLIB_SOURCES } from "../stdlib-sources.js";
 import { compileFiles } from "../support/test-project.js";
-import { read } from "./analysis.js";
+import { read, scan } from "./analysis.js";
 import { formatDocument, type FormatOptions } from "./format.js";
 import { constructs, wrongShapes } from "./widths.js";
 
@@ -86,6 +90,8 @@ interface Text {
 /** Texts read from Markdown, and how many fenced blocks did not parse. */
 interface Samples {
   readonly samples: Text[];
+  /** The blocks that do not parse, which only H10 reads, where they lex. */
+  readonly fragments: Text[];
   readonly unread: number;
 }
 
@@ -114,6 +120,7 @@ async function tutorials(): Promise<Text[]> {
  */
 function samplesOf(folder: string, files: readonly string[], tags: ReadonlySet<string>): Samples {
   const samples: Text[] = [];
+  const fragments: Text[] = [];
   let unread = 0;
   for (const file of files) {
     const lines = readFileSync(`${root}${folder}${file}`, "utf8").split("\n");
@@ -136,12 +143,13 @@ function samplesOf(folder: string, files: readonly string[], tags: ReadonlySet<s
           samples.push({ place, text: `module A\n${sample}`, offset: index });
         } else {
           unread += 1;
+          fragments.push({ place, text: sample, offset: index + 1 });
         }
       }
       index = end;
     }
   }
-  return { samples, unread };
+  return { samples, fragments, unread };
 }
 
 /** The Book's samples that parse: each fenced `hexagon` block. */
@@ -201,8 +209,9 @@ const ruleOf = (entry: string): string => entry.split(" · ")[0]!;
 
 /**
  * Writes `rule`'s entries afresh: each that was held keeps its reason, and the
- * rest are written above every reason. Groups are kept in the order they were
- * written, each followed by a blank line.
+ * rest are written above every reason. The other checks' groups keep their
+ * order, and `rule`'s that are new to it come after them; groups are parted by
+ * a blank line.
  */
 function writeBaseline(rule: Rule, found: readonly string[]): void {
   const old = baseline();
@@ -244,26 +253,51 @@ function expectBaseline(rule: Rule, found: readonly Finding[], what: string): vo
   expect(fixed, "baseline entries nothing finds now: remove them from house.baseline.txt").toEqual([]);
 }
 
-/** Each comment that ends a line: code before it on its line, and nothing after. */
-function trailingComments(text: string): { readonly line: number; readonly gap: string; readonly whole: string }[] {
-  const found: { line: number; gap: string; whole: string }[] = [];
-  for (const { span } of read(text).lexed.comments) {
+/** A comment that ends a line, as H10 reads it. */
+interface TrailingComment {
+  /** Its line in the text, from 0. */
+  readonly line: number;
+  /** The whitespace between the code and the comment. */
+  readonly gap: string;
+  /** Its line, code and comment, to the comment's first line end. */
+  readonly whole: string;
+  /** Whether the comment runs on past its first line. */
+  readonly spans: boolean;
+}
+
+/**
+ * Each comment that ends a line: a token before it on its line, and nothing
+ * after it on its last line. Only the lexer is asked, so a text that does not
+ * parse can be read too.
+ */
+function trailingComments(text: string): TrailingComment[] {
+  const { tokens, comments } = scan(text).lexed;
+  const found: TrailingComment[] = [];
+  const lineEnd = (offset: number): number => text.indexOf("\n", offset) === -1 ? text.length : text.indexOf("\n", offset);
+  for (const { span } of comments) {
+    const code = tokens.some(({ span: token }) =>
+      token.start.line === span.start.line && token.end.offset <= span.start.offset
+    );
+    if (!code || text.slice(span.end.offset, lineEnd(span.end.offset)).trim() !== "") continue;
     const lineStart = text.lastIndexOf("\n", span.start.offset - 1) + 1;
-    const lineEnd = text.indexOf("\n", span.end.offset) === -1 ? text.length : text.indexOf("\n", span.end.offset);
-    const before = text.slice(lineStart, span.start.offset);
-    if (before.trim() === "" || text.slice(span.end.offset, lineEnd).trim() !== "") continue;
-    const gap = /\s*$/u.exec(before)![0];
-    found.push({ line: span.start.line, gap, whole: text.slice(lineStart, lineEnd) });
+    found.push({
+      line: span.start.line,
+      gap: /\s*$/u.exec(text.slice(lineStart, span.start.offset))![0],
+      whole: text.slice(lineStart, lineEnd(span.start.offset)).replace(/\r$/u, ""),
+      spans: span.end.line !== span.start.line,
+    });
   }
   return found;
 }
 
 describe("The house test", () => {
-  it("reads the samples that parse, and no more fragments than it did", () => {
+  it("reads the samples that parse, and as many fragments as it did", () => {
     // Fragments no module can hold: a sentence's worth of syntax, a program
     // shown being refused, or another language's text in an untagged fence.
-    expect(bookSamples.unread).toBeLessThanOrEqual(32);
-    expect(specSamples.unread).toBeLessThanOrEqual(117);
+    // The counts are exact, so a sample that stops parsing cannot hide behind
+    // one that starts.
+    expect(bookSamples.unread).toBe(32);
+    expect(specSamples.unread).toBe(117);
   });
 
   it("reads as ending a line only a comment with code before it and nothing after (H10)", () => {
@@ -273,16 +307,25 @@ describe("The house test", () => {
       "let a = 1 -- one space",
       "let b = 2   -- three spaces",
       "let c = {- inside -} 3",
+      "{- a -} -- after a comment, not code",
+      "let d = 4 {- runs",
+      "   on -}",
+      "let e = 5 -- before a carriage return\r",
       "",
     ].join("\n");
     expect(trailingComments(text)).toEqual([
-      { line: 2, gap: " ", whole: "let a = 1 -- one space" },
-      { line: 3, gap: "   ", whole: "let b = 2   -- three spaces" },
+      { line: 2, gap: " ", whole: "let a = 1 -- one space", spans: false },
+      { line: 3, gap: "   ", whole: "let b = 2   -- three spaces", spans: false },
+      { line: 6, gap: " ", whole: "let d = 4 {- runs", spans: true },
+      { line: 8, gap: " ", whole: "let e = 5 -- before a carriage return", spans: false },
     ]);
   });
 
-  it("gives every baseline entry a reason", () => {
+  it("gives every baseline entry a reason and a check", () => {
     expect(baseline().filter(({ reason }) => reason === undefined).map(({ entry }) => entry), "entries with no reason")
+      .toEqual([]);
+    const rules: readonly string[] = ["Format document", "H9", "N6", "H10"];
+    expect(baseline().filter(({ entry }) => !rules.includes(ruleOf(entry))).map(({ entry }) => entry), "entries of no check")
       .toEqual([]);
   });
 
@@ -303,7 +346,7 @@ describe("The house test", () => {
       let line = 0;
       while (before[line] === after[line]) line += 1;
       found.push({
-        entry: entryOf("Format document", place, before[line]!.trim()),
+        entry: entryOf("Format document", place, (before[line] ?? "").trim() || "(a blank line)"),
         named: `${place}:${line + 1 + offset} changes: ${JSON.stringify(before[line])} => ${JSON.stringify(after[line])}`,
       });
     }
@@ -371,13 +414,23 @@ describe("The house test", () => {
 
   it("puts one space before a comment that ends a line, and keeps its line within 100 (H10)", async () => {
     const found: Finding[] = [];
-    for (const { place, text, offset } of await houseText()) {
-      for (const { line, gap, whole } of trailingComments(text)) {
+    // A fragment that does not parse is read too, where it lexes: its
+    // comments are comments, though its code is not a module.
+    const fragments = [...bookSamples.fragments, ...specSamples.fragments]
+      .filter(({ text }) => !scan(text).lexed.diagnostics.some(({ severity }) => severity === "error"));
+    for (const { place, text, offset } of [...await houseText(), ...fragments]) {
+      for (const { line, gap, whole, spans } of trailingComments(text)) {
         const width = [...whole].length;
         if (gap !== " ") {
           found.push({
             entry: entryOf("H10", place, "one space", whole.trim()),
             named: `${place}:${line + 1 + offset} has ${JSON.stringify(gap)} before its comment: ${whole.trim()}`,
+          });
+        }
+        if (spans) {
+          found.push({
+            entry: entryOf("H10", place, "one line", whole.trim()),
+            named: `${place}:${line + 1 + offset} has a comment that ends it over more than one line: ${whole.trim()}`,
           });
         }
         if (width > 100) {

@@ -179,10 +179,12 @@ the Book, the Playground's tutorials and the spec's own examples. One
 test, the house test, holds each to this section: Format document at the
 house settings changes nothing, and the test checks what the formatter
 does not make, which is H6's loops, H9, H10 and N6. It reads every example
-that parses, and the examples left as written stand in its baseline, each
-beneath its reason. The spec's decision records keep their history as
-written, and the examples of Canonical Layout and Lexer & Layout are the
-layouts those chapters change or refuse, so the test reads neither.
+that parses; an example with a line the compiler refuses does not parse,
+and of it the test reads only H10's comments. The examples left as
+written stand in its baseline, each beneath its reason. The spec's
+decision records keep their history as written, and the examples of
+Canonical Layout and Lexer & Layout are the layouts those chapters change
+or refuse, so the test reads neither; nor does it read the notes.
 
 - **H1** House text is formatted at Maximum line length 100. A line that
   cannot be broken, such as one holding a long string or a comment that
