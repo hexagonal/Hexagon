@@ -279,7 +279,7 @@ chosen once for the whole expression — never operation by operation from the i
   type (above). A seat whose type is a type variable supplies no home: the tree's
   home is chosen from its values, and its finished value then meets the seat as any
   value does — by exact unification or one of the four conversions, a declared variable
-  the body can name being an established target (`fun widen<t: Num>(value: Nat): t =
+  the body can name being an established target (`let widen<t: Num>(value: Nat): t =
   value`). Otherwise the home is
   chosen from the types the tree's values **establish**, each a value whose type the text
   decides (below): concrete types; declared type
@@ -728,12 +728,12 @@ else n` beside `if c then n else m`, and the same two `match` arm orders, unanno
 price)` and `h(price, n * 1.5)`; the schedule residue at a receiver, `h3((n * 1.5).multiply(price),
 decs, 0.5)` refused beside `h3(0.5, decs, (n * 1.5).multiply(price))` accepted (`h3<t:
 Num>(x: t, v: Vector(t), y: t)`, `decs : Vector(Dec)`); the declared and constrained
-variables kept — `passed`'s `accept(value)`, `scale`, and `fun k5(count: Int, value) = { let
+variables kept — `passed`'s `accept(value)`, `scale`, and `let k5(count: Int, value) = { let
 z = value + 1; count * value }` at `(Int, Int) -> Int`; the boundaries, each refused — `let y = n * 1.5` then `y *
 price`, `id(n * 1.5) * price`, and `(n * 1.5).multiply(price)` with §6's receiver report —
 beside `price.multiply(n * 1.5)` and `let a: Dec = (n * 1.5).multiply(price)`, accepted;
 the gate `(n band 3) * f`, `band` at `Int`; the moved programs — `n * i * price` (`i :
-Int`) value-checked at `Dec` where the `Int` product passes 2^53, `fun ff(x) = { let s = x
+Int`) value-checked at `Dec` where the `Int` product passes 2^53, `let ff(x) = { let s = x
 + m + n; useNat(x) }` refused, and `(i ** k) * f` with `k` negative value-checked as a
 reciprocal; the seats a face now homes, `let g: () ->
 Dec = () => n` and `t := n * 1.5` at `var t: Dec`; one report for a `**` base that cannot
