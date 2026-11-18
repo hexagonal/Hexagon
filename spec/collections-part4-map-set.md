@@ -51,7 +51,7 @@ Notes, normative where bolded:
 
 ### 3.1 No literals
 
-**`Map` and `Set` have no literal syntax in v1.** `{…}` is permanently records; `[k: v]`-style forms would complicate the bracket grammar Part 3 §2 settled, for two types whose construction is rarely hot in source. Rejected alternative §12.1. Construction is by name:
+**`Map` and `Set` have no literal syntax in v1.** `{ … }` is permanently records; `[k: v]`-style forms would complicate the bracket grammar Part 3 §2 settled, for two types whose construction is rarely hot in source. Rejected alternative §12.1. Construction is by name:
 
 ```
 let empty  = Map.empty                                -- Map(k, v), generalizes
@@ -427,10 +427,10 @@ Map.fromEntries(Vector.toSeq([(1, "old"), (1, "new")]))[1]
                                            -- "new"  (last value wins)
 
 -- (b) Unsatisfied Hash, hinted (key type without derives)
-record Weird = {s: String}
+record Weird = { s: String }
 honor Eq<Weird> =
     equals(a, b) = String.lower(a.s) == String.lower(b.s)
-let bad = Map.set(Map.empty, Weird({s = "K"}), 1)
+let bad = Map.set(Map.empty, Weird({ s = "K" }), 1)
                                            -- ERROR: no Hash instance for Weird
                                            --   (and derives Hash is barred by the
                                            --    Eq-agreement rule, Part 2 §4.3;

@@ -278,27 +278,27 @@ Each snippet is its own source file. Golden: attachment table (declaration → d
 
 ```
 {-- Doubles a number. -}
-fun double(x: Int): Int = x * 2          -- attaches; .js and .d.ts (if exported) carry /** Doubles a number. */
+let double(x: Int): Int = x * 2          -- attaches; .js and .d.ts (if exported) carry /** Doubles a number. */
 
 {-- Line one. -}
 {-- Line two. -}
-export fun f(x: Int): Int = x            -- one block, content "Line one.\n\nLine two."; attaches through `export`
+export let f(x: Int): Int = x            -- one block, content "Line one.\n\nLine two."; attaches through `export`
 
 {-- Overview paragraph.
 
     Indented continuation dedents.  -}
-fun g(): Unit = ()                       -- content dedented; blank line preserved as paragraph break
+let g(): Unit = ()                       -- content dedented; blank line preserved as paragraph break
 
 {--
     A newline-first body: every content line
     participates in the dedent together.
 -}
-fun g2(): Unit = ()                      -- no opener-line fragment, so all lines strip their common prefix
+let g2(): Unit = ()                      -- no opener-line fragment, so all lines strip their common prefix
 
 {-- Overview. -}
 -- ordinary note in between
 {-- Addendum. -}
-fun h(): Unit = ()                       -- one doc block: "Overview.\n\nAddendum."; ordinary comment invisible
+let h(): Unit = ()                       -- one doc block: "Overview.\n\nAddendum."; ordinary comment invisible
 
 union Shape =
   {-- A circle of the given radius. -}
@@ -318,9 +318,9 @@ honor Keyed<Int> =
     keyOf(x) = x                         -- implied-type-binding docs; honor seats are tooling-only (§7.1)
 
 -- | not documentation
-fun plain(): Unit = ()                   -- OK; `plain` carries NO docs — a line comment is never documentation (§2.3)
+let plain(): Unit = ()                   -- OK; `plain` carries NO docs — a line comment is never documentation (§2.3)
 {-| not documentation either -}
-fun plain2(): Unit = ()                  -- OK; `plain2` carries NO docs — `{-|` is an ordinary comment (§2.2)
+let plain2(): Unit = ()                  -- OK; `plain2` carries NO docs — `{-|` is an ordinary comment (§2.2)
 {----------}                             -- ordinary comment (`{---` rule)
 {--}                                     -- ordinary empty comment
 {-- - A list item. -}
@@ -334,7 +334,7 @@ import Vector                            -- ERROR: imports not documentable; mes
 {-- The filesystem module. -}
 extern from "node:fs"                    -- ERROR: docs attach to the block's items, not the block (§5's dedicated row)
   fun readFileSync(path: String) ->! String
-export {-- misplaced -} fun m(): Unit = ()  -- ERROR: mid-declaration; `fun` does not begin the declaration
+export {-- misplaced -} let m(): Unit = ()  -- ERROR: mid-declaration; `let` does not begin the declaration
 {-! not special -}                       -- ordinary comment; no inner-doc spelling exists or is reserved (§9.1)
 ```
 
@@ -351,7 +351,7 @@ export fun bad(s: String): Ast = ...     -- refused entirely (manifest head insi
 export fun wait(s: String): Ast = ...    -- recognized: the decimal's dot is interior (no whitespace after it), the sentence ends at the final dot (§6.1)
 
 {-- **Throws `IndexFault` when the index is bad.** The caller must check first. -}
-export fun at(i: Int): Int = ...         -- recognized: the terminator is the emphasized dot, whitespace reached across the closing `**`; the marks stay out of the condition (§6.1)
+export let at(i: Int): Int = ...         -- recognized: the terminator is the emphasized dot, whitespace reached across the closing `**`; the marks stay out of the condition (§6.1)
 
 {-- Throws `parseError` when lowercase. -}
 export fun odd(s: String): Ast = ...     -- deviant (lowercase name): ordinary prose, no tag

@@ -130,7 +130,7 @@ Seq.length(if useFirst then names else moreNames)
 -- so a = String, and each branch converts through its own instance
 ```
 
-`Vector(Int)` against `Set(String)` is refused at the `if`: no one `Seq` holds both. In `fun f(c, xs, names: Vector(String)) = Seq.length(if c then xs else names)`, `xs` is `Seq(String)` by the close's default (§3.5), never `names`'s `Vector`.
+`Vector(Int)` against `Set(String)` is refused at the `if`: no one `Seq` holds both. In `let f(c, xs, names: Vector(String)) = Seq.length(if c then xs else names)`, `xs` is `Seq(String)` by the close's default (§3.5), never `names`'s `Vector`.
 
 **Only a seat's `Seq` head authorizes a conversion.** A sequence-valued path does not authorize converting its sibling; a value at a callee's bare type variable never adapts, whatever its group holds (`pick(seq, vec)` at `pick<a>(x: a, y: a)` is refused); and inference never invents `Seq` as a common collection type. A channel adapts the value newly written at its part, never an existing value: an `Option(Vector(String))` already held is refused at `Option(Seq(String))` (§3.6), while `Some(words)` written there adapts `words`.
 
@@ -152,7 +152,7 @@ Seq.length(if useFirst then names else moreNames)
 - a `match` on the source itself whose arms test something, which is refused: the text does not decide the source's head (Pattern Matching §6.1). Arms that test nothing need none.
 
 ```
-fun go(v) =
+let go(v) =
     let total = sumInts(v)              -- sumInts : (Seq(Int)) -> Int
     v.map(match                         -- refused: the arms see a variable
         n when n < 0 => "negative"
@@ -174,7 +174,7 @@ The repair is to annotate the source (`v: Seq(Int)`), or to spell the call quali
 - **Functions.** An existing function returning a vector is not a function returning a sequence. A newly written lambda's body checked against a known `Seq` result is the ordinary body seat, so where a function handed by name is refused for its result alone, the report names the lambda that calls it: over `rows: Seq(Vector(Int))`, `Seq.flatMap(rows, identity)` is refused, and the report offers `(x) => identity(x)` (§12).
 - **Method search.** A vector does not acquire `Seq`'s operations: a resolved `Seq.map(values, transform)` adapts its argument, while `values.map(transform)` resolves at `Vector` and never reaches `Seq.map`.
 - **Other destinations.** There is no reverse conversion, no automatic collection materialization, no chain of conversions, no subtyping, and no change to `widens`.
-- **An instance's own subject, in its own `toSeq`.** Inside an `Iterable` instance's `toSeq`, a value whose head is the instance's subject head is never adapted, at any `Seq` seat of the member's body — `s` itself, a `Stack(Int)` inside `honor Iterable<Stack(a)>` (with `record Stack(a) = {items: Vector(a)}`), or a child `k: Tree(a)` in a tree's flatten inside `honor Iterable<Tree(a)>` (`Seq.flatMap(kids, (k) => k)`) — since the only conversion there would be the member being defined, a call to itself the program never wrote. It is refused, with the rewrite named (§12): convert its contents (`toSeq(s) = s.items`), or write the call where recursion on a smaller value is meant. The exclusion is the member's own body, not what it calls: a helper whose written result is `Seq(a)` — `let flat(s: Stack(a)): Seq(a) = s`, called as `toSeq(s) = flat(s)` — adapts `s` through the instance being defined, exactly as `Iterable.toSeq(s)` written in `flat` would; the recursion is the program's, visible at a named function, and its repair is the same, `s.items`.
+- **An instance's own subject, in its own `toSeq`.** Inside an `Iterable` instance's `toSeq`, a value whose head is the instance's subject head is never adapted, at any `Seq` seat of the member's body — `s` itself, a `Stack(Int)` inside `honor Iterable<Stack(a)>` (with `record Stack(a) = { items: Vector(a) }`), or a child `k: Tree(a)` in a tree's flatten inside `honor Iterable<Tree(a)>` (`Seq.flatMap(kids, (k) => k)`) — since the only conversion there would be the member being defined, a call to itself the program never wrote. It is refused, with the rewrite named (§12): convert its contents (`toSeq(s) = s.items`), or write the call where recursion on a smaller value is meant. The exclusion is the member's own body, not what it calls: a helper whose written result is `Seq(a)` — `let flat(s: Stack(a)): Seq(a) = s`, called as `toSeq(s) = flat(s)` — adapts `s` through the instance being defined, exactly as `Iterable.toSeq(s)` written in `flat` would; the recursion is the program's, visible at a named function, and its repair is the same, `s.items`.
 
 Every lawful instance follows the same rule: a `String` supplies codepoint strings, a `Map` its entry tuples, a `Set` its specified traversal order, and no consumer has an exception of its own. An exhaustive consumer of an infinite sequence can still fail to terminate. An explicit `toSeq` keeps its uses — a sequence wanted where no seat asks for one, or `Seq`'s operations chosen by the dot — and every existing spelling of it stays.
 
@@ -335,12 +335,12 @@ The whole tax is one small instance. Anything more (combinators, instances like 
 -- bag.hex — a multiset: an opaque record over Map(a, Int) counts
 module Bag
 
-opaque record Bag(a) = {counts: Map(a, Int)}
+opaque record Bag(a) = { counts: Map(a, Int) }
 
-export fun fromSeq<a: Hash>(items: Seq(a)): Bag(a) = ...
-export fun add<a: Hash>(bag: Bag(a), x: a): Bag(a) = ...
-export fun count<a: Hash>(bag: Bag(a), x: a): Int = ...   -- 0 when absent
-export fun size(bag: Bag(a)): Int = ...                    -- total multiplicity
+export let fromSeq<a: Hash>(items: Seq(a)): Bag(a) = ...
+export let add<a: Hash>(bag: Bag(a), x: a): Bag(a) = ...
+export let count<a: Hash>(bag: Bag(a), x: a): Int = ...   -- 0 when absent
+export let size(bag: Bag(a)): Int = ...                    -- total multiplicity
 
 honor Iterable<Bag(a)> =
     type Item = a
@@ -361,12 +361,12 @@ for x in bag do              -- Item = Int; resolution: head constructor Bag →
     total := total + x         -- 8
 
 -- The generic form remains unwritable in v1, exactly as designed:
-fun sum<c: Iterable>(xs: c): Int = ...
+let sum<c: Iterable>(xs: c): Int = ...
     -- ERROR: `Iterable` declares an implied type and cannot constrain a
     --        type variable; take a `Seq(a)` parameter instead   (Part 2 §7.2/§9)
 
 -- The idiom:
-fun sum(xs: Seq(Int)): Int = ...
+let sum(xs: Seq(Int)): Int = ...
 sum(bag)                     -- 8: the Seq seat adapts through Bag's instance (§3.4)
 ```
 
@@ -595,17 +595,17 @@ for x in bag do                             -- iteration needs no Hash
 -- emits: for (const x of __Iterable_Bag.toSeq(bag)) { total = total + x; }
 
 -- (e) Rigid vs unsolved: a refusal, and a head that waits
-fun f(xs: c) =
+let f(xs: c) =
     for x in xs do                            -- ERROR: `xs` has the generic type `c`, and
         ...                                     --   Iterable declares an implied type and cannot
                                             --   constrain a type variable in v1; take a Seq(a)
                                             --   parameter instead
-fun g(xs) =
+let g(xs) =
     for x in xs do                            -- the head waits for g's close (§3.1 step 2)
         ()
     Vector.length(xs)                         -- g : (Vector(a)) -> Int — and the same with
                                             --   the two statements swapped (#1118)
-fun h(xs) =
+let h(xs) =
     for x in xs do                            -- nothing describes xs: h : (Seq(a)) -> Unit
         ()
 
@@ -680,30 +680,30 @@ let f1(xs) = String.fromSeq(xs)             -- f1 : (Seq(String)) -> String
 let f2(xs) =
     let s = String.fromSeq(xs)              -- decided when the head arrives, in either statement order
     Vector.length(xs)                       -- f2 : (Vector(String)) -> Int, xs adapted
-fun f3(v) =
+let f3(v) =
     let total = sumInts(v)                  -- the element is linked here: Int
     Seq.map(v, match                        -- accepted: the callback reads Int
         n when n < 0 => "negative"
         _ => "other")
 let t(x) = Iterable.toSeq(x)                -- ERROR: an explicit call alone keeps its refusal
-fun go(v) =
+let go(v) =
     let total = sumInts(v)
     v.map(match                             -- ERROR: the text does not decide v's type, so the
         n when n < 0 => "negative"          --   dot is refused (Method Syntax §3.5); annotate
         _ => "other")                       --   `v: Seq(Int)`, or write Seq.map(v, match …)
-fun z(xs, ys) =
+let z(xs, ys) =
     let s = String.fromSeq(xs)              -- xs waits
     xs.zip(ys)                              -- a goal on a waiting receiver
 -- at z's close xs takes Seq(String), the goal resolves to Seq.zip and meets ys at a
 -- Seq parameter, ys waits in turn and takes Seq(b):
 -- z : (Seq(String), Seq(b)) -> Seq((String, b))
-fun late(v) =
+let late(v) =
     let total = sumInts(v)                  -- ERROR here, at sumInts(v): expected Seq(Int), found
     let k: Vector(String) = v               --   Vector(String), which supplies Seq(String) —
     total                                   --   the same place with the two lines swapped
 
 -- (p) An instance's own subject, in its own toSeq (§3.6)
-record Stack(a) = {items: Vector(a)}
+record Stack(a) = { items: Vector(a) }
 honor Iterable<Stack(a)> =
     type Item = a
     toSeq(s) = s                            -- ERROR: a Stack(a) is not converted inside

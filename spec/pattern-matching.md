@@ -1,7 +1,7 @@
 # Hexagon Spec: Pattern Matching
 
 **Status:** Decided (July 2026); amended 2026-11-09 (#1496): §7.3's count takes in the cases beneath a named constructor, and reads "at least" where the search stops at its limit; amended 2026-11-11 (#1509): a pattern may say the type of what it takes apart, `(p: T)` (§2.9), and a `let` pattern takes a binding annotation as a name does (§6.3); amended 2026-11-11 (#1510): a function the text decides fits a written arrow in a pattern's type at every position, a type in the pattern of an arm, a `for` head or a lambda's parameter spells data, and a following arrow is written only in a `let` pattern's type (§2.9); a claim's colour rewrite changes exactly the colours its report names, which are those that cannot hold, and an arrow in a parameter of a head binder's type that accepts a colour the part refuses has its own report (§2.9, §12); amended 2026-11-12 (#1518): a type written over a part that the declarations of the constructors the pattern names write meets it as a use does, whatever the value it is taken from (§2.9; Method Syntax §3.1). Amended 2026-11-14 (#1542): `p1 // p2` takes a fraction apart (§2.10; §2.8 and §6.5 place it), and a `//` pattern its literals show can never match is a dead case (§7.2). Amended 2026-11-16 (#1573): a `match` head ends with `with`, may be carried across lines up to it, and keeps its arms in a block below; the match function takes no `with` (§6.1, §6.7, §12, §13; Lexer & Layout §2.4).
-**Scope:** The full pattern grammar — nested constructor patterns, tuple and record patterns, record punning, literal patterns, or-patterns, as-patterns, typed patterns `(p: T)`, fraction patterns `p1 // p2`, and (by reference) vector patterns; guards as arm syntax; the irrefutability judgment; the five pattern positions (`match` arms, `catch` arms, `let`, `for..in`, lambda parameters) and the generalized `match` scrutinee; exhaustiveness and reachability over the full grammar; emission. Rider decision: record **construction** punning (`{x}` ≡ `{x = x}` in value position) ships in v1 (§9). Term-position field separator is `=` corpus-wide (Products §8; §16 here).
+**Scope:** The full pattern grammar — nested constructor patterns, tuple and record patterns, record punning, literal patterns, or-patterns, as-patterns, typed patterns `(p: T)`, fraction patterns `p1//p2`, and (by reference) vector patterns; guards as arm syntax; the irrefutability judgment; the five pattern positions (`match` arms, `catch` arms, `let`, `for..in`, lambda parameters) and the generalized `match` scrutinee; exhaustiveness and reachability over the full grammar; emission. Rider decision: record **construction** punning (`{ x }` ≡ `{ x = x }` in value position) ships in v1 (§9). Term-position field separator is `=` corpus-wide (Products §8; §16 here).
 **Not in scope:** the vector pattern's forms, typing, length-based exhaustiveness, irrefutability, rest spelling, and emission (Collections Part 3 §3 — the form joins this grammar, §2/§11.1; that spec owns its algorithm), range patterns (deferred, §11.2), declared (view) patterns — the `pattern` declaration, its suffix form, resolution, coverage, and emission are Pattern Declarations', the form joining this grammar in §2 — the `match` keyword's precedence slot (Operators §3.2 already seats it among the eats-right forms), `Exn` matching (permanently excluded; Exceptions §3 is authoritative), string representation details behind `Eq<String>` (Primitive Types §5).
 **Companions:** Unions (flat constructor patterns as this grammar's degenerate case; exhaustiveness doctrine; `match` emission baseline), Products (flat `let`-destructuring as degenerate case; record openness vocabulary; tuple emission), Exceptions (catch arms; open-sum reachability model), Statements/Blocks/Mutability §5/§5.4 (binder class is positional; `let`-pattern binders sequential), Collections Part 3 §3 (vector patterns), Collections Part 4 §7.2 (`for (k, v) in map do` iteration), Operators (Eq/Ord elaboration for literals; chained comparisons in guards; `match` eats right), Decisions Batch 2026-07 (`Eq<Float>` SameValueZero — the equality a `Float` literal pattern tests through), Numeric Literals (the literal's typing: bare integer literals `Num`-polymorphic, `n`-suffixed literals `BigInt`, unsuffixed decimal literals `Float`, `d`-suffixed literals canonical prelude `Dec`), Lexer §5 (a `Float` token's binary64 value; overflow refused), Declarations Preamble §1.1 (the Rewrite Rule, which this doc's diagnostics obey).
 
@@ -14,7 +14,7 @@
 - **Guards are arm syntax, not pattern syntax** (§3). A pattern is a static shape; a guard is a runtime test. (A declared pattern is a shape whose reading is a pure function — Pattern Declarations; the stratum is untouched.) Keeping them in separate grammatical strata is what keeps or-patterns, the same-bindings rule, and exhaustiveness simple.
 - **A pattern may say what it takes apart.** `(p: T)` claims that the value at its position has type `T` (§2.9). The claim is checked as every written type is, and it is static: it tests nothing at run time, so it changes no verdict of refutability or coverage, and it does no conversion that does work, because a pattern takes apart a value that already exists (Functions §4.3: no channel reaches into an existing value); a function's colour fits it as at any use, an instantiation (§2.9). A type that faces a value, and so may convert it, is written on the binding, `let p: T = e` (§6.3), or as an ascription on the value (Ascription spec).
 - **Exhaustiveness and reachability remain hard errors and remain exact** over the decidable fragment (§7). Guarded arms contribute nothing to coverage. Infinite domains require a catch-all. This is the Unions §4.3 doctrine, generalized, not renegotiated.
-- **Binder class is positional, never determined by pattern syntax** (Statements §5, the proper-subterm criterion): `match`-arm, `catch`-arm, lambda-parameter, and loop-pattern binders are **head binders** and shadow freely; every name a **`let` pattern** binds is a **sequential binder** (Statements §5.4) and may not reuse a name in scope, nor one whose definition is in progress (Statements §5.1). The same record pattern `{name}` is a head binder in an arm and a sequential binder on a `let` LHS. No pattern form creates a third class. **Duplicates within one simultaneous pattern are errors regardless of class.**
+- **Binder class is positional, never determined by pattern syntax** (Statements §5, the proper-subterm criterion): `match`-arm, `catch`-arm, lambda-parameter, and loop-pattern binders are **head binders** and shadow freely; every name a **`let` pattern** binds is a **sequential binder** (Statements §5.4) and may not reuse a name in scope, nor one whose definition is in progress (Statements §5.1). The same record pattern `{ name }` is a head binder in an arm and a sequential binder on a `let` LHS. No pattern form creates a third class. **Duplicates within one simultaneous pattern are errors regardless of class.**
 - **Emission stays readable**: cascades of `if`/`else if` on tags and fields, `switch` where a single tag discriminates, `const` binders from named fields, guards appended with `&&`. No decision-tree compilation whose output couldn't have been written by hand. *(Standing post-#147: this bullet constrains the emitter, not the language — emission shape is exactly the territory where readable JS remains a governing goal; the pivot demoted the TS-author test as a language-design adjudicator, not as an emission commitment. `decisions-ml-dialect-bool-2026-07.md` §1.)*
 
 ---
@@ -29,7 +29,7 @@ x                        -- variable: matches anything, binds x
 C(p1, ..., pn)           -- constructor pattern, sub-patterns nest freely
 C                        -- nullary constructor
 (p1, ..., pn)            -- tuple pattern, arity 0 or ≥ 2; (p) is grouping
-{f1 = p1, f2, ...}       -- record pattern: open; {f} puns as {f = f}
+{ f1 = p1, f2, ... }     -- record pattern: open; { f } puns as { f = f }
 0   1n   1.5   1.50d   "yes" -- literal patterns: bare integer, BigInt, Float, Dec, String (Bool's are constructors, #147)
 p1 | p2                  -- or-pattern
 p as x                   -- as-pattern: match p, additionally bind the whole to x
@@ -41,14 +41,14 @@ p as x                   -- as-pattern: match p, additionally bind the whole to 
 (p1, ..., pn)name        -- declared pattern: a component list, then the pattern's name as a
                          --   suffix, bare always (Pattern Declarations owns declaration, typing,
                          --   resolution, coverage, emission; registered here by reference)
-p1 // p2                 -- fraction pattern: a Rat's top and bottom, each at BigInt (§2.10)
+p1//p2                   -- fraction pattern: a Rat's top and bottom, each at BigInt (§2.10)
 ```
 
-Grammar, loosest to tightest: `as` binds looser than `|`; both bind looser than `//`, and `//` looser than the other structural forms. So `Circle(r) | Square(r) as s` is `(Circle(r) | Square(r)) as s`, and `0 // _ | _ // 1 as r` is `((0 // _) | (_ // 1)) as r`. Parenthesize to override. A typed pattern's `:` ends its element (§2.9), so it is looser than both: `(Circle(r) | Square(r) as s: Shape)` types the whole.
+Grammar, loosest to tightest: `as` binds looser than `|`; both bind looser than `//`, and `//` looser than the other structural forms. So `Circle(r) | Square(r) as s` is `(Circle(r) | Square(r)) as s`, and `0//_ | _//1 as r` is `((0//_) | (_//1)) as r`. Parenthesize to override. A typed pattern's `:` ends its element (§2.9), so it is looser than both: `(Circle(r) | Square(r) as s: Shape)` types the whole.
 
 ### 2.1 Wildcard and variable
 
-Unchanged from Unions §4.2 / Products §2.4: `_` binds nothing and may repeat; a non-uppercase-start name binds the matched value. **Duplicate binders anywhere within one whole pattern are a hard error** — `Rect(w, w)`, `{x = a, y = a}`, `(p, q) as p` — same message family as before ("`w` is bound twice in this pattern"). The check is over the entire pattern including `as` binders and through nesting; or-pattern alternatives are checked per-alternative (each alternative is a separate binding universe, then reconciled by §2.6's same-bindings rule).
+Unchanged from Unions §4.2 / Products §2.4: `_` binds nothing and may repeat; a non-uppercase-start name binds the matched value. **Duplicate binders anywhere within one whole pattern are a hard error** — `Rect(w, w)`, `{ x = a, y = a }`, `(p, q) as p` — same message family as before ("`w` is bound twice in this pattern"). The check is over the entire pattern including `as` binders and through nesting; or-pattern alternatives are checked per-alternative (each alternative is a separate binding universe, then reconciled by §2.6's same-bindings rule).
 
 An uppercase-start name in any pattern position is a constructor reference, never a binder (the case rule). The v1 "nested patterns arrive with pattern matching" parse error is hereby retired: they have arrived.
 
@@ -62,7 +62,7 @@ Envelope(Header(id) as h, body)
 
 - **Positional, always** (Unions §4.2 stands). Slot names never appear in constructor patterns in v1; the record pattern is where names live. Arity must equal constructor arity — same errors and hints as before (`Circle =>` gets the "`Circle` carries 1 field; write `Circle(_)`" hint; `Point()` gets the nullary-parens hint).
 - Sub-patterns are full patterns: literals, or-patterns, further constructors, records, tuples, `as` — anything.
-- Constructor patterns apply to `union` constructors, prelude exceptions in catch arms (`JsError(e)` — Exceptions §5.2), and **nominal `record` constructors**: `Point(pat)` is legal and destructures through the nominal wall, where `pat` matches the underlying record value — the pattern-side dual of the constructor term. In practice `Point({x, y})` is the useful spelling. (This is the explicit-crossing doctrine of Products §5.3, mirrored: the constructor is the way in; the constructor *pattern* is the way out. `{...p}` remains the expression-side exit; nothing implicit is added.)
+- Constructor patterns apply to `union` constructors, prelude exceptions in catch arms (`JsError(e)` — Exceptions §5.2), and **nominal `record` constructors**: `Point(pat)` is legal and destructures through the nominal wall, where `pat` matches the underlying record value — the pattern-side dual of the constructor term. In practice `Point({ x, y })` is the useful spelling. (This is the explicit-crossing doctrine of Products §5.3, mirrored: the constructor is the way in; the constructor *pattern* is the way out. `{ ...p }` remains the expression-side exit; nothing implicit is added.)
 - **Resolution of the constructor name** *(#763)*. A constructor pattern's head resolves **in scope first** — the module's own constructors, the prelude's bare set (Modules §5.5), a qualified spelling `Alias.Name` through a module alias (Modules §3.1), and the term-position companion fallback (Modules §5.1 rule 3), each exactly as in an expression and in rule 3's order (#1075) — **and then in the expected type**: where scope has nothing for a bare uppercase-start head, and the pattern's expected type is a union or nominal record whose constructor set holds the spelling, the head resolves to that constructor. The door reads a constructor set **as the reporting module may write it**: outside an `opaque` type's home module its constructors are private (Modules §4.2), so the door does not open on them, and a bare head over an opaque record or union abroad draws the opaque family's own refusal at the type's noun — "cannot destructure opaque record `Point`; use an operation exported by its home module", "cannot destructure opaque union `Handle`; use an operation exported by its home module", or, where the home exports declared patterns over the type, the sentence that names them (§2.4; Pattern Declarations §3.3) — never a constructor no spelling in this module can write. The expected type is the scrutinee's at the top of a pattern and the slot type at the pattern's position inside one — the declaration's, as instantiated when the pattern is checked (see *Beneath* below; §4's checking mode: `Pair(North, South)` looks `North` up in the declared component type, `Some(North)` under `Option(Direction)` in the instantiated payload), so nothing is inferred and nothing is searched — the door reads a type the pattern's position had already fixed. "In scope" reads **module-wide**: a spelling this module declares in the term namespace is in scope everywhere in it, so the door never answers for that spelling, and a use above the declaration is Functions §7.2's declared-later error under Modules §5.4's reservation — never the door's meaning. The door answers only where scope has nothing, never ranking above it — so every program that resolved without it resolves identically under it; a same-spelled constructor in scope wins outright, and where that constructor belongs to another type — another union's constructor, or another nominal record's — the arm is the ordinary type error, whose message names the qualified spelling of the constructor the expected type does hold (§12) — unless that type is `opaque` abroad, where no such spelling exists and the opaque refusal leads instead (§2.4), the deeper fault reported alone. The same-name-both-sides tell (`expected Box, found Box` — Modules §5.1 rule 2's term) is exactly the report this sentence exists to replace. The qualified pattern is unchanged and still **fixes** the scrutinee type where it was undetermined: `Direction.North` resolves in the module and unifies as §4 says. **Where the expected type is not determined when the pattern is checked, the door is closed**, and a bare head scope does not bind is refused naming the qualified spelling and the seat that would open the door (an annotated `let` around the function; an ascription on the scrutinee) — the closed-door refusal: one meaning fewer, never a different one. The seats decide when that can happen. At the **top** of a `match`, `let`, or `for..in` pattern the subject is typed before its pattern, and at `match` §6.1's abstract-type refusal already guarantees the scrutinee's head is known when its arms are checked — or the match is refused first: §6.1 leads, and the door's refusal is not additionally reported — so the door at a pattern's top is never order-dependent there. **Beneath** the top, the door reads the instantiated slot type as it stands when the pattern is checked, and a payload variable that a sibling arm's qualified pattern is what fixes (`match None with` followed by the arms `Some(Direction.North)` and `Some(East)`) is undetermined until that arm has been checked: the refusal there can depend on arm order — the licence Functions §4.3 already grants the abstract-scrutinee refusal — with the same repairs, the qualified spelling or an ascription on the scrutinee, and never a different meaning. At a lambda parameter the type is known only where a supplying seat handed it in (Functions §4.3) or a type written on the parameter or inside its pattern decides it (§2.9, §6.5), and a parameter pattern under neither takes the refusal. A `catch` arm is no seat of the door's: it matches the open `Exn`, which has no constructor set, and exception constructors are bare or qualified there as everywhere (Exceptions §5.2). The door reaches every union whose constructors this module may write — the module's own (where scope answers first anyway), an imported one, and the prelude's qualified-only constructors (Modules §5.5): `match a.compare(b) with` writes its arms `Less`, `Equal`, `Greater` bare, the lookup binding nothing in scope, which is exactly the pollution §5.5's qualified-only rule exists to prevent. In expression position there is no such door (Modules §9.13): `Direction.North`.
 
 ### 2.3 Tuple patterns
@@ -77,19 +77,19 @@ Arity must equal the tuple's arity (Products §2.1 report shape). `(p)` is **gro
 ### 2.4 Record patterns — open, with punning
 
 ```
-{name, age}                      -- pun: {name = name, age = age}
-{name = n}                       -- rename: field name, binder n
-{port = 0}                       -- literal sub-pattern
-{mode = Verbose, port = p}       -- constructor sub-pattern + rename
-{customer = {name}, total}       -- nested, punned at two depths
+{ name, age }                    -- pun: { name = name, age = age }
+{ name = n }                     -- rename: field name, binder n
+{ port = 0 }                     -- literal sub-pattern
+{ mode = Verbose, port = p }     -- constructor sub-pattern + rename
+{ customer = { name }, total }   -- nested, punned at two depths
 ```
 
-- **`{f = p}` — the field slot holds a full sub-pattern.** When the sub-pattern is a bare non-uppercase-start name equal to the field name, the `= name` may be dropped: **`{f}` ≡ `{f = f}`.** That's the entire punning rule. A keyword-named field (Lexer §4.4) has no pun — the binder would be the keyword — so it is written out, `{type = t}`.
+- **`{ f = p }` — the field slot holds a full sub-pattern.** When the sub-pattern is a bare non-uppercase-start name equal to the field name, the `= name` may be dropped: **`{ f }` ≡ `{ f = f }`.** That's the entire punning rule. A keyword-named field (Lexer §4.4) has no pun — the binder would be the keyword — so it is written out, `{ type = t }`.
 - **Open by default, always, with no opt-out syntax.** A record pattern mentions any subset of the scrutinee's fields; unmentioned fields are neither bound nor constrained. There is no `...` in patterns and no closed-record pattern form in v1. This deliberately points the opposite way from *type annotations* (closed by default, Products §4): a pattern destructures a known-typed value; an annotation constrains an unknown one. The asymmetry is principled and must be documented, not smoothed over.
 - Duplicate field names in one record pattern: error. A field the scrutinee's type lacks: the standard missing-field error naming the known fields (Products §3.2 family).
-- Record patterns work on structural records and — through row polymorphism — on unannotated parameters, constraining them exactly as field access does (`fun getX({x}) = x` infers the row-polymorphic type; see §6.5).
-- Nominal records: a bare record pattern does **not** match a nominal-record-typed scrutinee (the unifier never unfolds nominal names — Products §5.1). Go through the constructor pattern: `Point({x, y})`. Diagnostic: "`Point` is a nominal record; destructure it with `Point({ x, y })`." The suggestion is the user's own pattern wrapped in the missing constructor: it names the fields the pattern itself wrote, punned — never the declaration's list — so it teaches exactly the missing move and can enumerate nothing the author has not already spelled. **Opacity intercepts the redirect** (Modules §4.2): outside an opaque record's home module the suggested spelling is a locked door — the constructor is private there — so the seat draws the opaque family's refusal instead, "cannot destructure opaque record `Point`; use an operation exported by its home module", the sibling of the field-access and update sentences. An opaque **union** takes the same sentence at its own noun — "cannot destructure opaque union `Handle`; use an operation exported by its home module" — at the door's seat (§2.2), the redirect above being a nominal record's alone. **Where the home module exports a declared pattern over the type, the sentence names it instead** — "cannot destructure opaque record `Time`; match it with `(hours, minutes)clock`", every exported pattern over the type in its own spelling, components as declared, up to a small cap (Pattern Declarations §3.3): the door the reader was meant to take is named, not merely the one that is locked. A diagnostic never signposts a spelling the reader cannot write. Inside the home module `opaque` changes nothing, here as everywhere.
-- Separator near-miss: `:` inside a term-position record — pattern or literal — is a parse error with the Products §6/§8 fixit ("record fields bind with `=`; `:` gives a field its type in record *types*"). This retires the old type-position confusion guard: under `:`-in-terms, `{x: Float}` in a pattern parsed as a constructor sub-pattern and needed a bespoke "`Float` is a type, not a constructor" diagnostic; under `=` the misreading is caught at the token (§16). One refinement, because the old guard's actual customer *meant an annotation*: when the text after the `:` names a type (`{x: Float}`), the separator repair alone would be a wrong turn — `{x = Float}` just errors again below — so in a pattern the fixit appends the typed pattern that gives the field's binder that type: "or, to give `x` the type `Float`, write `{x = (x: Float)}`" (§2.9). A keyword-named field has no pun (above), so its binder is written out: `{type = (t: String)}`. Text that names a constructor and no type (`{mode: Verbose}`, `{x: Some(n)}`) takes the separator repair alone, which is what it meant. The bespoke message survives only for the genuinely written `{x = Float}` — `Float` there *is* a constructor-position name, and the error names the typed pattern it may have meant: "`Float` is a type, not a constructor; to give `x` the type `Float`, write `{x = (x: Float)}`" (§2.9), a keyword-named field's binder written out as above (`{type = (t: Float)}`).
+- Record patterns work on structural records and — through row polymorphism — on unannotated parameters, constraining them exactly as field access does (`let getX({ x }) = x` infers the row-polymorphic type; see §6.5).
+- Nominal records: a bare record pattern does **not** match a nominal-record-typed scrutinee (the unifier never unfolds nominal names — Products §5.1). Go through the constructor pattern: `Point({ x, y })`. Diagnostic: "`Point` is a nominal record; destructure it with `Point({ x, y })`." The suggestion is the user's own pattern wrapped in the missing constructor: it names the fields the pattern itself wrote, punned — never the declaration's list — so it teaches exactly the missing move and can enumerate nothing the author has not already spelled. **Opacity intercepts the redirect** (Modules §4.2): outside an opaque record's home module the suggested spelling is a locked door — the constructor is private there — so the seat draws the opaque family's refusal instead, "cannot destructure opaque record `Point`; use an operation exported by its home module", the sibling of the field-access and update sentences. An opaque **union** takes the same sentence at its own noun — "cannot destructure opaque union `Handle`; use an operation exported by its home module" — at the door's seat (§2.2), the redirect above being a nominal record's alone. **Where the home module exports a declared pattern over the type, the sentence names it instead** — "cannot destructure opaque record `Time`; match it with `(hours, minutes)clock`", every exported pattern over the type in its own spelling, components as declared, up to a small cap (Pattern Declarations §3.3): the door the reader was meant to take is named, not merely the one that is locked. A diagnostic never signposts a spelling the reader cannot write. Inside the home module `opaque` changes nothing, here as everywhere.
+- Separator near-miss: `:` inside a term-position record — pattern or literal — is a parse error with the Products §6/§8 fixit ("record fields bind with `=`; `:` gives a field its type in record *types*"). This retires the old type-position confusion guard: under `:`-in-terms, `{ x: Float }` in a pattern parsed as a constructor sub-pattern and needed a bespoke "`Float` is a type, not a constructor" diagnostic; under `=` the misreading is caught at the token (§16). One refinement, because the old guard's actual customer *meant an annotation*: when the text after the `:` names a type (`{ x: Float }`), the separator repair alone would be a wrong turn — `{ x = Float }` just errors again below — so in a pattern the fixit appends the typed pattern that gives the field's binder that type: "or, to give `x` the type `Float`, write `{ x = (x: Float) }`" (§2.9). A keyword-named field has no pun (above), so its binder is written out: `{ type = (t: String) }`. Text that names a constructor and no type (`{ mode: Verbose }`, `{ x: Some(n) }`) takes the separator repair alone, which is what it meant. The bespoke message survives only for the genuinely written `{ x = Float }` — `Float` there *is* a constructor-position name, and the error names the typed pattern it may have meant: "`Float` is a type, not a constructor; to give `x` the type `Float`, write `{ x = (x: Float) }`" (§2.9), a keyword-named field's binder written out as above (`{ type = (t: Float) }`).
 
 ### 2.5 Literal patterns — bare integer, `BigInt`, `Float`, `Dec`, and `String` forms
 
@@ -140,14 +140,14 @@ match answer with
 
   Three guards and a catch-all: the guards contribute nothing to coverage (§3, §7.1), the `_` supplies it by the ordinary rule, and nothing is special-cased for the special values. There is no constant pattern and no expression pattern; the guard is the spelling, and a spelling that reads like a pattern — `Float.nan` or `-Float.infinity` in pattern position — is refused at the name with the guard as its rewrite: "`Float.nan` is a value, not a pattern; bind a name and test it in a guard: `x when x == Float.nan`" — the Rewrite Rule's obligation (Declarations Preamble §1.1), and the former ban's own fixit, kept at the one seat where a reader still reaches for it. **The guard is offered only where it is valid at that position**: the term's type unifying with the position's, and the `Eq` the comparison needs — and, for a negated spelling, the `Signed` — in scope there; where it is not, the report stops at "`Float.nan` is a value, not a pattern" and offers nothing, a fixit that would not compile being worse than none. The same holds of every guard this section names as a rewrite. The refusal is the parser's, and it is general — the message carries the spelling written, `Float.nan` being its instance: a qualified name in pattern position is a constructor's spelling (`Direction.North`, §2.2), and one whose last segment is non-uppercase-start is no constructor's: the parser refuses the form, and the message is selected once names resolve — the sentence above where the segment names a term (`Helper.zero`); Pattern Declarations §7's own where the module exports a pattern of the spelling (`Time.clock`: "there is no qualified suffix — `clock` is a pattern, written `(a, b)clock`"); and, where the module exports nothing of the spelling (`Time.zilch`), the report the spelling draws in expression position, "module `Time` does not export `zilch`" (Modules §3.1, §10), a rewrite never being offered for a value that does not exist. A qualifier that binds no module alias never reaches the selection: it is Modules §5.1 rule 1's report at this seat as at every other — "no module alias `Regex`; `import Regex`" (Modules §10's row names the pattern position). `-` in pattern position is followed by a numeric token, forming the negative literal, or by such a spelling, whose sign rides the value sentence — "`-Float.infinity` is a value, not a pattern; bind a name and test it in a guard: `x when x == -Float.infinity`" — and is dropped by the other two, which name no value. One report, at the name: a pattern that failed to parse is read as `_` by coverage and is never a shadower (§7.3's fourth tier), so no reachability report rides beside it.
 - There is no `Char` type in Hexagon; single-character strings are `String` literals like any other.
-- Negative literals: `-3`, `-3n`, `-2.5`, and `-2.5d` are legal as literal patterns — the parser forms the signed literal pattern from the `-` and the token, which itself carries no sign (Lexer §5); a pattern's only infix forms are `|`, `as`, and `//` (§2.10), and none is a unary minus, so there is no unary-minus expression to collide with: `-1 // 3` is the fraction pattern whose top is the literal `-1`. `-0.0` is a literal pattern, and it is the pattern `0.0` for every judgment (§7.2). A negative bare integer literal is `negate` over its payload at the type of its position (Numeric Literals §3) and requires `Signed` of it: a pattern at `Int`, `BigInt`, `Float`, and canonical prelude `Dec` (the permitted literal types that honor `Signed`; a `Signed` type outside them is the typing bullet's refusal), and at a type honoring no `Signed` the demand is unmet and the diagnostic is delegated as above — at `Nat`, Modules §7.6's closed-pair sentence, Method Syntax §9 row 15's rider omitted, as in every pattern position: "type `Nat` has no `Signed` instance; its only legal homes are the module declaring `Signed` and `Nat`'s prelude companion module, both outside project source, so this pair's honored set is closed — change the type, or go through the operations those homes export" — at an arm, changing the type is an ascription on the scrutinee, `match (size: Int) with`. The demand is judged whatever the payload, `-0` included; only where the sign is admitted is `-0` the literal `0` (§7.2).
+- Negative literals: `-3`, `-3n`, `-2.5`, and `-2.5d` are legal as literal patterns — the parser forms the signed literal pattern from the `-` and the token, which itself carries no sign (Lexer §5); a pattern's only infix forms are `|`, `as`, and `//` (§2.10), and none is a unary minus, so there is no unary-minus expression to collide with: `-1//3` is the fraction pattern whose top is the literal `-1`. `-0.0` is a literal pattern, and it is the pattern `0.0` for every judgment (§7.2). A negative bare integer literal is `negate` over its payload at the type of its position (Numeric Literals §3) and requires `Signed` of it: a pattern at `Int`, `BigInt`, `Float`, and canonical prelude `Dec` (the permitted literal types that honor `Signed`; a `Signed` type outside them is the typing bullet's refusal), and at a type honoring no `Signed` the demand is unmet and the diagnostic is delegated as above — at `Nat`, Modules §7.6's closed-pair sentence, Method Syntax §9 row 15's rider omitted, as in every pattern position: "type `Nat` has no `Signed` instance; its only legal homes are the module declaring `Signed` and `Nat`'s prelude companion module, both outside project source, so this pair's honored set is closed — change the type, or go through the operations those homes export" — at an arm, changing the type is an ascription on the scrutinee, `match (size: Int) with`. The demand is judged whatever the payload, `-0` included; only where the sign is admitted is `-0` the literal `0` (§7.2).
 
 ### 2.6 Or-patterns `p | q`
 
 ```
 Circle(_) | Rect(_, _) => "has area"
 0 | 1 => "small"
-{status = Pending} | {status = Queued} => wait()
+{ status = Pending } | { status = Queued } => wait()
 ```
 
 - Alternatives are tried left to right; first match wins (observable only through binding, since patterns are pure — guards live outside, §3).
@@ -172,7 +172,7 @@ Circle(r) as s when r > 0.0 => draw(s)
 
 ### 2.8 What a pattern is not
 
-Patterns contain **no operators, no calls, no expressions**. `C(...)` in pattern position is constructor syntax resolved by the case rule, never a call, and `p1 // p2` is the fraction pattern (§2.10), never the operator: it reads the two fields every `Rat` holds, in lowest terms already, so it is no exception to what follows. There is no evaluation inside a pattern; the only runtime work a pattern performs is tag tests, field/slot reads, and `Eq` tests for literals. Anything computational belongs in a guard. **One exception, and only one:** a declared pattern `(…)name` applies its `view` — a function the declaration requires to be pure, applied at most once per pattern per position (Pattern Declarations §2.1, §5) — which is why it is the exception this sentence can afford.
+Patterns contain **no operators, no calls, no expressions**. `C(...)` in pattern position is constructor syntax resolved by the case rule, never a call, and `p1//p2` is the fraction pattern (§2.10), never the operator: it reads the two fields every `Rat` holds, in lowest terms already, so it is no exception to what follows. There is no evaluation inside a pattern; the only runtime work a pattern performs is tag tests, field/slot reads, and `Eq` tests for literals. Anything computational belongs in a guard. **One exception, and only one:** a declared pattern `(…)name` applies its `view` — a function the declaration requires to be pure, applied at most once per pattern per position (Pattern Declarations §2.1, §5) — which is why it is the exception this sentence can afford.
 
 ### 2.9 Typed patterns `(p: T)`
 
@@ -181,13 +181,13 @@ let (a: Int, b) = parse(line)          -- a tuple pattern's component
 for (k: String, v) in counts do        -- a loop's pattern
 pairs.map(((k: String, v)) => k)       -- one parameter, destructured, a component typed
 let UserId((n: Int)) = id              -- a constructor's slot, in its own parentheses
-let {total = (t: Dec)} = order         -- a record field's sub-pattern, likewise
+let { total = (t: Dec) } = order       -- a record field's sub-pattern, likewise
 [(first: Int), ...rest] => first       -- a vector element, in an arm
 (Circle(r) | Square(r) as s: Shape) => area(s)   -- an arm; the colon ends the element
 ```
 
 - **The element rule.** Inside a pattern's parentheses every element is `pattern (: Type)?`, as inside an expression's parentheses every element is `expression (: Type)?` (Ascription §2.1) and inside a parameter list every element already is (Ascription §2.3). One unannotated element is grouping (§6.5); one annotated element is the **typed pattern** `(p: T)`; with a top-level comma the parentheses are a tuple pattern whose components may each carry a type, `(p1: T1, p2)` being `((p1: T1), p2)` with the inner parentheses dropped. There are no 1-tuples (Products §2.1), so the readings never meet. The type grammar is the annotation grammar (Functions §4.1).
-- **Parentheses only.** A pattern mirrors the value it takes apart (§2.8), and an expression takes a type only inside parentheses (Ascription §2.4): `Some(1: Int)`, `{x = 1: Int}` and `[1: Int, 2]` are not ascriptions. So a constructor's slot, a record field's sub-pattern and a vector element take a type inside their own parentheses: `Some((n: Int))`, `{x = (n: Int)}`, `[(n: Int), ...rest]`. `Some(n: Int)`, `{x = n: Int}` and `[n: Int]` are parse errors whose fixit is that spelling. A vector pattern's rest is a binder, not an element, and takes no type (Collections Part 3 §3.1): its type is the vector's. A declared pattern's component list mirrors its expression form's, which is an argument list (Pattern Declarations §3.2), so a component takes a type in its own parentheses, as a constructor's slot does: `((h: Int), m)clock`.
+- **Parentheses only.** A pattern mirrors the value it takes apart (§2.8), and an expression takes a type only inside parentheses (Ascription §2.4): `Some(1: Int)`, `{ x = 1: Int }` and `[1: Int, 2]` are not ascriptions. So a constructor's slot, a record field's sub-pattern and a vector element take a type inside their own parentheses: `Some((n: Int))`, `{ x = (n: Int) }`, `[(n: Int), ...rest]`. `Some(n: Int)`, `{ x = n: Int }` and `[n: Int]` are parse errors whose fixit is that spelling. A vector pattern's rest is a binder, not an element, and takes no type (Collections Part 3 §3.1): its type is the vector's. A declared pattern's component list mirrors its expression form's, which is an argument list (Pattern Declarations §3.2), so a component takes a type in its own parentheses, as a constructor's slot does: `((h: Int), m)clock`.
 - **The colon ends the element** (Ascription §2.2). It is looser than `as` and `|`: `(A(x) | B(x) as v: T)` types the whole or-pattern, and `v` binds at `T`. To type a part, parenthesise the part: `(A((x: Int)) | B(x))`.
 - **Typing.** In checking mode (§4), at type τ, `(p: T)` elaborates `T` in the enclosing declaration's annotation scope, unifies τ with it, and checks `p` against it. A failed unification is the ordinary type mismatch, reported at the written type. Nothing else: no constraint form and no second pass, as for ascription (Ascription §9 item 3).
 - **It decides what it writes.** The written type is unified before `p` is checked, so wherever `p` reads its position's type it reads the written one. The constructor door opens on it (§2.2: "the slot type at the pattern's position"), as it already does on a parameter's written type. A number type nothing decided takes it before a binder would make it an `Int` (Numeric Literals §4): `for (x: Nat) in [1, 2, 3] do` binds `x : Nat`, and `let (x: Float, s) = (1, "x")` binds `x : Float`, the literal typed, not converted, as at `let x: Float = 1`. At a `match`, a typed pattern names the head its type writes (§6.1 rule 2), so `match 3 with` followed by `(n: Nat) =>` binds `n : Nat`. At a lambda's pattern parameter it decides the parameter's type, and so the function's inferred type; a box's parameter reads it as a written parameter type (Numeric Literals §4's box rule). And a name a typed pattern binds has a written type, as a parameter's annotation gives one, wherever the text-decides test asks (Method Syntax §3.1).
@@ -201,33 +201,33 @@ let {total = (t: Dec)} = order         -- a record field's sub-pattern, likewise
 - **Every position.** The form is legal in all five positions (§1, no per-position dialects). At a `match` or `catch` arm the claim is checked as anywhere. A constructor's name written as a pattern's type is a constructor, not a type, and the report says so and names what compiles where it stands. Where the position can test and the constructor is one of its type's — an exception's at a `catch` arm, a union's at a `match` arm where the type at its position, the arm's top or a slot beneath it, is that union (`Some((s: Circle))` under `Option(Shape)` names `Some(Circle(_) as s)`) — it names the pattern that matches the constructor: "`ParseError` is an exception's constructor, not a type; a type in a pattern says what the value is, it does not test it — match the exception with `ParseError(_) as e`", "`Circle` is a constructor, not a type; … — match the constructor with `Circle(_) as s`" (one `_` per slot, none for a nullary constructor). Anywhere else — a `let`, a `for` head and a lambda's parameter, gated by irrefutability (§5), or a constructor of another type — it names the type the position has, spelled as the mismatch's first rewrite spells it: "…; write the type: `(s: Shape)`", `(o: Option(_))`, `(e: Exn)` beneath a `match` arm's top where the slot is an `Exn`. At a `match` arm's top over an `Exn` scrutinee, §6.1's refusal of the scrutinee leads and this report is not made. A nominal record's constructor is named as its type is, so `(p: Point)` is the type.
 
 
-### 2.10 Fraction patterns `p1 // p2`
+### 2.10 Fraction patterns `p1//p2`
 
 ```
 match r with
-    0 // _ => "zero"
-    n // 1 => "the whole number ${n}"
-    n // d => "${n} over ${d}"
+    0//_ => "zero"
+    n//1 => "the whole number ${n}"
+    n//d => "${n} over ${d}"
 
-let n // d = 4 // -5           -- irrefutable; n = -4n, d = 5n
+let n//d = 4//-5               -- irrefutable; n = -4n, d = 5n
 ```
 
-`p1 // p2` matches every `Rat` and takes it apart into its top and its bottom, in lowest
+`p1//p2` matches every `Rat` and takes it apart into its top and its bottom, in lowest
 terms with a positive bottom, as `Rat.top` and `Rat.bottom` read them (`rat.md` §3); `p1`
 and `p2` match those two `BigInt`s. It is the value form `//` (Operators §6.4) in pattern
 position: a language form, like `..`, not a declared pattern, so nothing is imported to
 write it, and it names the prelude's `Rat` by identity (Intrinsics §7). Its sides are
-patterns of the forms above, and it does not chain: `1 // 2 // 3` is refused as the
+patterns of the forms above, and it does not chain: `1//2//3` is refused as the
 expression is (Operators §6.4).
 
-- **A view of the canonical pair.** The value `2 // 6` is the fraction `1 // 3`, and no
+- **A view of the canonical pair.** The value `2//6` is the fraction `1//3`, and no
   fraction comes apart as `2` and `6`. A `//` pattern whose literals show it can never
   match — both sides literal and not in lowest terms, or a literal bottom of zero or
   less — is a dead case, refused with the spelling that matches where one exists (§7.2).
 - **Sides are checked at `BigInt`, and do not widen** (§2.5). A bare integer literal side
   is a `BigInt` literal there; a `1.50d` or `0.5` side is the ordinary mismatch, and so is
   a `d` literal pattern at a `Rat` subject (Exact Integer Widening §9).
-- **Coverage** reads `p1 // p2` as a declared pattern's one-constructor shape (Pattern
+- **Coverage** reads `p1//p2` as a declared pattern's one-constructor shape (Pattern
   Declarations §4): one complete signature over `Rat`, with two components at `BigInt`. Its
   witness prints with `//` between its sides: `_//_`.
 - **The opaque refusal** (§2.4) at a `Rat` abroad names it: "cannot destructure opaque
@@ -271,7 +271,7 @@ Pattern typing is checking-mode against the scrutinee type, structurally:
 - `(p: T)` (typed pattern): `T` elaborates in the enclosing declaration's annotation scope and unifies with the scrutinee type; `p` then checks against `T` (§2.9).
 
 - Vector patterns: typing per Collections Part 3 §3.2 (checked against `Vector(t)`; rest binders at `Vector(t)`).
-- `p1 // p2` (fraction pattern): the scrutinee unifies with the prelude's `Rat`, named by identity; `p1` and `p2` check against `BigInt` (§2.10).
+- `p1//p2` (fraction pattern): the scrutinee unifies with the prelude's `Rat`, named by identity; `p1` and `p2` check against `BigInt` (§2.10).
 - `(p1, ..., pn)name` (declared pattern): `name` resolves per Pattern Declarations §3.3 — in the pattern namespace, else in the expected type's home module's exported patterns; the scrutinee unifies with the pattern's subject at a fresh instantiation; sub-patterns check against the instantiated component types (Pattern Declarations §3.1).
 
 Binder class is positional (Statements §5): arm, lambda-parameter, and loop-pattern binders are head binders and shadow freely; `let`-pattern binders are sequential and may not reuse in-scope names or names whose definition is in progress (Statements §5.4, §5.1). All binders within one pattern are simultaneous (whence the duplicate rule) and monomorphic while it is checked. Arm, lambda-parameter and loop binders never generalize; the names a `let` pattern binds generalize by Functions §8's rules, at the binding's one evaluated value (`decisions-ml-dialect-generalization-2026-08.md` §13.6), so a destructuring `let` never quantifies a constrained variable.
@@ -294,19 +294,19 @@ Consequences, spelled out:
 |---|---|---|---|
 | `_`, `x` | any | irrefutable | match everything by definition |
 | `(p, q)` | tuple | irrefutable iff `p`, `q` are | tuples have one shape |
-| `{f = p, g}` | record | irrefutable iff sub-patterns are | records have one shape; openness only widens |
+| `{ f = p, g }` | record | irrefutable iff sub-patterns are | records have one shape; openness only widens |
 | `()` | `Unit` | irrefutable | the tuple row at arity 0 — vacuously, all zero components are irrefutable (#159; no longer a separate case) |
 | `p as x` | `T` | iff `p` is | `as` adds a binding, not a test |
 | `(p: T)` | `T` | iff `p` is | a written type is a claim, not a test (§2.9) |
 | `Some(x)` | `Option(a)` | **refutable** | `Option` has another constructor, `None` |
 | `UserId(n)` | `UserId` (union `UserId = UserId(Int)`) | **irrefutable** | sole constructor: every `UserId` value has this shape |
-| `Point({x, y})` | nominal `record Point` | irrefutable | a record constructor is always "sole constructor" |
+| `Point({ x, y })` | nominal `record Point` | irrefutable | a record constructor is always "sole constructor" |
 | `0` | `Int` | refutable | infinite domain |
 | `True` | `Bool` | refutable | `False` exists — an ordinary two-constructor union since #147 |
 | `True \| False` | `Bool` | **irrefutable** | jointly cover the domain — the coverage definition, not a syntactic one, decides |
 | `Some(_) \| None` | `Option(a)` | irrefutable | ditto (binds nothing, so same-bindings is satisfied) |
 | vector patterns | `Vector(a)` | per Collections Part 3 §3 | length-based; that spec's verdicts are authoritative |
-| `p // q` (fraction pattern) | `Rat` | irrefutable iff `p` and `q` are | every `Rat` has one top and one bottom: a one-constructor shape (§2.10) |
+| `p//q` (fraction pattern) | `Rat` | irrefutable iff `p` and `q` are | every `Rat` has one top and one bottom: a one-constructor shape (§2.10) |
 | `(q1, …, qn)name` (declared pattern) | the pattern's subject | irrefutable iff every `qi` is | the view is total — the author's law, unchecked (Pattern Declarations §5) — so the outer form is always "sole constructor" (Pattern Declarations §3.1) |
 
 ### 5.2 `Some(n)` vs `UserId(n)` — the story, in full
@@ -319,7 +319,7 @@ These two patterns are **syntactically identical** — a constructor applied to 
 ```
 union UserId = UserId(Int)
 
-fun format(id: UserId): String =
+let format(id: UserId): String =
     let UserId(n) = id
     "user-${n}"
 
@@ -328,7 +328,7 @@ userIds |> Seq.map(UserId(n) => "user-${n}") -- same thing, lambda-parameter pos
 
 The closedness of `union` is what makes this sound: adding a second constructor to `UserId` later flips every `UserId(n)` binding-position pattern from irrefutable to refutable, and **they all become compile errors at once**, pointing at exactly the code the change broke. That is the system working, and the docs should present it as such. The message at each flipped site is §5.3's uniform gate line, and it needs no flip-specific variant: the witness — rendered by §7.3, tiers and route clause included — *is* the constructor that arrived, so the report names `Anonymous` in the spelling the flipped module can lawfully write, and where it has none (a common flip situation: the constructor did not exist when the imports were written, and no alias reaches it), the route clause names the import that spells it. No bespoke "no longer covers" message exists, on principle rather than by economy *(#639)*: that sentence states the union's *history*, and the compiler has none — a flipped `let UserId(n)` and a freshly written `let Some(n)` present identically, a union with two constructors and a pattern covering one of them, so any temporal message would fire falsely on fresh code.
 
-Nominal `record` newtypes get the same ergonomics through the constructor pattern (`Point({x, y})`, or `Wrapped(v)`-style if the record has one field accessed positionally — no: record constructor patterns take a *record* sub-pattern, so it's `Money({amount})`). Both newtype encodings — single-constructor union and nominal record — destructure uniformly in every binding position. Neither is privileged; pick by whether you want positional (`union`) or named (`record`) payload. (An earlier proposal to ban constructor patterns from lambda heads, which would have pushed people toward record newtypes for callback ergonomics, is rejected — §10.)
+Nominal `record` newtypes get the same ergonomics through the constructor pattern (`Point({ x, y })`, or `Wrapped(v)`-style if the record has one field accessed positionally — no: record constructor patterns take a *record* sub-pattern, so it's `Money({ amount })`). Both newtype encodings — single-constructor union and nominal record — destructure uniformly in every binding position. Neither is privileged; pick by whether you want positional (`union`) or named (`record`) payload. (An earlier proposal to ban constructor patterns from lambda heads, which would have pushed people toward record newtypes for callback ergonomics, is rejected — §10.)
 
 ### 5.3 Where the gate applies
 
@@ -359,8 +359,8 @@ match point with
     _      => "elsewhere"
 
 match user with
-    {role = Admin}       => allowAll()
-    {role = _, verified = True} => allowSome()
+    { role = Admin }       => allowAll()
+    { role = _, verified = True } => allowSome()
     _                    => deny()
 
 match flag with
@@ -400,9 +400,9 @@ Catch arms occupy two seats — `try`'s clause (Exceptions §5.1) and the match 
 
 ```
 let (x, y) = t
-let {name, age} = user
+let { name, age } = user
 let UserId(n) = id
-let (Point({x, y}) as p) = origin
+let (Point({ x, y }) as p) = origin
 let (a, b): (Float, String) = (n, "x")   -- the binding's annotation
 let (a: Int, b) = parse(line)            -- a typed component (§2.9)
 let Some(v) = opt                -- HARD ERROR: refutable
@@ -412,7 +412,7 @@ The LHS of `let` is now a full pattern, gated by irrefutability (§5).
 
 **A `let` pattern takes a binding annotation as a name does:** `let p: T = e`. `T` is the binding's annotation, whatever the left side: the value's expected type, a supplying seat (Functions §4.3) and the home of the conversions that seat specifies (Functions §4), so `let (a, b): (Float, String) = (n, "x")` widens `n : Int` as `let t: (Float, String) = (n, "x")` does. The pattern is then checked against `T`. A type written inside the pattern is a claim about a part and does no conversion that does work, though a function's colour fits it as at any use (§2.9): the binding faces the value, the pattern faces its parts. The names the pattern binds generalize by Functions §8's rules, read at the binding's one evaluated value (`decisions-ml-dialect-generalization-2026-08.md` §13.6): a destructuring `let` never quantifies a constrained variable, and a declared variable that rule declines is the declaration's hard error, the annotated arm of that section. The binder list form `let p<a: C>: T = e` does not exist: a pattern binds no single name for a list to follow, and a destructuring `let` quantifies no constrained variable for a list to declare; `T`'s variables are introduced by writing them (Functions §4.1). Products §2.4's flat-tuple form is the degenerate case; its "nested patterns arrive with pattern matching" error is retired. `let _ = e` remains a non-idiom — `_` alone binds nothing, and the discard spelling is `ignore` (Statements §3.3); a bare-`_` `let` is an error with the `ignore` fixit, read through a type (§2.9): `let (_: T) = e` is one, and its fixit is `ignore((e: T))`.
 
-**Every name a `let` pattern binds is a sequential binder** (Statements §5/§5.4): it may not reuse any name in scope — nor one whose definition is in progress (Statements §5.1), the pattern's own names included while its RHS is resolved — punned fields too — `let {name, total} = order` errors if `name` is bound, with the pattern-aware fixits Statements §9.3 owns (discard with `_`, or rename the field: `{name = orderName}`). The arm/lambda/loop positions bind head binders as before; same grammar, different class, decided by position.
+**Every name a `let` pattern binds is a sequential binder** (Statements §5/§5.4): it may not reuse any name in scope — nor one whose definition is in progress (Statements §5.1), the pattern's own names included while its RHS is resolved — punned fields too — `let { name, total } = order` errors if `name` is bound, with the pattern-aware fixits Statements §9.3 owns (discard with `_`, or rename the field: `{ name = orderName }`). The arm/lambda/loop positions bind head binders as before; same grammar, different class, decided by position.
 
 ### 6.4 `for..in` loop variable
 
@@ -420,7 +420,7 @@ The LHS of `let` is now a full pattern, gated by irrefutability (§5).
 for (k, v) in pairs do
     process(k, v)
 
-for {id, name} in users do
+for { id, name } in users do
     register(id, name)
 ```
 
@@ -437,11 +437,11 @@ One group is not the parameter list: a parenthesised group with a declared patte
 ```
 (x, y) => e            -- 2 parameters
 ((x, y)) => e          -- 1 parameter, tuple-destructured
-{a, b} => e            -- 1 parameter, record-destructured (no collision: braces)
+{ a, b } => e          -- 1 parameter, record-destructured (no collision: braces)
 UserId(n) => e         -- 1 parameter, newtype-unwrapped (irrefutable: sole constructor)
-x as v => e            -- legal, if pointless alone; useful as (({x} as r)) forms grow
-n // d => e            -- 1 parameter, a fraction pattern (§2.10)
-(x, {a, b}, _) => e    -- 3 parameters, second record-destructured
+x as v => e            -- legal, if pointless alone; useful as (({ x } as r)) forms grow
+n//d => e              -- 1 parameter, a fraction pattern (§2.10)
+(x, { a, b }, _) => e  -- 3 parameters, second record-destructured
 ((k: String, v)) => e  -- 1 parameter, tuple-destructured, a component typed (§2.9)
 Some(x) => e           -- HARD ERROR: refutable pattern in a binding position
 ```
@@ -450,11 +450,11 @@ Pins that make this airtight:
 
 - **No grouping parens around a parameter list.** `((x, y)) => e` is unambiguously one tuple-destructured parameter, never "two params with stylistic parens." The diagnostic for the person who meant two parameters: "this is one parameter destructuring a tuple; for two parameters remove the outer parentheses."
 - *Inside* a pattern, parens behave as in expressions: `(p)` groups, `(p, q)` is a tuple pattern. So `(((x, y)))` is one tuple-destructured parameter with a redundant grouping paren — legal, same meaning; the formatter normalizes.
-- The zero-param (`() =>`) and single-bare-param (`x =>`) forms are unchanged. A single parameter without parens may be any paren-free pattern (`{a, b} =>`, `UserId(n) =>`, `x as v =>`, `n // d =>`); the arrow after the pattern is what makes it a head, so `n // d => e` takes one `Rat` and is never the fraction `n // (d => e)`, whose bottom could not be an integer. A fraction head is recognised whatever its sides are, a literal or a signed literal included: `1 // d => e` and `n // -3 => e` are one parameter each, refused at the irrefutability gate as any refutable head is. A guard keeps its arm's arrow, so in `x when x > 1 // 2 => a` the `//` is a fraction in the guard; tuple-destructuring a sole parameter requires the parens by construction (`((x, y)) =>`).
+- The zero-param (`() =>`) and single-bare-param (`x =>`) forms are unchanged. A single parameter without parens may be any paren-free pattern (`{ a, b } =>`, `UserId(n) =>`, `x as v =>`, `n//d =>`); the arrow after the pattern is what makes it a head, so `n//d => e` takes one `Rat` and is never the fraction `n//(d => e)`, whose bottom could not be an integer. A fraction head is recognised whatever its sides are, a literal or a signed literal included: `1//d => e` and `n//-3 => e` are one parameter each, refused at the irrefutability gate as any refutable head is. A guard keeps its arm's arrow, so in `x when x > 1//2 => a` the `//` is a fraction in the guard; tuple-destructuring a sole parameter requires the parens by construction (`((x, y)) =>`).
 - **Uniform rule:** constructor patterns are legal here exactly as everywhere else, gated only by irrefutability. `UserId(n) => n` is the F# `fun (UserId n) -> n`, adopted as-is. (The rejected carve-out: §10.)
 - Header sugar (`let f(pat) = ...`, `fun f(pat) = ...`) desugars to lambdas and inherits everything above verbatim — parameters are the same head binders whichever spelling introduces them.
-- Row interaction: `{x} => e` on an unannotated parameter constrains it row-polymorphically, exactly like `p => p.x`. `fun getX({x}) = x` infers the same type as `fun getX(p) = p.x`.
-- **The constructor door at a parameter** (§2.2, #763): a bare constructor head that scope does not bind resolves in the parameter's type only where that type is known before the pattern is checked: handed in by a supplying seat (Functions §4.3) — under `import Pair as Pairs`, `pairs.map(Pair({first, second}) => first)` with `pairs` known, or a function bound with its own annotated `let` — or written on the parameter or inside its pattern, a claim unified before the pattern within it is checked (§2.9): `(Pair({first, second}): Pairs.Pair(Int, Int)) => first`. Under no seat — `let f = Pair({first, second}) => first` — the head is refused naming the qualified spelling and the annotated-`let` seat that would open the door (§12); a type written on the parameter opens it too — loud, and never silently different by seat. `UserId(n) => n` on the module's own type is untouched: scope answers first. (A match function's parameter is the scrutinee, so the undetermined case there is §6.1's refusal, not this one.)
+- Row interaction: `{ x } => e` on an unannotated parameter constrains it row-polymorphically, exactly like `p => p.x`. `let getX({ x }) = x` infers the same type as `let getX(p) = p.x`.
+- **The constructor door at a parameter** (§2.2, #763): a bare constructor head that scope does not bind resolves in the parameter's type only where that type is known before the pattern is checked: handed in by a supplying seat (Functions §4.3) — under `import Pair as Pairs`, `pairs.map(Pair({ first, second }) => first)` with `pairs` known, or a function bound with its own annotated `let` — or written on the parameter or inside its pattern, a claim unified before the pattern within it is checked (§2.9): `(Pair({ first, second }): Pairs.Pair(Int, Int)) => first`. Under no seat — `let f = Pair({ first, second }) => first` — the head is refused naming the qualified spelling and the annotated-`let` seat that would open the door (§12); a type written on the parameter opens it too — loud, and never silently different by seat. `UserId(n) => n` on the module's own type is untouched: scope answers first. (A match function's parameter is the scrutinee, so the undetermined case there is §6.1's refusal, not this one.)
 
 ### 6.6 Position summary
 
@@ -508,7 +508,7 @@ Both generalize from Unions §4.3. Both remain **hard errors**. Both remain **ex
 
 - An arm is unreachable if its pattern is useless relative to the *unguarded* arms above it (guarded arms above cannot subsume — their guards may fail). Hard error, naming the shadowing arm, as before. When no single arm subsumes — the arm is dead only against several arms jointly, as in `W(True)` / `W(False)` / `_` — the report names none of them, because naming one would be false: "this case is unreachable; the patterns above already cover it".
 - **A literal's identity, for both judgments, is its value at the type of its position under that type's `Eq` — never its spelling** — at a type whose `Eq` the compiler computes, the permitted types: `Int`, `Nat` (whose negative literals are refused before any key is read, §2.5), `BigInt`, `Float`, `String`, and canonical prelude `Dec`; at a type outside those permitted types no literal pattern stands (§2.5: the permitted-literal-type restriction, `BigInt` for an `n`-suffixed literal, `Float` for an unsuffixed decimal, canonical Dec for a `d` literal, `String` for a string), so the matrix never equates what it cannot evaluate — it never leans on an unchecked law. At `Int` this makes `7` and `007` one literal (Lexer §5 legalises the leading zeroes) and `-0` the literal `0`. At `BigInt`, bare `7`, `7n`, and `007n` are one literal, as are `0`, `0n`, and `-0n`; two distinct arbitrary-precision integers remain distinct even beyond the safe-integer range. At `Float` the value is the lexer's binary64 and the equality is SameValueZero (§2.5): `1.0`, `1.00`, `1.0e0`, and `10e-1` are one literal; `0.0` and `-0.0` are one; two spellings the lexer rounds to one double — underflow to zero included — are one. So an unguarded `0.0` arm makes a later `-0.0` arm unreachable, and in `1.0 | 1.00` the second alternative is dead, exactly as `0 | 0` is at `Int` — the same hard errors in the same words: "this literal case is unreachable; it is already handled above" at the top of an arm, once per dead alternative, and the general unreachable-arm report where the duplicate sits in a nested column, the matrix judging both. At Dec, the compiler uses the canonical numerical key from `dec.md` §8: trailing-zero variants and all representations of zero coincide, without discarding stored places from values. The canonical stdlib Eq contract governs this key; it is not inferred from arbitrary user code. At the permitted types the coverage key and the runtime test cannot disagree, because they are one function: what the type's `Eq` equates, the matrix equates.
-- **A fraction pattern its literals show can never match is a dead case** (§2.10). A fraction comes apart in lowest terms with a positive bottom, so `p // q` matches nothing where `q` is a literal zero or negative, or where `p` and `q` are both literals whose greatest common divisor is not one; a side counts as a literal where its test is one — a literal pattern, alone or under `as` or a written type (§2.7, §2.9). These two rules are the whole judgment: nothing else about a side is read. The case is refused wherever reachability is judged, one alternative at a time once or-patterns expand (§7.1), in this section's words, the report giving the spelling that matches where one exists: "this case is unreachable; a fraction comes apart in lowest terms with a positive bottom, so `2//6` never matches — write `1//3`"; "… so `1//-3` never matches — write `-1//3`"; for a binder or wildcard top, "… so `n//-3` never matches — write `n//3`, which binds the negated top"; and at a zero bottom, which no spelling repairs, "this case is unreachable; a fraction's bottom is never zero — remove the case". At a binding position the irrefutability gate (§5.3) refuses a literal side first.
+- **A fraction pattern its literals show can never match is a dead case** (§2.10). A fraction comes apart in lowest terms with a positive bottom, so `p//q` matches nothing where `q` is a literal zero or negative, or where `p` and `q` are both literals whose greatest common divisor is not one; a side counts as a literal where its test is one — a literal pattern, alone or under `as` or a written type (§2.7, §2.9). These two rules are the whole judgment: nothing else about a side is read. The case is refused wherever reachability is judged, one alternative at a time once or-patterns expand (§7.1), in this section's words, the report giving the spelling that matches where one exists: "this case is unreachable; a fraction comes apart in lowest terms with a positive bottom, so `2//6` never matches — write `1//3`"; "… so `1//-3` never matches — write `-1//3`"; for a binder or wildcard top, "… so `n//-3` never matches — write `n//3`, which binds the negated top"; and at a zero bottom, which no spelling repairs, "this case is unreachable; a fraction's bottom is never zero — remove the case". At a binding position the irrefutability gate (§5.3) refuses a literal side first.
 - Two arms with the same pattern and different guards are both reachable (the checker cannot prove a guard total): legal.
 - A guarded arm whose pattern is already fully covered by an earlier **unguarded** arm is unreachable — `when True` does not launder it.
 - Anything after a catch-all arm is unreachable — a declared pattern whose components are all irrefutable included, being irrefutable at the column's type (Pattern Declarations §4). An arm, whatever its head, is dead beneath a complete signature present in the column — the type's constructors, or another view's — and is otherwise never reported dead on another view's account, the checker being unable to relate two views of a value, as it cannot prove a guard total (Pattern Declarations §4); the exactness claim ranges over what it can decide. In `catch`, the Exceptions §5.3 logic transfers with or-patterns folded in: a second `JsError(_)` arm, or anything after `_`, is unreachable; domestic arms after a `JsError` arm are fine.
@@ -516,7 +516,7 @@ Both generalize from Unions §4.3. Both remain **hard errors**. Both remain **ex
 
 ### 7.3 Counterexample rendering (normative for diagnostics)
 
-Witnesses print as patterns: constructor names applied to `_` for unconstrained slots (`Node(_, _, _)`) and bare for nullary (`False`), tuples with `_` holes (`(None, _)`), records with only the discriminating fields (`{status = Queued}` — never invent mentions), and `_` where any value works *(the former "literals for finite literal domains" clause is deleted — corrected 2026-07-29, #147: Bool was its only customer, and `False` now renders as an ordinary constructor witness)*. Prefer the shallowest witness that is genuinely missing. Multiple missing cases: list up to a small cap (say 3) then "…and N more", counting every missing case, including those beneath a constructor some arm names (`Some(A)` alone misses `Some(B)` as well as `None`); where the search stops at an implementation limit with cases still unfound, "…and at least N more".
+Witnesses print as patterns: constructor names applied to `_` for unconstrained slots (`Node(_, _, _)`) and bare for nullary (`False`), tuples with `_` holes (`(None, _)`), records with only the discriminating fields (`{ status = Queued }` — never invent mentions), and `_` where any value works *(the former "literals for finite literal domains" clause is deleted — corrected 2026-07-29, #147: Bool was its only customer, and `False` now renders as an ordinary constructor witness)*. Prefer the shallowest witness that is genuinely missing. Multiple missing cases: list up to a small cap (say 3) then "…and N more", counting every missing case, including those beneath a constructor some arm names (`Some(A)` alone misses `Some(B)` as well as `None`); where the search stops at an implementation limit with cases still unfound, "…and at least N more".
 
 **Constructor spelling** *(#607)*. A witness is a pattern, and diagnostics must print what the user can paste back in — so each constructor name in a witness prints in the spelling the reporting module can lawfully write, preferring the barest one:
 
@@ -540,12 +540,12 @@ The tiers are judged per constructor occurrence — a nested witness may print a
 
 ## 9. Rider decision: construction punning ships in v1
 
-`{x, y}` in **value** position is `{x = x, y = y}`; composes with functional update: `{p with x}` is `{p with x = x}` (update re-spelled `with`, Products §9 — patterns themselves have no update form, so that change touches nothing else in this spec). Products §3.1's deferral is dissolved.
+`{ x, y }` in **value** position is `{ x = x, y = y }`; composes with functional update: `{ p with x }` is `{ p with x = x }` (update re-spelled `with`, Products §9 — patterns themselves have no update form, so that change touches nothing else in this spec). Products §3.1's deferral is dissolved.
 
 - No ambiguity: braces are always records, never blocks; pattern vs value position is always syntactically determined; there is no competing single-field grouping form.
-- **The two positions read the same sugar with opposite openness** — a pattern `{x, y}` mentions a subset; a literal `{x, y}` is the complete record. Same asymmetry the explicit forms already have; inherited, documented, not smoothed.
-- Term-level only: `{x}` in **type** position remains an error ("record types need field types: `{ x: SomeType }`").
-- Emission: the pun emits JS shorthand `{x, y}` — which is precisely what a JS author would write; a small readable-JS win for free.
+- **The two positions read the same sugar with opposite openness** — a pattern `{ x, y }` mentions a subset; a literal `{ x, y }` is the complete record. Same asymmetry the explicit forms already have; inherited, documented, not smoothed.
+- Term-level only: `{ x }` in **type** position remains an error ("record types need field types: `{ x: SomeType }`").
+- Emission: the pun emits JS shorthand `{ x, y }` — which is precisely what a JS author would write; a small readable-JS win for free.
 
 **Edit note to Products §3.1** below (§14).
 
@@ -561,7 +561,7 @@ The tiers are judged per constructor occurrence — a nested witness may print a
 | **Refusing `Float` literal patterns** on the ground that `Eq<Float>` is SameValueZero | This spec once did, permanently, reasoning that `NaN` would never match its own literal and that `0.0`/`-0.0` would collapse. The first is false under SameValueZero — `NaN` equals `NaN` — and the second is what `==` does, which a literal pattern follows by §2.5's `Eq` bullet; a pattern is not more exact than the equality it elaborates through, and refusing it taught the wrong lesson about that equality. Lifted (§2.5); the named special values stay guard terms, and no tolerance or constant pattern rides in with the literal. Do not reinstate on the old ground. |
 | `@` for as-patterns | Words-only aesthetic; F# precedent for `as`; `@` is a new sigil buying nothing (§2.7). |
 | Type-test patterns (F# `:? T`) | No subtyping, no downcasting, nominal opacity. There is nothing to test. Permanent. A typed pattern `(p: T)` (§2.9) is a static claim and tests nothing. |
-| A pattern's type at every slot (`Some(n: Int)`, `{x = n: Int}`, `[n: Int]`), or on a name only | Ruled 2026-11-11 for parentheses only (§2.9). Every-slot types give patterns forms the values they take apart lack, so a pattern stops mirroring construction; `C(name: …)` reads as a named slot, the look Unions §2.1 refused at calls; and the expression side would be pulled after it, reopening Ascription §7 item 2. A name-only rule is a second, narrower rule beside the parameter element, which already types a whole pattern. Revisited only with ascription beyond parentheses, in one ruling for both sides. |
+| A pattern's type at every slot (`Some(n: Int)`, `{ x = n: Int }`, `[n: Int]`), or on a name only | Ruled 2026-11-11 for parentheses only (§2.9). Every-slot types give patterns forms the values they take apart lack, so a pattern stops mirroring construction; `C(name: …)` reads as a named slot, the look Unions §2.1 refused at calls; and the expression side would be pulled after it, reopening Ascription §7 item 2. A name-only rule is a second, narrower rule beside the parameter element, which already types a whole pattern. Revisited only with ascription beyond parentheses, in one ruling for both sides. |
 | A following arrow in the pattern of an arm, a `for` head or a lambda's parameter, read as the one colour the binder's calls share | Ruled 2026-11-11 (#1510; §2.9): the arrow says each call follows what it is handed, and a head binder's calls share one colour, so the same spelling would have a second meaning there (Effects §2.2.1, "one spelling, one meaning"). Refusing a following arrow in every pattern's type is rejected too: a `let` pattern's part would refuse what its binding annotation accepts. |
 | A type written over a declared payload accepted where a use of the same part stays refused (#1518 as filed) | (#1518; §2.9): a typed pattern is a use of the part it stands on, so a claim that fits where the same use does not would give one part two readings. The claim follows the rule a use and a dot call follow (Method Syntax §3.1, Effects §3.4), and is read as they are. |
 | A part decided only where the whole value it is taken from is | (#1518; §2.9): the declaration's text gives a payload its type at every position, so an arm meant one thing over `u: U` and another over a `u` no type was written for, and a `catch` arm decided a payload's type but not its colour, a per-position dialect (§1). |
@@ -615,32 +615,32 @@ The tiers are judged per constructor occurrence — a nested witness may print a
 | `match` on constraint-bounded abstract type | "cannot match on a value of abstract type `c`; use the operations its constraints provide" (§6.1); when the scrutinee is a lambda parameter whose type is an undetermined inference variable, the rider instead: "the parameter's type is not determined here; give the parameter a type — bind the function with its own annotated `let`, or use it where its parameter type is known" (§6.1, #513); for any other scrutinee whose type is an undetermined inference variable, the rider instead: "the value's type is not determined here; give the matched expression a concrete type with an ascription"; all three forms name the type under Constraints §8 (§6.1, #901) |
 | Constructor pattern over an opaque type abroad — the door's refusal (§2.2), and the spelling §2.4's redirect would otherwise have suggested | the opaque family's sentence at the type's noun: "cannot destructure opaque record `Point`; use an operation exported by its home module", "cannot destructure opaque union `Handle`; use an operation exported by its home module"; where the home exports declared patterns over the type, "…; match it with `(hours, minutes)clock`" naming them (§2.4; Modules §4.2; Pattern Declarations §3.3) |
 | Bare record pattern on nominal-record scrutinee | "destructure it with `Point({ x, y })`" — the user's own pattern wrapped; outside an opaque record's home module, opacity intercepts: "cannot destructure opaque record `Point`; use an operation exported by its home module", or the sentence naming the home's exported patterns where it has any (§2.4; Modules §4.2) |
-| `:` in a term-position record (pattern or literal), e.g. `{x: p}` | Products §6/§8 fixit: "record fields bind with `=`; `:` gives a field its type in record *types*"; where the RHS names a type (`{x: Float}`), a pattern's fixit appends "or, to give `x` the type `Float`, write `{x = (x: Float)}`", a keyword-named field's binder written out (`{type = (t: String)}`); an RHS that names a constructor and no type takes the separator repair alone (§2.4, §2.9, §16) |
+| `:` in a term-position record (pattern or literal), e.g. `{ x: p }` | Products §6/§8 fixit: "record fields bind with `=`; `:` gives a field its type in record *types*"; where the RHS names a type (`{ x: Float }`), a pattern's fixit appends "or, to give `x` the type `Float`, write `{ x = (x: Float) }`", a keyword-named field's binder written out (`{ type = (t: String) }`); an RHS that names a constructor and no type takes the separator repair alone (§2.4, §2.9, §16) |
 | A typed pattern's type the position's type does not unify with (`let (x: Float, s) = (n, "x")` with `n : Int`) | the ordinary mismatch at the written type, first rewrite the type the part has, `(x: Int)` (or removing the type where it cannot be spelled); where a specified conversion from the part's type into the written one exists, "`x` is an `Int` here: a type in a pattern says what the part is and converts nothing; write `(x: Int)`, or to convert, write the type on the binding: `let (x, s): (Float, String) = …`" where the binding's right-hand side builds the part and the text decides its type (Numeric Literals §5.1), and "`x` is an `Int` here: a type in a pattern says what the part is and converts nothing; remove the type and convert `x` where it is used: `Float.fromInt(x)`" everywhere else (an existing value, a part whose type only inference gave, a lambda's pattern parameter, a `for` head, an arm) (§2.9) |
-| A type written at an unparenthesised slot (`Some(n: Int)`, `{x = n: Int}`, `[n: Int]`, `(h: Int, m)clock`, `(n: Int)id`) | parse error, fixit: "a type in a pattern goes in parentheses: `Some((n: Int))`", `((h: Int), m)clock`, `((n: Int))id` (§2.9; Pattern Declarations §3.2) |
+| A type written at an unparenthesised slot (`Some(n: Int)`, `{ x = n: Int }`, `[n: Int]`, `(h: Int, m)clock`, `(n: Int)id`) | parse error, fixit: "a type in a pattern goes in parentheses: `Some((n: Int))`", `((h: Int), m)clock`, `((n: Int))id` (§2.9; Pattern Declarations §3.2) |
 | A constructor's name written as a pattern's type (`(e: ParseError) =>`, `(s: Circle) =>`) | "`ParseError` is an exception's constructor, not a type; a type in a pattern says what the value is, it does not test it — match the exception with `ParseError(_) as e`" at a `catch` arm, and "`Circle` is a constructor, not a type; … — match the constructor with `Circle(_) as s`" at a `match` arm where the type at its position is that union, top or slot; at a `let`, a `for` head or a lambda's parameter, or for a constructor of another type, the type the position has, "…; write the type: `(s: Shape)`", `(o: Option(_))`, `(e: Exn)`; at a `match` arm's top over an `Exn` scrutinee, §6.1's refusal instead (§2.9) |
 | A declared type variable written in a pattern that a declared-variable row refuses (Functions §10) | that row, worded for this spelling: "`a` is a declared type variable, but `42` can be only a `Num` type; write the concrete type you mean in the pattern — `(n: Int)` — or remove the type" (§2.9) |
 | A binder list on a `let` pattern (`let (a, b)<t: Num>: (t, t) = …`) | parse error: "a `let` pattern takes no binder list: it binds no single name, and a destructuring `let` quantifies no constrained variable; remove `<t: Num>`, and write the concrete type you mean — `let (a, b): (Int, Int) = …` — or remove the annotation" (§6.3) |
 | A type on a vector pattern's rest (`[a, ...rest: Vector(Int)]`) | parse error, fixit: "a rest takes the vector's type; type the whole: `([a, ...rest]: Vector(Int))`" (§2.9) |
-| A term where a pattern's type stands (`(x: 0, y: 0) => …` at an arm) | Products §2.2's named-tuple hint, worded for a pattern by the scrutinee: at an arm, the bare components where it is a tuple (`(0, 0)`), a record pattern where it is a structural record (`{x = 0, y = 0}`), wrapped in its constructor where it is a nominal record (`Point({x = 0, y = 0})`, §2.4); at a `let`, a `for` head or a lambda's parameter, where those patterns would be refutable (§5), `match` instead of a pattern; and where the written types are type variables named nowhere else over a record with those fields (Swift's labelled destructuring, `let (x: px, y: py) = point`), the record pattern that binds them, `{x = px, y = py}` or `Point({x = px, y = py})` alike. Outside an opaque record's home module no record pattern is named, and §2.4's opaque refusal leads (Ascription §5) |
+| A term where a pattern's type stands (`(x: 0, y: 0) => …` at an arm) | Products §2.2's named-tuple hint, worded for a pattern by the scrutinee: at an arm, the bare components where it is a tuple (`(0, 0)`), a record pattern where it is a structural record (`{ x = 0, y = 0 }`), wrapped in its constructor where it is a nominal record (`Point({ x = 0, y = 0 })`, §2.4); at a `let`, a `for` head or a lambda's parameter, where those patterns would be refutable (§5), `match` instead of a pattern; and where the written types are type variables named nowhere else over a record with those fields (Swift's labelled destructuring, `let (x: px, y: py) = point`), the record pattern that binds them, `{ x = px, y = py }` or `Point({ x = px, y = py })` alike. Outside an opaque record's home module no record pattern is named, and §2.4's opaque refusal leads (Ascription §5) |
 | A following arrow in the pattern's type of an arm, a `for` head or a lambda's parameter (`((m: (() ->! Unit) >-> Unit), n) =>`) | "`>->` means only as effectful as what it is handed, and what an arm binds is one value, whose calls share one colour; write `->!` for a function that is impure and may fail, or `->` for one that is pure and cannot fail" ("what a `for` head binds", "what a lambda's parameter binds") + fixit: the arrow's constant, which the claim reads as. This row leads every other following-arrow row of Effects §9 (the no-callback, passes-through and type-argument rows among them) but the parameter-type frames, which an arrow inside a parameter type of the written type takes instead; each fixit is a constant. In a `let` pattern, the binding annotation's rows (Effects §9) (§2.9) |
-| A function under a written arrow silent on a colour it does (`let (f: () -> Unit) = save0`; `((f: () -> Unit), n) =>` over `x: (() ->! Unit, Int)`) | the report the same arrow draws on a binding annotation (`let f: () -> Unit = save0`: "a `->` arrow promises purity and that the function cannot fail, and this function is impure and may fail — the demand is written `->`"), at the written arrow, with its first rewrite changing exactly the colours the report names on that arrow (§2.9), here marking each colour the part does that it is silent on: `(f: () ->! Unit)`, a following one written as its constant at a head binder, and where the arrow is an alias's, the mismatch row's first rewrite, the type the part has; where this module cannot spell the part, the report closes with "; remove the type" and the fixit removes it: `let (f: Sink) = take`, with `type Sink = ({a: Int}) -> Unit` and `take` impure, draws "a `->` arrow promises purity and that the function cannot fail, and this function is impure and may fail — the demand is written `->`; remove the type". In a `let` pattern, where the binding annotation draws another row's report instead (a callback the type writes `->!` over one that is pure, the lie of generality, Effects §9), that row's report and fixit; a head binder's type writes no callback, so it draws none of them (§2.9) |
+| A function under a written arrow silent on a colour it does (`let (f: () -> Unit) = save0`; `((f: () -> Unit), n) =>` over `x: (() ->! Unit, Int)`) | the report the same arrow draws on a binding annotation (`let f: () -> Unit = save0`: "a `->` arrow promises purity and that the function cannot fail, and this function is impure and may fail — the demand is written `->`"), at the written arrow, with its first rewrite changing exactly the colours the report names on that arrow (§2.9), here marking each colour the part does that it is silent on: `(f: () ->! Unit)`, a following one written as its constant at a head binder, and where the arrow is an alias's, the mismatch row's first rewrite, the type the part has; where this module cannot spell the part, the report closes with "; remove the type" and the fixit removes it: `let (f: Sink) = take`, with `type Sink = ({ a: Int }) -> Unit` and `take` impure, draws "a `->` arrow promises purity and that the function cannot fail, and this function is impure and may fail — the demand is written `->`; remove the type". In a `let` pattern, where the binding annotation draws another row's report instead (a callback the type writes `->!` over one that is pure, the lie of generality, Effects §9), that row's report and fixit; a head binder's type writes no callback, so it draws none of them (§2.9) |
 | An arrow in a parameter of a typed pattern's type, at an arm, a `for` head or a lambda's parameter, that marks a colour the part's parameter is silent on (`((m: (() ->! Unit) -> Unit), n) =>` over `x: ((() -> Unit) -> Unit, Int)`) | the lie of generality's words without the callback, since the type writes none (§2.9): "this `->!` accepts any function, and `m` accepts only one that is pure and cannot fail — write its arrow `->`", at the written arrow, its fixit that arrow with each such colour unmarked; "the part" for a pattern that is no binder. Where an alias spells the arrow, at the type: "the `->!` this type spells in a parameter accepts any function, and `m` accepts only one that is pure and cannot fail — write the type `m` has", its fixit the type the part has, whole; where this module cannot spell it, "the `->!` this type spells in a parameter accepts any function, and `m` accepts only one that is pure and cannot fail — remove the type", its fixit removing the type. In a `let` pattern, the lie of generality's own report (row above) |
 | A typed pattern's arrow that says other than the part's arrow on a colour, where the part's arrow was fixed before it arrived: one that marks a colour that arrow does not do (`Some((f: () ->! Unit)) =>` over an `o` whose type a `let` fixed as `Option(() -> Unit)`), or, in a parameter of the claim's type, is silent on one the part's parameter marks (`Some((f: (() -> Unit) -> Unit)) =>` over `o: Option((() ->! Unit) -> Unit)`) | the report the same arrow draws at a use (Effects §4.3), at the written arrow: "this position's arrow says the function is impure and may fail, and the pure arrow meeting it, which cannot fail, was fixed before it arrived — by another use, by a type written where it was made, inside an argument read invariantly, or in a parameter's type — so it cannot fit as a function used here does; write the arrow where it was fixed", its first rewrite that arrow with exactly the colours the report names changed (§2.9): `(f: () -> Unit)`, `(f: (() ->! Unit) -> Unit)`. Where the arrow is an alias's, the type the part has, whole, or "; remove the type" closing the message where this module cannot spell the part, the fixit removing it (§2.9) |
 | `for x: T in xs do` | parse error, fixit: "write the element's type in the pattern: `for (x: T) in xs do`" (§6.4) |
-| Type name in constructor-pattern position (`{x = Float}`) | "`Float` is a type, not a constructor; to give `x` the type `Float`, write `{ x = (x: Float) }`", a keyword-named field's binder written out (`{ type = (t: Float) }`) (§2.4, §2.9) |
+| Type name in constructor-pattern position (`{ x = Float }`) | "`Float` is a type, not a constructor; to give `x` the type `Float`, write `{ x = (x: Float) }`", a keyword-named field's binder written out (`{ type = (t: Float) }`) (§2.4, §2.9) |
 | Bare constructor head scope does not bind; expected type known and lacking the spelling | "`Direction` has no constructor `Nort`" + near-miss (§2.2) |
-| Bare constructor head scope binds to another type's constructor — a union's or a nominal record's; expected type holds the spelling | the arm's ordinary type error, carrying the qualified spelling the expected type does hold: "`North` here is `Compass.North`; this arm matches a `Direction` — write `Direction.North`"; for a record rival the module declares, "`Box` here is this module's `Box`; this pattern matches a `Lib.Box` — write `Lib.Box({…})`", the sub-pattern the reader's own, and for one reached through Modules §5.1 rule 3 (an alias spelled `Box` over a module exporting a constructor `Box`) "`Box` here is `Box.Box`; …" — never the bare same-name tell; where the expected type is opaque abroad the opaque refusal leads instead, there being no qualified spelling to name (§2.2) |
+| Bare constructor head scope binds to another type's constructor — a union's or a nominal record's; expected type holds the spelling | the arm's ordinary type error, carrying the qualified spelling the expected type does hold: "`North` here is `Compass.North`; this arm matches a `Direction` — write `Direction.North`"; for a record rival the module declares, "`Box` here is this module's `Box`; this pattern matches a `Lib.Box` — write `Lib.Box({ … })`", the sub-pattern the reader's own, and for one reached through Modules §5.1 rule 3 (an alias spelled `Box` over a module exporting a constructor `Box`) "`Box` here is `Box.Box`; …" — never the bare same-name tell; where the expected type is opaque abroad the opaque refusal leads instead, there being no qualified spelling to name (§2.2) |
 | Bare constructor head scope does not bind; expected type undetermined when the pattern is checked (a lambda parameter under no supplying seat and no written type; a nested slot a later arm is what fixes) | "no bare `Pair` here: its type is not determined at this pattern — write `Pairs.Pair({ first, second })`, or bind the function with its own annotated `let`" — the second rewrite being the written-face lift (Functions §4.3), and reading "or ascribe the scrutinee" at a nested slot; where the pattern is a match scrutinee's own binder, §6.1's refusal leads and this row is not reported (§2.2, §6.5) |
 | `((x, y)) => e` written meaning two params | "one parameter destructuring a tuple; remove the outer parentheses for two parameters" (§6.5) |
 | `@` in a pattern | fixit: "Hexagon spells as-patterns with `as`" (§2.7) |
 | `let _ = e` | error + `ignore` fixit (§6.3) |
-| Pun in type position (`{x}` as a type) | "record types need field types" (§9) |
+| Pun in type position (`{ x }` as a type) | "record types need field types" (§9) |
 | Field pattern for a field the type lacks | missing-field family, naming known fields (§2.4) |
 | Constructor/pattern arity mismatches, nullary parens, bare payload constructor | unchanged Unions §4.2 family; the "nested patterns arrive later" error is **retired** |
 | A declared pattern's own seats — arity, match-only expression use, a contested suffix, the suffix under an undetermined type, the opaque refusal naming the exported patterns | Pattern Declarations §7 |
 | A `//` pattern whose literals show it never matches (`2//6`, `1//-3`, `n//-3`, `n//0`) | "this case is unreachable; a fraction comes apart in lowest terms with a positive bottom, so `2//6` never matches — write `1//3`", the matching spelling named where one exists; at a zero bottom "this case is unreachable; a fraction's bottom is never zero — remove the case" (§7.2) |
-| `1 // 2 // 3` in a pattern; a `//` pattern's side of a type other than `BigInt` | Operators §6.4's chain refusal; the ordinary mismatch at `BigInt` (§2.10) |
+| `1//2//3` in a pattern; a `//` pattern's side of a type other than `BigInt` | Operators §6.4's chain refusal; the ordinary mismatch at `BigInt` (§2.10) |
 | Constructor or record pattern over `Rat` abroad | "cannot destructure opaque record `Rat`; match it with `top//bottom`" (§2.10) |
 
 ---
@@ -733,16 +733,16 @@ let (True | False) = b              -- legal (binds nothing; pointless but princ
 -- (g) Lambda depth rule
 (x, y) => x + y                     -- 2 params
 ((x, y)) => x + y                   -- 1 param, tuple; emits t => { const [x, y] = t; ... } or param-destructure
-{a, b} => a ++ b                    -- 1 param, record; row-constrains if unannotated
+{ a, b } => a ++ b                  -- 1 param, record; row-constrains if unannotated
 UserId(n) => n                      -- 1 param, newtype unwrap
 Some(x) => x                        -- ERROR: refutable pattern in a binding position
 
 -- (h) Record openness + punning + literal sub-pattern
 match user with
-    {role = Admin} => allowAll()
-    {verified = True, name} => greet(name)
+    { role = Admin } => allowAll()
+    { verified = True, name } => greet(name)
     _ => deny()
--- coverage computed over {role, verified, name}; witness rendering on removal of `_`:
+-- coverage computed over { role, verified, name }; witness rendering on removal of `_`:
 --   match is missing cases: { role = Member, verified = False }   (or shallowest equivalent)
 
 -- (i) Guards never count
@@ -761,8 +761,8 @@ match n with
 
 -- (j) Construction punning round trip
 let name = "Ada"
-let user = {name, verified = True}  -- {name = name, ...}; emits {name, verified: true}
-let {name = n} = user               -- n = "Ada"
+let user = { name, verified = True } -- { name = name, ... }; emits {name, verified: true}
+let { name = n } = user             -- n = "Ada"
 
 -- (k) Float literals, through Eq<Float>
 match temp with
@@ -835,8 +835,8 @@ match temp with
     _ => "ok"
 
 -- (l) Nominal record destructure
-record Point = {x: Float, y: Float}
-let Point({x, y}) = origin          -- OK; bare {x, y} against Point is the nominal-wall error
+record Point = { x: Float, y: Float }
+let Point({ x, y }) = origin        -- OK; bare { x, y } against Point is the nominal-wall error
 
 -- (m) for..in patterns
 for (k, v) in pairs do
@@ -854,7 +854,7 @@ match shape with
 -- (o) The constructor door (§2.2, #763): imported constructors bare in arms
 -- direction.hex: export union Direction = North | East | South | West
 import Direction
-fun turn(d: Direction): Direction =          -- type: Modules §5.1 rule 2
+let turn(d: Direction): Direction =          -- type: Modules §5.1 rule 2
     match d with
         North => East                        -- pattern: the door (scrutinee's type);
         East => South                        --   expression: no door — ERROR: no bare East;
@@ -869,7 +869,7 @@ let g = match
     Direction.North => 1                     -- OK: the qualified pattern fixes the type
     _ => 0
 -- prelude reach: Ordering's constructors are qualified-only (Modules §5.5), bare here
-fun sign(a: Int, b: Int): Int =
+let sign(a: Int, b: Int): Int =
     match a.compare(b) with
         Less => -1
         Equal => 0
@@ -878,28 +878,28 @@ fun sign(a: Int, b: Int): Int =
 -- (o2) A module of its own that takes the spelling (a separate file: compass.hex)
 import Direction
 union Compass = North | South                -- in scope module-wide (§2.2), above and below
-fun h(d: Direction): Int =
+let h(d: Direction): Int =
     match d with
         North => 1                           -- ERROR: North here is Compass.North; this arm
         _ => 0                               --   matches a Direction — write Direction.North
 
 -- (p) Nested, from declarations; and the record fallback (Modules §5.1 rule 3)
--- pair.hex: export record Pair = {first: Direction, second: Direction}
+-- pair.hex: export record Pair = { first: Direction, second: Direction }
 import Pair
-fun same(p: Pair): Bool =
+let same(p: Pair): Bool =
     match p with
-        Pair({first = North, second = North}) => True   -- Pair: rule 3; North: the door,
+        Pair({ first = North, second = North }) => True -- Pair: rule 3; North: the door,
         _ => False                                      --   from the declared field type
 -- (p2) A separate file (firsts.hex) whose alias is not spelled like the constructor
 import Direction
 import Pair as Pairs
-let first = Pair({first, second}) => first   -- ERROR: no bare Pair here: its type is not
+let first = Pair({ first, second }) => first -- ERROR: no bare Pair here: its type is not
                                              --   determined at this pattern — write
-                                             --   Pairs.Pair({first, second}), or bind the
+                                             --   Pairs.Pair({ first, second }), or bind the
                                              --   function with its own annotated let
 let firstOf(p: Pairs.Pair): Direction =
     match p with
-        Pair({first, second}) => first       -- OK: the door, the scrutinee's type known
+        Pair({ first, second }) => first     -- OK: the door, the scrutinee's type known
 
 -- (q) Beneath the top, the slot type as it stands (§2.2): arm order can matter
 let a = match None with
@@ -912,35 +912,35 @@ let b = match None with
     _ => 0
 
 -- (r) Fraction patterns (§2.10, §7.2)
-fun describe(r: Rat): String =
+let describe(r: Rat): String =
     match r with
-        0 // _ => "zero"
-        n // 1 => "the whole number ${n}"
-        n // d => "${n} over ${d}"
-describe(6 // 4)                             -- "3 over 2"
-describe(-8 // 4)                            -- "the whole number -2"
-let n // d = 4 // -5                         -- irrefutable; n = -4n, d = 5n
-let tops = rats.map(n // _ => n)             -- one parameter, a fraction pattern; tops of each
-let f = 1 // d => d                          -- ERROR: this pattern can fail: `_//_`; use match
+        0//_ => "zero"
+        n//1 => "the whole number ${n}"
+        n//d => "${n} over ${d}"
+describe(6//4)                               -- "3 over 2"
+describe(-8//4)                              -- "the whole number -2"
+let n//d = 4//-5                             -- irrefutable; n = -4n, d = 5n
+let tops = rats.map(n//_ => n)               -- one parameter, a fraction pattern; tops of each
+let f = 1//d => d                            -- ERROR: this pattern can fail: `_//_`; use match
 match r with
-    x when x > 1 // 2 => a                   -- the guard compares with a fraction; the arrow is the arm's
+    x when x > 1//2 => a                     -- the guard compares with a fraction; the arrow is the arm's
     _ => b
-let 1 // d = r                               -- ERROR: this pattern can fail: `_//_`; use match
+let 1//d = r                                 -- ERROR: this pattern can fail: `_//_`; use match
 match r with
-    2 // 6 => a                              -- ERROR: this case is unreachable; a fraction comes apart in
-    _ => b                                   --   lowest terms with a positive bottom, so `2 // 6` never
+    2//6 => a                                -- ERROR: this case is unreachable; a fraction comes apart in
+    _ => b                                   --   lowest terms with a positive bottom, so `2//6` never
                                              --   matches — write `1//3`
 match r with
-    n // -3 => a                             -- ERROR: … so `n // -3` never matches — write `n//3`,
+    n//-3 => a                               -- ERROR: … so `n//-3` never matches — write `n//3`,
     _ => b                                   --   which binds the negated top
 match r with
-    n // 0 => a                              -- ERROR: this case is unreachable; a fraction's bottom is never zero — remove the case
+    n//0 => a                                -- ERROR: this case is unreachable; a fraction's bottom is never zero — remove the case
     _ => b
 match r with
-    1 // 3 | 2 // 6 => a                     -- ERROR at `2 // 6` alone: the alternatives are judged one at a time
+    1//3 | 2//6 => a                         -- ERROR at `2//6` alone: the alternatives are judged one at a time
     _ => b
 match r with
-    0 // _ => a                              -- ERROR: match is missing cases: `_//_`
+    0//_ => a                                -- ERROR: match is missing cases: `_//_`
 match r with
     1.50d => a                               -- ERROR: the ordinary mismatch; a `Dec` literal pattern does not widen
     _ => b

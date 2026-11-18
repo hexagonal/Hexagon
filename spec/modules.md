@@ -29,8 +29,8 @@ Every module begins with a **header line** naming it *(#829)*:
 ```
 module Geometry
 
-export record Point = {x: Float, y: Float}
-export fun area(r: Float): Float = ...
+export record Point = { x: Float, y: Float }
+export let area(r: Float): Float = ...
 ```
 
 - **The header is a line, not a block opener.** The module's body follows at the file's own margin; nothing indents on the header's account, and the layout rules (Lexer & Layout) are untouched. The module top level is a block exempt from the final-expression rule (Statements §3.1); its items are the module-level declarations (Declarations Preamble §7.1), `let`/`fun` bindings, and `Unit`-typed effect expressions (§8.2).
@@ -46,14 +46,14 @@ A file may hold several modules, each with its own header, and a module is close
 ```
 module Geometry
 
-export record Point = {x: Float, y: Float}
+export record Point = { x: Float, y: Float }
 
 end module Geometry
 
 module Shapes
 
 import Geometry
-export fun unit(): Geometry.Point = Geometry.Point({x = 0.0, y = 0.0})
+export let unit(): Geometry.Point = Geometry.Point({ x = 0.0, y = 0.0 })
 
 end module Shapes
 ```
@@ -75,7 +75,7 @@ A module's **full name** is its package's name, a dot, and its declared name: `A
 - **A written dotted name has one reading.** Where the first segment of `import Acme.Tools` names a package **visible** to the resolving package other than itself (Packages §3.1), the import names that package's module `Tools` — its full name — and nothing else; otherwise it names a visible module whose *declared* name is `Acme.Tools`. Two refusals stand where neither answers: a first segment naming the resolving package itself is the next bullet's; and a spelling that resolves to nothing whose first segment names an **installed** Hexagon package the resolving package does not list — installed in Packages §4.1's sense, one the resolving package's own lookup answers with — draws Packages §7's not-a-dependency report ("`Acme` is not a dependency of this package; add `"Acme"` to `dependencies` in `hexagon.json`") rather than the unknown-module one, since the reader's repair is the manifest — **provided no module of any package in the program — the package set's every module, imported or not, the set §2.2's rule reads — has a declared name whose first segment is that package's name**. For a package in the program but unseen, §2.2 guarantees the proviso; for one installed and in no closure it must be checked, because an installed package outside the program's set is no package in the program and a declared name beginning with its name stays lawful. Where such a module exists the unknown-module report fires instead — its near misses naming the module where the resolving package can see it, the spelling most likely a miss on it — and the manifest edit is withheld in every case, because applying it would refuse that module, at its header or at the whole-program check per §2.2's two seats. The two readings never overlap, because §2.2 forbids any module in the program a dotted name beginning with a package in the program: where `Acme` is in the program no module is declared `Acme.Tools`, and where a module is so declared, no package `Acme` is in the program. The reading is fixed by the written spelling and the package set, never by inspecting candidates.
 - **A package never qualifies its own modules by its own name.** `import MyApp.Geometry` inside the package `MyApp` is the unknown-module error, not a synonym for `import Geometry`: the full-name reading excludes the resolving package, and no module in the program is declared `MyApp.Geometry` while `MyApp` is a package in it (§2.2), so nothing answers. The hint names the plain form: "a package's own modules are imported by their declared names: `import Geometry`" (Packages §3.3).
 - **A name no visible module bears** is the unknown-module error, naming the near misses the visible set holds — the dotted modules whose declared name ends in the written one included, since that is the miss this rule invites ("no module `Geometry`; did you mean `Render.Geometry` or `Physics.Geometry`?").
-- **Nominal identity is declaration-site identity.** `Point` declared in module `Geometry` is one type constructor everywhere it flows, under any alias. Two modules each declaring `record Point` produce two unrelated types; the Declarations Preamble §7.3 duplicate rule remains per-module. Structural records and tuples are the same type in every module, need no export, cannot be hidden, and their instances remain exclusively compiler-derived: "which module owns `{x: Float}`" has no answer because structural types have no home module, and nothing needs one (Constraints §9.3).
+- **Nominal identity is declaration-site identity.** `Point` declared in module `Geometry` is one type constructor everywhere it flows, under any alias. Two modules each declaring `record Point` produce two unrelated types; the Declarations Preamble §7.3 duplicate rule remains per-module. Structural records and tuples are the same type in every module, need no export, cannot be hidden, and their instances remain exclusively compiler-derived: "which module owns `{ x: Float }`" has no answer because structural types have no home module, and nothing needs one (Constraints §9.3).
 
 ---
 
@@ -114,7 +114,7 @@ A name that is wanted bare in the importer is bound by an ordinary declaration, 
 | a function or value bare | `let area = Geo.area` | a module-level binding; generalises as any binding (§6.1), so a polymorphic export stays polymorphic |
 | a type bare, under the alias's own name | `import Point` | §5.1 rule 2's companion fallback — the companion idiom (§5.3), no second line |
 | a type bare, under another name | `type Point = Geo.Point` | a transparent alias (§6.2): the same type, one spelling |
-| a nominal record's constructor bare | `import Point` | §5.1 rule 3's companion fallback: `Point({x = 1.0, y = 2.0})`, and `Point({x, y})` in a pattern, through the alias |
+| a nominal record's constructor bare | `import Point` | §5.1 rule 3's companion fallback: `Point({ x = 1.0, y = 2.0 })`, and `Point({ x, y })` in a pattern, through the alias |
 | a union constructor bare, under the alias's own name | `import Tag` | §5.1 rule 3's companion fallback: `Tag(7)`, expression and pattern alike |
 | a union's constructors bare in a `match` | write them bare | Pattern Matching §2.2: an unqualified constructor pattern resolves in the scrutinee's type where scope has nothing (#763); `Direction.North` fixes the type where the door needs it |
 | a constraint | `<a: Geo.Ord>`, `honor Geo.Describe<Box>` | Constraints §4.1's qualified head; the members are `Geo.compare(a, b)` or the dot |
@@ -142,7 +142,7 @@ A module-level declaration head has **one visibility slot, with three values** *
 |---|---|
 | `export let x = ...` / `export fun f(...) = ...` | the term |
 | `export` at a member's left margin inside a module-level `fun` block (Functions §7.3) | that member — the one export seat below a declaration head *(#700)*; the block head itself takes no `export` (parse error, per-member advice), and an inner block's members take none (the function-local refusal above applies) |
-| `export record Point = {...}` | `Point` the type **and** `Point` the constructor (the name-carried surface: construction, constructor patterns). Field access, update, and the bare copy are type-directed — they travel with the type, not the import (§4.2) |
+| `export record Point = { ... }` | `Point` the type **and** `Point` the constructor (the name-carried surface: construction, constructor patterns). Field access, update, and the bare copy are type-directed — they travel with the type, not the import (§4.2) |
 | `export union Shape = Circle(...) \| ...` | `Shape` the type **and** every constructor |
 | `export type UserName = String` | the alias name |
 | `export pattern clock(hours: Int, minutes: Int): Time` … | the pattern — its matching direction and, where declared, its building direction (Pattern Declarations §2.3); the head is written in full (§4.1.1); its stable JavaScript/`.d.ts` export is `__patt_clock`, so a term `clock` may be exported alongside it (Pattern Declarations §6) |
@@ -288,19 +288,19 @@ claim less than (Effects §4.2).
 ### 4.2 `opaque`
 
 ```
-opaque record Point = {x: Float, y: Float}
+opaque record Point = { x: Float, y: Float }
 opaque union Handle = FileHandle(fd: Int) | NetHandle(sock: Int)
 ```
 
 `opaque` exports the **type name only**. Everything the body introduces stays private to the home module:
 
-- **Records:** the constructor is private (no construction outside), and — load-bearing — **fields are private too**: no `p.x`, no pattern destructuring save through a pattern the home exports (Pattern Declarations), no `{p with x = e}` update outside the home module. An opaque record without field privacy would be fake abstraction; outside its home module an opaque record is a black box with the doors its home chose to publish.
+- **Records:** the constructor is private (no construction outside), and — load-bearing — **fields are private too**: no `p.x`, no pattern destructuring save through a pattern the home exports (Pattern Declarations), no `{ p with x = e }` update outside the home module. An opaque record without field privacy would be fake abstraction; outside its home module an opaque record is a black box with the doors its home chose to publish.
 - **Unions:** all constructors private — no construction, no constructor pattern outside; a declared pattern the home exports is the one way to match one abroad (Pattern Declarations). Exhaustiveness is checked against the declaration in the home, and abroad against the exported patterns the arms write (Pattern Declarations §4), a constructor never entering a column there.
 - Inside the home module, `opaque` changes nothing: full construction, matching, field access. The home module exports smart constructors and accessors as ordinary functions — this is the intended idiom, and the companion-module pattern (§5.3) is its natural shape. **Destructuring abroad is the exported pattern's** (Pattern Declarations): `export pattern clock(hours: Int, minutes: Int): Time` publishes a view of the type without publishing its fields, and `(h, m)clock` then matches a `Time` anywhere — bare, through the importer's pattern namespace or the expected type's door. Opacity hides structure; a pattern is a capability, and it crosses. Where a home exports patterns over an opaque type, the destructure refusal names them (Pattern Declarations §3.3).
 - Derived instances are unaffected: `opaque record Point derives (Eq, Show) = ...` works — derivation happens in the home module, where nothing is hidden, and the resulting instances are visible wherever that module is reached, like all instances (§7.1). This is deliberate: opacity hides *structure*, not *capabilities*.
 - `opaque` is legal **only on `record` and `union`**, and it fills the head's visibility slot by itself *(#590)*. `export opaque` — the pre-#590 spelling — is a parse error under the Rewrite Rule (Declarations Preamble §1.1): "`opaque` already exports the type name; write `opaque record Point = …`" — the rewrite is mechanical and required, the `widens` respell pattern (Constraints §4.7's refused-export fixit). On `type`: error — aliases are transparent by definition; "make it a `record` or single-constructor `union`" (the Declarations Preamble §4 redirect family). On `let`/`fun`/`constraint`/`exception`/`pattern`: parse error. The subject redirects outrank the pair refusal: `export opaque` before an unlawful subject draws the subject's redirect, never the pair rewrite — the rewrite's output would still be ill-formed, and the deeper fault leads. A redirected bare head claims no crossing: the declaration recovers as private, the slot's neutral value — a refused word claims nothing.
 
-**Transparent representations travel with the type** *(#587)*. The complement of the rule above, and it takes no syntax: outside `opaque`, the declaration is the **sole authority** on representation visibility, and a record's fields are open **wherever the type reaches**. Type-directed access — `p.x`, `{p with x = e}`, the bare copy `{...p}` — asks only what the receiver's type is, and a type reaches modules that never spelled its name: an imported signature carries it, and its home module is in the graph by reachability of the type — the same sentence Method Syntax §4.2 states for the dot's operation set, one law with two clients. Whether the accessing module imported the declaration, in any form or at all, changes nothing: an import carries a module alias and nothing smaller (§3) — construction abroad is `Alias.Crate(…)`, or bare through §5.1 rule 3's fallback where the alias is spelled like the constructor, and a constructor pattern abroad is reached bare through Pattern Matching §2.2's door where the expected type is determined, qualified otherwise — but no import is ever the difference between a representation open and shut. A nominal record's pattern eliminator is the constructor pattern (Pattern Matching §2.4), which a module without the alias still writes — `let Crate({n}) = v`, the `let` subject typed before its pattern and the door supplying the constructor; `{...v}` remains the expression-side exit through the crossing (Products §5.3). The open-or-shut difference is written in one place by one author: `opaque`, on the declaration. Consequently there is no consumer-side or intermediary re-abstraction — no module can pass along another's type with the fields closed, and re-exports, the one vehicle such a facade could ride, stay deferred (§12.2) — and no per-signature or per-occurrence form exists; a representation has one answer, written once: transparent everywhere, or closed everywhere outside its home. Diagnostics inherit the rule: a missing-field error names the record's known fields wherever it fires (Products §3.2) — an empty field enumeration is malformed output, never a compiler sentence — and the only "representation not visible here" refusal is the opaque one above, which sends the reader to the home module.
+**Transparent representations travel with the type** *(#587)*. The complement of the rule above, and it takes no syntax: outside `opaque`, the declaration is the **sole authority** on representation visibility, and a record's fields are open **wherever the type reaches**. Type-directed access — `p.x`, `{ p with x = e }`, the bare copy `{ ...p }` — asks only what the receiver's type is, and a type reaches modules that never spelled its name: an imported signature carries it, and its home module is in the graph by reachability of the type — the same sentence Method Syntax §4.2 states for the dot's operation set, one law with two clients. Whether the accessing module imported the declaration, in any form or at all, changes nothing: an import carries a module alias and nothing smaller (§3) — construction abroad is `Alias.Crate(…)`, or bare through §5.1 rule 3's fallback where the alias is spelled like the constructor, and a constructor pattern abroad is reached bare through Pattern Matching §2.2's door where the expected type is determined, qualified otherwise — but no import is ever the difference between a representation open and shut. A nominal record's pattern eliminator is the constructor pattern (Pattern Matching §2.4), which a module without the alias still writes — `let Crate({ n }) = v`, the `let` subject typed before its pattern and the door supplying the constructor; `{ ...v }` remains the expression-side exit through the crossing (Products §5.3). The open-or-shut difference is written in one place by one author: `opaque`, on the declaration. Consequently there is no consumer-side or intermediary re-abstraction — no module can pass along another's type with the fields closed, and re-exports, the one vehicle such a facade could ride, stay deferred (§12.2) — and no per-signature or per-occurrence form exists; a representation has one answer, written once: transparent everywhere, or closed everywhere outside its home. Diagnostics inherit the rule: a missing-field error names the record's known fields wherever it fires (Products §3.2) — an empty field enumeration is malformed output, never a compiler sentence — and the only "representation not visible here" refusal is the opaque one above, which sends the reader to the home module.
 
 Lineage: Roc's opaque types and Haskell's export-`Point`-without-`Point(..)` idiom; the head-keyword spelling keeps the common case JS-shaped where an export list (Haskell/Elm) would abandon it (§9.3). One cost is taken with eyes open *(#590)*: a module's exported interface reads off **two** left-margin keywords — the declarations beginning `export` plus those beginning `opaque` — where before #590 every unconditional export began `export`. The dropped word was redundant-but-always-true, unlike `widens`' dropped `export` (which would sometimes have been false, visibility being derived there — Constraints §4.7); the legibility price was judged worth the one-slot grammar, and the precedent both forms now share is the same sentence: the form claims exactly the properties the thing has.
 
@@ -368,19 +368,19 @@ The intended pattern for opaque types: the home module exports the opaque type p
 -- point.hex
 module Point
 
-opaque record Point = {x: Float, y: Float}
-export fun make(x: Float, y: Float): Point = Point({x = x, y = y})
-export fun getX(p: Point): Float = p.x
+opaque record Point = { x: Float, y: Float }
+export let make(x: Float, y: Float): Point = Point({ x = x, y = y })
+export let getX(p: Point): Float = p.x
 
 -- consumer.hex
 module Consumer
 
 import Point
 let p = Point.make(1.0, 2.0)      -- Point. = module; Point in types = the type (§5.1 rule 2's companion fallback)
-fun norm(p: Point): Float = ...
+let norm(p: Point): Float = ...
 ```
 
-The prelude's `Int.div`, `Map.get`, `Vector.map` are this exact pattern — auto-imported companion modules, **one reading, not a special prelude device**. Two suppliers stand behind the one reading: a prelude companion's type name arrives by seeding (§5.5), a user companion's through §5.1 rule 2's companion fallback — and a transparent companion's constructor through rule 3's, so `export record Point = {x: Float, y: Float}` in module `Point` gives the consumer above `Point({x = 1.0, y = 2.0})` and the pattern `Point({x, y})` on the same one line (#763) — and the consumer file cannot tell which *(#531: before the fallback existed, the example above did not compile, and this sentence said "one mechanism" — an overclaim at exactly the type level)*.
+The prelude's `Int.div`, `Map.get`, `Vector.map` are this exact pattern — auto-imported companion modules, **one reading, not a special prelude device**. Two suppliers stand behind the one reading: a prelude companion's type name arrives by seeding (§5.5), a user companion's through §5.1 rule 2's companion fallback — and a transparent companion's constructor through rule 3's, so `export record Point = { x: Float, y: Float }` in module `Point` gives the consumer above `Point({ x = 1.0, y = 2.0 })` and the pattern `Point({ x, y })` on the same one line (#763) — and the consumer file cannot tell which *(#531: before the fallback existed, the example above did not compile, and this sentence said "one mechanism" — an overclaim at exactly the type level)*.
 
 **Companion dispatch makes this idiom load-bearing** (Method Syntax §4): a dot call `p.getX()` rewrites to the companion operation of the receiver's type, and `CompanionOf` targets **the nominal type's home module** — the declaration site, unconditionally — not the importer's alias or any import path. The idiom is therefore a resolution rule's substrate, not just a style.
 
@@ -396,10 +396,10 @@ The prelude's `Int.div`, `Map.get`, `Vector.map` are this exact pattern — auto
 
 The prelude enters every module's scope as a **distinct outermost layer**. The Head Binder Shadowing rule (Statements §5) keeps its statement for every layer the module writes itself — sequential binders never reuse a name from the module layer or any inner layer, nor one whose definition is in progress (Statements §5.1) — but the prelude layer is **shadowable at every binder position**, and shadowing it **reserves the name**:
 
-- A **module-level** `let`/`fun` (or a module import, whose alias may occlude a prelude module's — and, where the imported module exports a type or constructor of the alias's spelling, the prelude's type and constructor of that spelling with it, §5.1 rules 2 and 3 (#1075; an exception's, #1078); an import of a prelude module itself (`import Hex.JsError`, `import Hex.Map as KeyFault`) occludes nothing, what it exports of the spelling being the prelude's own declaration — or a member of a constraint the module declares, or a `widens` declaration (Constraints §4.7), or a type-namespace declaration such as `record Seq(a)`, or a declaration's **constructor names** — a union's, a record's, or an exception's) **may occlude a prelude name**. An `honor` occludes nothing: honoring binds no bare name, so a module that honors `Show` keeps the prelude's `show` (Constraints §4.6, #757). `fun show(x) = ...` at module level is legal where the module honors no `Show` (an instance claims its members' spellings, Constraints §4.6); the local `show` wins unqualified **module-wide**, and the prelude's version remains reachable qualified (`String.show` etc. — §6.4 guarantees a qualified home exists). *Module-wide* is enforced by reservation: the occluding item makes the prelude's binding invisible throughout the module, and every reference — outside a shadowing `let`'s or `var`'s own RHS, the pending-clause seam (Statements §5.1) that the wrapper idiom depends on — resolves **as if the prelude did not bind the name**. A reference above the occluder therefore behaves exactly as the same shape behaves at a user-written name: the declared-later error (Functions §7.2) above a binding, a declaration, or a module import (§3's import-shaped fixit), or the legal mutual reference within a `fun` block (Functions §7.3) — never, in any case, the prelude's meaning. Outside that one RHS seam, one identifier never carries two meanings in one scope. A module import enters the *same* layer as local bindings and fights under the full ban (§5.2's one collision rule).
+- A **module-level** `let`/`fun` (or a module import, whose alias may occlude a prelude module's — and, where the imported module exports a type or constructor of the alias's spelling, the prelude's type and constructor of that spelling with it, §5.1 rules 2 and 3 (#1075; an exception's, #1078); an import of a prelude module itself (`import Hex.JsError`, `import Hex.Map as KeyFault`) occludes nothing, what it exports of the spelling being the prelude's own declaration — or a member of a constraint the module declares, or a `widens` declaration (Constraints §4.7), or a type-namespace declaration such as `record Seq(a)`, or a declaration's **constructor names** — a union's, a record's, or an exception's) **may occlude a prelude name**. An `honor` occludes nothing: honoring binds no bare name, so a module that honors `Show` keeps the prelude's `show` (Constraints §4.6, #757). `let show(x) = ...` at module level is legal where the module honors no `Show` (an instance claims its members' spellings, Constraints §4.6); the local `show` wins unqualified **module-wide**, and the prelude's version remains reachable qualified (`String.show` etc. — §6.4 guarantees a qualified home exists). *Module-wide* is enforced by reservation: the occluding item makes the prelude's binding invisible throughout the module, and every reference — outside a shadowing `let`'s or `var`'s own RHS, the pending-clause seam (Statements §5.1) that the wrapper idiom depends on — resolves **as if the prelude did not bind the name**. A reference above the occluder therefore behaves exactly as the same shape behaves at a user-written name: the declared-later error (Functions §7.2) above a binding, a declaration, or a module import (§3's import-shaped fixit), or the legal mutual reference within a `fun` block (Functions §7.3) — never, in any case, the prelude's meaning. Outside that one RHS seam, one identifier never carries two meanings in one scope. A module import enters the *same* layer as local bindings and fights under the full ban (§5.2's one collision rule).
 
   Constructor occlusion reads **pattern position and value position as one scope** — Functions §7.2 already governs both. An unqualified constructor pattern below the occluding declaration means the module's constructor; one above it draws §7.2's pattern-position declared-later error ("move the union's declaration above this use"); a module without an occluder keeps the prelude's constructor in patterns as everywhere else. The occluded prelude constructor stays reachable **qualified in both positions**: the §3.1 forms through a module alias, and the declaring prelude module's own name for prelude constructors — `Ordering.Less`, `Option.Some(v)`, in a pattern as in an expression. (`union Flag = True | Maybe` is therefore legal and occludes `True` module-wide; every context demanding `Bool` still demands it, so a strayed `Flag` constructor is a loud type error, and `Bool.True` remains spellable in both positions.)
-- A **function-local sequential binder may shadow a prelude name** — the same grant, one layer in. Statements §5.1 rule 1 exempts the prelude layer from its collision set, for all four sequential forms alike: `let`, `var`, `fun`, and `let`-destructuring (`let {show, hash} = record` is legal, its punned fields shadowing two prelude names the pattern's author never wrote). The shadowed name is **reserved for the whole enclosing block** (Statements §5.1): references outside the binder's own RHS resolve as if the prelude did not bind the name, so a use above the binder takes the declared-later error rather than the prelude's meaning — the same reservation as at module level, and the two levels must never diverge.
+- A **function-local sequential binder may shadow a prelude name** — the same grant, one layer in. Statements §5.1 rule 1 exempts the prelude layer from its collision set, for all four sequential forms alike: `let`, `var`, `fun`, and `let`-destructuring (`let { show, hash } = record` is legal, its punned fields shadowing two prelude names the pattern's author never wrote). The shadowed name is **reserved for the whole enclosing block** (Statements §5.1): references outside the binder's own RHS resolve as if the prelude did not bind the name, so a use above the binder takes the declared-later error rather than the prelude's meaning — the same reservation as at module level, and the two levels must never diverge.
 - **The reverse is not granted.** A sequential binder still may not reuse a name from the module's own layers — a module-level binding, a parameter, another local. The exemption is tested against the layer of the binding actually in scope, not the name's ancestry: a module that has occluded `show` has moved `show` into its module layer, and a function-local `let show` below that occluder is the ordinary rule-1 error, citing the module's own line.
 
 **In prelude source, "the prelude layer" is the module's §5.5 visible prefix** — the only prelude layer it has. The rule is otherwise identical: stdlib modules shadow and occlude their predecessors exactly as user code shadows and occludes the full prelude, so stdlib source pasted into a user module resolves its shadowed and occluded names the same way. (The paste is not unconditionally legal — a pasted constraint declaration meets §5.1.1's refusal, and an unqualified reference whose prefix had one exporter can meet the full set's §5.5 ambiguity; both are loud.) `Vector.hex`'s, `Map.hex`'s, and `Set.hex`'s own `empty` declarations are this reading's prior art at module level: each is an ordinary §5.4 occlusion of the `empty` exported by an earlier prefix member.
@@ -635,8 +635,8 @@ Library versus application is therefore not a distinction in Hexagon module sema
 ```
 -- (a) Privacy default
 module Geometry
-export fun area(r: Float): Float = 3.14159 * r * r
-fun helper(x: Float): Float = x * x          -- private
+export let area(r: Float): Float = 3.14159 * r * r
+let helper(x: Float): Float = x * x          -- private
 end module Geometry
 
 module Consumer
@@ -647,18 +647,18 @@ import { area } from "./geometry"            -- ERROR (parse): Hexagon imports n
                                              --   Geometry.area
 
 -- (b) The companion fallbacks, both namespaces (§5.1 rules 2 and 3)
--- module Point: export record Point = {x: Float, y: Float}
---               export fun area(p: Point): Float = p.x * p.y
+-- module Point: export record Point = { x: Float, y: Float }
+--               export let area(p: Point): Float = p.x * p.y
 import Point
-let p = Point({x = 1.0, y = 2.0})            -- constructor: rule 3, through the alias
-fun f(q: Point): Float = q.x                 -- type: rule 2; fields visible (not opaque)
+let p = Point({ x = 1.0, y = 2.0 })          -- constructor: rule 3, through the alias
+let f(q: Point): Float = q.x                 -- type: rule 2; fields visible (not opaque)
 let sum = match p with
-    Point({x, y}) => x + y                   -- constructor pattern: rule 3 again
+    Point({ x, y }) => x + y                 -- constructor pattern: rule 3 again
 let area = Point.area                        -- an unqualified name is a declaration (§3.2)
 
 -- (c) Opaque is a black box outside home
--- module Point: opaque record Point = {x: Float, y: Float}
---               export fun make(x: Float, y: Float): Point = Point({x = x, y = y})
+-- module Point: opaque record Point = { x: Float, y: Float }
+--               export let make(x: Float, y: Float): Point = Point({ x = x, y = y })
 -- (the pre-#590 pair is refused with the required rewrite:)
 -- export opaque record Point = ...           -- ERROR: opaque already exports the
 --                                            --   type name; write opaque record
@@ -674,18 +674,18 @@ match p with                                 -- ERROR: cannot destructure opaque
 
 -- (d) Companion idiom: alias/type/constructor coexistence
 import Point
-fun norm(p: Point): Float = ...              -- type position: the type (§5.1 rule 2's companion fallback)
+let norm(p: Point): Float = ...              -- type position: the type (§5.1 rule 2's companion fallback)
 let q = Point.make(3.0, 4.0)                 -- Point. : the module
 
 -- (e) Prelude shadowing: granted at every level, reserved block-wide
-fun show(x: Config): String = "..."          -- OK: occludes prelude show, module-wide
-fun f(c) =
+let show(x: Config): String = "..."          -- OK: occludes prelude show, module-wide
+let f(c) =
     let show = 1                             -- ERROR: show is the module's now (§5.4 reverse)
     ...
-fun g(c) =
+let g(c) =
     let nan = 0.0                            -- OK: shadows the prelude's nan (§5.4)
     nan
-fun h(c) =
+let h(c) =
     let x = isFinite(c)                      -- ERROR: isFinite is declared later in
     let isFinite = c > 0.0                   --   this block (§5.4 reservation)
     x
@@ -707,11 +707,11 @@ import Physics.Geometry                      -- ERROR: module alias Geometry alr
 
 -- (h) Private-in-public
 union Token = Word(s: String) | Gap          -- private
-export fun parse(s: String): Vector(Token) = ...
+export let parse(s: String): Vector(Token) = ...
 -- ERROR: exported binding parse exposes private type Token; export the
 -- type, perhaps opaquely, or keep the binding private
 
-export record Cursor = {at: Int, token: Token}
+export record Cursor = { at: Int, token: Token }
 -- ERROR (at the field annotation): exported record Cursor exposes private
 -- type Token; export the type, perhaps opaquely, or keep the record private
 
@@ -759,9 +759,9 @@ let mk = Tag                                 -- referenced as a value: the funct
                                              --   "./util.js" beside it is legal, a foreign file
 
 -- (l) Transparent representation reaches through an un-imported home (§4.2)
--- module Crate: export record Crate = {n: Float}
+-- module Crate: export record Crate = { n: Float }
 -- module Mid:   import Crate
---               export fun make(value: Float): Crate = Crate({n = value})   -- rules 2 and 3
+--               export let make(value: Float): Crate = Crate({ n = value })   -- rules 2 and 3
 import Mid                                   -- Crate never imported here, in any form
 Mid.make(1.5).n                              -- OK: fields travel with the type
 Mid.make(1.5).m                              -- ERROR: Crate has fields n, not m
@@ -772,11 +772,11 @@ Mid.make(1.5).m                              -- ERROR: Crate has fields n, not m
 import Shape
 let bad = Circle(1.0)                        -- ERROR: no bare Circle; write Shape.Circle(1.0)
 let c = Shape.Circle(1.0)                    -- OK
-fun describe(s: Shape): String =             -- type: rule 2
+let describe(s: Shape): String =             -- type: rule 2
     match s with
         Circle(r) => "circle"                -- OK: Pattern Matching §2.2's door, the
         Rect(w, h) => "rect"                 --   scrutinee's type supplying the constructors
-fun isRound(s: Shape): Bool =
+let isRound(s: Shape): Bool =
     match s with
         Shape.Circle(_) => True              -- the qualified pattern, unchanged
         _ => False
@@ -803,27 +803,27 @@ import _internal.util                        -- ERROR (parse): … write import 
 
 -- (o) Headers and closers (§2.1, §2.2; the strangers' unbound alias, self-qualification and the own-type carve, §5.1)
 -- search-params.hex, no header:
-export fun parse(s: String): Vector(String) = ...
+export let parse(s: String): Vector(String) = ...
 -- ERROR: every file declares its module; write module SearchParams (fixit inserts it)
 
 module Geometry
-export record Point = {x: Float, y: Float}
+export record Point = { x: Float, y: Float }
 module Shapes                                -- ERROR: a file holding several modules closes
                                              --   each with end module Geometry (fixit
                                              --   inserts the closer above this line)
 
 module Geometry
-export record Point = {x: Float, y: Float}
+export record Point = { x: Float, y: Float }
 end module Shapes                            -- ERROR: end module Shapes closes module
                                              --   Geometry; write end module Geometry
 
 module Geometry
-export record Point = {x: Float, y: Float}
+export record Point = { x: Float, y: Float }
 end module Geometry
 let stray = 1                                -- ERROR: code outside a module
 
 module Geometry
-export record Point = {x: Float, y: Float}
+export record Point = { x: Float, y: Float }
 end module Geometry                          -- OK: the closer, optional in a one-module file,
                                              --   is legal there too
 
@@ -831,7 +831,7 @@ end module Geometry                          -- OK: the closer, optional in a on
 module geometry                              -- ERROR (parse): a module name is uppercase-start;
                                              --   write module Geometry; the file is then read under
                                              --   Geometry, so no headerless report follows
-export record Point = {x: Float, y: Float}
+export record Point = { x: Float, y: Float }
 end module geometry                          -- ERROR: end module geometry closes module Geometry;
                                              --   write end module Geometry (§2.2's rule, unchanged)
 
@@ -860,18 +860,18 @@ module _internal.util                        -- ERROR (parse): a module name is 
 
 -- (a second file, two modules:)
 module Geometry
-export record Point = {x: Float, y: Float}
+export record Point = { x: Float, y: Float }
 export let scale: Float = 1.0
 export let p: Point = Point.make(1.0, 1.0)   -- ERROR: Point is a type, not a module — no repair
                                              --   named: the use does not yet see make below it —
                                              --   only a fun block's members do (Functions §7.2–§7.3)
-export fun make(x: Float, y: Float): Point = Point({x = x, y = y})
+export let make(x: Float, y: Float): Point = Point({ x = x, y = y })
 export let o: Point = Point.make(0.0, 0.0)   -- ERROR: Point is a type, not a module; write
                                              --   make(0.0, 0.0) (the module's own type: the drop,
                                              --   never import Geometry into itself)
 end module Geometry                          -- required: a second module follows (§2.2)
 module Shapes
-export fun unit(): Geometry.Point = ...      -- ERROR: no module alias Geometry; import Geometry
+export let unit(): Geometry.Point = ...      -- ERROR: no module alias Geometry; import Geometry
                                              --   (strangers, §2.2 — sharing a file binds nothing;
                                              --   the applied edit inserts import Geometry below
                                              --   the module Shapes header, §5.1)
@@ -881,7 +881,7 @@ export let four: Float = Shapes.two * 2.0    -- ERROR: a module does not qualify
                                              --   write two (bare two resolves to the module's
                                              --   own binding here: the applied edit drops the
                                              --   qualifier)
-export fun grow(two: Float): Float =         -- ERROR: a module does not qualify through itself —
+export let grow(two: Float): Float =         -- ERROR: a module does not qualify through itself —
     Shapes.two * two                         --   no repair named: bare two here is the parameter
 -- (a third file, in a project depending on Acme:)
 module Acme.Geometry                         -- ERROR: Acme.Geometry begins with the name of the
@@ -890,7 +890,7 @@ module Acme.Geometry                         -- ERROR: Acme.Geometry begins with
                                              --   module (§2.2)
 -- (a fourth file:)
 module Json                                  -- OK beside a dependency Json: undotted (§2.2)
-fun f() =
+let f() =
     module Inner                             -- ERROR: module and end module mark a module at a
                                              --   file's top level; a module cannot be declared
                                              --   or closed inside a block

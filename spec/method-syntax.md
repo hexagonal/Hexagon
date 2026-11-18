@@ -87,12 +87,12 @@ The question has two strengths. The **head** of the subject's type, its outermos
 - a **`var`**: its head is its initializer's — a number nothing decided is an `Int` where the `var` is made (Numeric Literals §4), so `var n = 42` is decided — except where the initializer leaves the type itself unsolved, a form or call that hands back a type no name or number fixes, whose type the `var`'s assignments choose; and the whole only where the initializer is decided wholly and left no part open, a part its assignments would fill (`var acc = []`);
 - a **`fun` inside a body**: its head is a function's, and the whole is decided where its signature is written whole, or where every name it captures is decided — functions that capture one another read as one, decided where every name they capture from outside is;
 - the **parameter of a lambda** with no written type, in three places only — its head where its type lands there with a known head, and the whole only where it also lands with no part of its shape open: a hole beneath the written head, or a polymorphic value's instance in the call (`Seq.map(Seq.singleton(Vector.empty), (x) => …)`), leaves that part to whichever line of the lambda's body comes first:
-  - **under a written type**, where a written type whose head is written reaches the lambda — a `let`'s annotation, an ascription, a written result type, or a constructor's declaration — through grouping, a literal's matching parts, a branch form's value paths, a block's final expression, a curried lambda's result, and a constructor's arguments. The slot written for the parameter decides it: its head where the slot writes a head, and the whole where the slot is written whole. Through a constructor's application — a union constructor's, or a record's construction, a `with` update's overrides included — the slot is the one the constructor's declaration writes, its type parameters as the written type gives them, or as holes where no written type reaches the application: the declaration is text, and only what its parameters become at one application is inference's. A record's construction reads the record literal on each of its argument's value paths. Under `Option((Vector(_)) -> Int)`, `Some`'s slot `a` reads `(Vector(_)) -> Int`, so in `Some((x) => x.length())`, and in `if c then Some((x) => x.length()) else None`, the slot `Vector(_)` decides `x`'s head. With no written type, `union U2(a) = Mk2((Vector(a)) -> Int)` gives `Mk2((x) => x.length())` the slot `(Vector(_)) -> Int`, exactly as `let u: U2(_) = Mk2(…)` would, so `x`'s head is decided and its whole is not; `Mk((x) => x.length())` with `Mk((Vector(Int)) -> Int)`, and `Q({f = (x) => x.length()})` with `f: (Vector(Int)) -> Int`, decide the whole, `Q({base with f = (x) => x.length()})` alike; and where the parameter's slot is one of the declaration's parameters, as `x`'s is in `F((x) => x.length())` with `F((a) -> Int)`, nothing decides it until a written type gives that parameter. A constructor is not a named function's call, so its other arguments decide nothing. A hole decides nothing, whatever fills it: in `let h: Vector((_) -> Int) = [g, (x) => x.length()]`, `g`'s type fills the hole before `x` lands, and `g`'s type may come from any line; nor, with `union P(a) = Pair(a, (a) -> Int)`, does `[1]` decide `x` in `let p: P(_) = Pair([1], (x) => x.length())`, or in `Pair([1], (x) => x.length())`;
+  - **under a written type**, where a written type whose head is written reaches the lambda — a `let`'s annotation, an ascription, a written result type, or a constructor's declaration — through grouping, a literal's matching parts, a branch form's value paths, a block's final expression, a curried lambda's result, and a constructor's arguments. The slot written for the parameter decides it: its head where the slot writes a head, and the whole where the slot is written whole. Through a constructor's application — a union constructor's, or a record's construction, a `with` update's overrides included — the slot is the one the constructor's declaration writes, its type parameters as the written type gives them, or as holes where no written type reaches the application: the declaration is text, and only what its parameters become at one application is inference's. A record's construction reads the record literal on each of its argument's value paths. Under `Option((Vector(_)) -> Int)`, `Some`'s slot `a` reads `(Vector(_)) -> Int`, so in `Some((x) => x.length())`, and in `if c then Some((x) => x.length()) else None`, the slot `Vector(_)` decides `x`'s head. With no written type, `union U2(a) = Mk2((Vector(a)) -> Int)` gives `Mk2((x) => x.length())` the slot `(Vector(_)) -> Int`, exactly as `let u: U2(_) = Mk2(…)` would, so `x`'s head is decided and its whole is not; `Mk((x) => x.length())` with `Mk((Vector(Int)) -> Int)`, and `Q({ f = (x) => x.length() })` with `f: (Vector(Int)) -> Int`, decide the whole, `Q({ base with f = (x) => x.length() })` alike; and where the parameter's slot is one of the declaration's parameters, as `x`'s is in `F((x) => x.length())` with `F((a) -> Int)`, nothing decides it until a written type gives that parameter. A constructor is not a named function's call, so its other arguments decide nothing. A hole decides nothing, whatever fills it: in `let h: Vector((_) -> Int) = [g, (x) => x.length()]`, `g`'s type fills the hole before `x` lands, and `g`'s type may come from any line; nor, with `union P(a) = Pair(a, (a) -> Int)`, does `[1]` decide `x` in `let p: P(_) = Pair([1], (x) => x.length())`, or in `Pair([1], (x) => x.length())`;
   - **in a named function's call**, where the lambda is an argument of a call whose callee is a named function — a name or a dot call, never a constructor — directly or on the argument's spine (through grouping, a vector's, tuple's or record's parts, a branch form's value paths, a `try`'s included, and a block's final expression), and its type lands there (Functions §4.3). The call is read wholly: its callee, a dot callee's subject, the value a pipe hands a pipe stage, and every argument except the lambda asked about and the lambdas after it, which the schedule elaborates later (Functions §4.3). An earlier sibling lambda is read, what it captures included, since its body can settle a type variable the asked lambda's parameter shares (`both((a) => a == q, (b) => b.length())` does not decide `b`), and its result joins the call right after its body (Functions §4.3): in `using(() => [1, 2], (h) => h.length())`, `h` is the first lambda's result, a `Vector`.
 
   - **applied where it is written** — a lambda literal that is a call's callee, which a pipe's right-hand lambda and a pipe into a match function are (Operators §8): each parameter is decided as a `let` made from its argument is, its head where the argument's head is decided and the whole where the argument is decided wholly — `v |> (x) => x.length()` with `v: Vector(Int)`, `((x) => x.show())(n)` with `n: Int`, and `big |> match` with `0 =>` and `_ =>` arms, which is `match big with`. An argument the text does not decide decides nothing, and the parameter takes its type, as a `let` does.
 
-  Outside those three places the parameter is not decided, whatever the types around the lambda: in a constructor's slot its declaration leaves to a parameter no written type gives (`Col({values = vs, format = (e) => e.show()})`, with `format: (a) -> String`), handed back by another lambda, as the override of a `with` update no record construction holds (`{q with f = (x) => x.length()}`, whose slot only `q`'s type gives), or assigned. An expectation reaches a lambda there through its position — a pipe's left operand, where a constructor stands, an assignment's target — and the text decides only the three positions above. The parameter's written type is the spelling there (`(e: Int) =>`), as are the module's function (`Vector.length(x)`) and the bare member (`show(e)`);
+  Outside those three places the parameter is not decided, whatever the types around the lambda: in a constructor's slot its declaration leaves to a parameter no written type gives (`Col({ values = vs, format = (e) => e.show() })`, with `format: (a) -> String`), handed back by another lambda, as the override of a `with` update no record construction holds (`{ q with f = (x) => x.length() }`, whose slot only `q`'s type gives), or assigned. An expectation reaches a lambda there through its position — a pipe's left operand, where a constructor stands, an assignment's target — and the text decides only the three positions above. The parameter's written type is the spelling there (`(e: Int) =>`), as are the module's function (`Vector.length(x)`) and the bare member (`show(e)`);
 - a **parameter a `match` tests with a number** — an unannotated parameter of a function bound by name (a `let`'s, or a `fun` member alone in its knot), which a `match` in its body tests, as its bare scrutinee, with a bare integer pattern while no arm's pattern names another head (Pattern Matching §6.1): an `Int` where the parameter is made (Numeric Literals §4), its head and the whole, so `k.show()` beside `match k with` followed by `0 =>` and `_ =>` arms is `Show`'s member at `Int`, in either order of the two lines;
 - a **pattern's part or a loop variable**, where the value it is taken from is decided wholly and its type kept no unsettled part of its shape, or where the declarations of the constructors the pattern names write the part, whatever the value it is taken from: read down the pattern's steps from the value to the part (a tuple's, a record's or a vector's parts, and a constructor's slot, a constructor written in a slot reading the type arguments that slot gives it), its head where they write its head, and the whole where they write every part. A name an or-pattern binds holds what any of its alternatives gave it, so the declarations write of it what every alternative writes, position by position, a record type's fields by name: a position one of them writes nothing at is the value's, and alternatives that write it different types are refused by the same-bindings rule (Pattern Matching §2.6). As at a constructor's application (above), the declaration is text, and only what its type parameters become is the value's, so a slot the declaration writes as a type parameter is decided only as the value is. So is a constructor the pattern names only through the type its position meets (Pattern Matching §2.2), since that type chose it. Its declaration is read only where that type is the text's: where the declarations above it write that position's type, or where the value is one the text decides as a use reads it, made from the text or a call whose written result type is ground (Effects §3.4), whose type is the text's at every position. Elsewhere it is the value's: at the pattern's top, and beneath a slot written as a type parameter. With `A(n: Int)`, `A(n) => n.show()` is `Int`'s `show` over a `match u with` whose `u` no type is written for, as over `u: U`, and at a `catch` arm; `Some(n) => n.show()` over a `match o with` whose `o` the text leaves undecided is refused, `Option`'s slot being its parameter `a`; `L(xs)`, with `L(xs: Vector(a))`, decides `xs`'s head, a `Vector`, and not its whole, and so does `L(xs) | M(xs)` where `M(xs: Vector(a))` too; and `X(n) | Z(n)`, with `X(n: Int)` and `Z(n: a)`, decides nothing of `n`;
 - a **call to a function the module or an import declares**, whose generalized signature gives its result whatever it is handed: its head where the signature's result has one, and the whole where the result holds no type variable — `Vector.length(p)` is an `Int` whatever `p` is. A local function's signature may hold what it captures, so it is read by its own text (the next bullet), or as the bullet after reads a call;
@@ -141,7 +141,7 @@ Every refused dot call compiles with its subject's type written, through its mod
 
 ### 3.6 The record spelling
 
-`(e.name)(args…)` is field access followed by an ordinary call, and it is how a record's callable field is called on a subject whose type the text does not decide: `fun f(r) = (r.callback)(3)` infers `{callback: (Int) -> a, ...} -> a`, the row-polymorphic type (Products §3.2, §4). The dot itself never imposes a row. A row the field spelling imposes meets a nominal type at a use as any row does, and where the field's name matches an exported companion operation of that type, or a subject-first member honored at it, the report names the operation (§9 row 8). On a subject the text decides is a structural record, the dot call is a field call (§3.4's first row): `fun f(r: {callback: (Int) -> Int, ...}) = r.callback(3)`.
+`(e.name)(args…)` is field access followed by an ordinary call, and it is how a record's callable field is called on a subject whose type the text does not decide: `let f(r) = (r.callback)(3)` infers `{ callback: (Int) -> a, ... } -> a`, the row-polymorphic type (Products §3.2, §4). The dot itself never imposes a row. A row the field spelling imposes meets a nominal type at a use as any row does, and where the field's name matches an exported companion operation of that type, or a subject-first member honored at it, the report names the operation (§9 row 8). On a subject the text decides is a structural record, the dot call is a field call (§3.4's first row): `let f(r: { callback: (Int) -> Int, ... }) = r.callback(3)`.
 
 ---
 
@@ -379,7 +379,7 @@ A dot call is decided where it is written (§2.2), from the program's text (§3.
 5. **Declaration-time collision ban** (home module may not export a subject-first function named like a field). Rejected in favour of use-site (§6): it charges library authors for a feature their consumers may never use, breaks at a distance when a field is added, and its only cure is renaming a *public* export — worse churn than call sites qualifying. Revisit only with field evidence that use-site breakage under library evolution (§6, last bullet) is a real ecosystem pain.
 6. **Bound-method values** (`v.at` as `() => Vector.at(v)`-ish, or any method reference). Rejected: implicit closure allocation, hidden receiver capture, equality-of-bound-methods questions, and a reintroduction of partial application through the back door. Not merely "Hexagon lacks currying" — a non-curried language *could* invent bound methods; Hexagon has no reason to. `map(vs, Vector.reverse)` stays qualified. *(Rationale: Sol.)* **Do not relitigate.**
 7. **Constraint-member dispatch through dot** (`x.show()` resolving via instances on unknown or known types). Rejected for v1 and pre-registered as the feature's slippery slope: it is precisely extension-trait machinery, makes the method set depend on constraint solving, and taxes the bare-call doctrine (Sol-review §A) for nothing the LSP doesn't already provide. Revisit bar: §12.1. **[Reversed in part — §16.2.** The members-as-values ruling (#335) gave members declaring-module identities and export status, which is what this rejection said no scheme had: dispatch on *head-known* types and *declared bounds* is now table-lookup against coherence-keyed instances and written binders — no unknown-type dispatch, no constraint solving in the method set, no import that names an instance (the set reads the instances the calling module's imports reach, §4.2). The **unknown-type half stands rejected**: a subject the text does not decide is refused (§3.5), and member names still never nominate.**]**
-8. **Reading an undecided subject as a record field** (the row fallback, this form's meaning before §3: "where the receiver's head is not known at the deadline, `e.name(args…)` *means* row-constrained field access"). Rejected: one spelling had two meanings, chosen by what inference happened to know — `fun f(v) = v.at(3)` a record function, `fun g(v: Vector(Int)) = v.at(3)` the companion's — and the contradiction surfaced at a use, at maximal distance from its cause. A dot call that cannot tell whose operation it names is refused at the dot (§3.5), and the record spelling says the field outright (§3.6). **Do not relitigate.**
+8. **Reading an undecided subject as a record field** (the row fallback, this form's meaning before §3: "where the receiver's head is not known at the deadline, `e.name(args…)` *means* row-constrained field access"). Rejected: one spelling had two meanings, chosen by what inference happened to know — `let f(v) = v.at(3)` a record function, `let g(v: Vector(Int)) = v.at(3)` the companion's — and the contradiction surfaced at a use, at maximal distance from its cause. A dot call that cannot tell whose operation it names is refused at the dot (§3.5), and the record spelling says the field outright (§3.6). **Do not relitigate.**
 9. **Private functions as dot-callable inside the home module.** Rejected: a visibility-dependent operation set; bare calls are available there anyway. Exported-only, uniformly (§4.2).
 10. **Waiting for later evidence** (this form's lifecycle before §3: a receiver unsolved at the dot left a goal, resolved by unification anywhere in the receiver's owner region, at that region's finalisation at the latest, with the row fallback for survivors). Rejected: it kept line order out of dispatch at a price paid everywhere else — a body calling a waiting dot call could not know its colour until the deadline, so the effects machinery held bodies and settled their colours at the wrong moment (#1173); a goal the deadline never reached left a clean compile calling `undefined` (#1182); and its fallback was alternative 8. The text decides the subject at the dot, or the dot is refused (§3). **Do not relitigate.**
 11. **The program's own member outranking the prelude's operation at the dot** *(#1077)* — where a prelude companion export or honored member and a member of the program's own constraint claim one spelling at a type, the program's member answering the dot. Rejected: §1's *refusal, never ranking*; a dot's claimants come from other modules' declarations — a companion's exports, the instances the calling module reaches — so no text in the calling module chooses between them, unlike a same-named import, which the module writes and which outranks the prelude's type and constructor by that writing (Modules §5.1, #1075); and a silent winner would change an existing call's meaning without a report — a program honoring its own `trim` at `String` would re-mean every `"ab".trim()` that called `String.trim` in each module reaching the instance. The price, recorded: prelude growth can break a dot call (Modules §5.4's fourth channel), repaired at the call by a qualified spelling the refusal names (§6). **Do not relitigate.**
@@ -461,29 +461,29 @@ v.map(x => x * 2).take(2).at(1)    -- OK : Int  (each link's subject is the call
                                    --   it, which the text decides where v is decided)
 
 -- (c) Tier-0 row polymorphism: the record spelling (§3.6)
-fun f(r) = (r.callback)(3)         -- OK : {callback: Int -> a, ...} -> a
-f({callback = n => n + 1})          -- OK : Int
-fun f2(r) = r.callback(3)          -- ERROR (row 17): the text does not decide `r`'s type
+let f(r) = (r.callback)(3)         -- OK : { callback: Int -> a, ... } -> a
+f({ callback = n => n + 1 })        -- OK : Int
+let f2(r) = r.callback(3)          -- ERROR (row 17): the text does not decide `r`'s type
 
 -- (d) Evidence from another line never decides a subject, in either order (§3.1)
-fun g(v) =
+let g(v) =
     let x = v.at(3)                  -- ERROR (row 17): `v` has no written type
     Vector.length(v)
     x
-fun g2(v) =
+let g2(v) =
     Vector.length(v)
     v.at(3)                          -- ERROR (row 17): the same — the line above is
                                    --   inference, not text
-fun g3(v: Vector(a)) = v.at(3)     -- OK — written; or Vector.at(v, 3), the module's spelling
+let g3(v: Vector(a)) = v.at(3)     -- OK — written; or Vector.at(v, 3), the module's spelling
 
 -- (e) Annotated form dispatches; no other evidence needed
-fun h(v: Vector(Int)) = v.at(3)    -- OK: Vector.at(v, 3)
+let h(v: Vector(Int)) = v.at(3)    -- OK: Vector.at(v, 3)
 
 -- (f) Member names never nominate
 let k(x) = x.at(3)                 -- ERROR (row 17): `at` chooses neither a type nor a module
 
 -- (g) The record spelling's row meeting a nominal: the enriched report (row 8)
-fun first(v) = (v.at)(1)           -- OK : {at: Int -> a, ...} -> a, the row type
+let first(v) = (v.at)(1)           -- OK : { at: Int -> a, ... } -> a, the row type
 first(Vector.of(9))                -- ERROR (row 8): this value's type was inferred as a
                                    --   record with a `at` field because its type was
                                    --   unknown where it was written; `Vector(Int)` is
@@ -491,9 +491,9 @@ first(Vector.of(9))                -- ERROR (row 8): this value's type was infer
                                    --   call `Vector.at(…)` directly
 
 -- (h) Collision, use-site, both fixits
--- box.hex: export record Box = {size: Int}
---          export fun size(b: Box): Int = b.size * 2
-let b = Box({size = 3})
+-- box.hex: export record Box = { size: Int }
+--          export let size(b: Box): Int = b.size * 2
+let b = Box({ size = 3 })
 b.size                             -- OK : Int      (bare dot = field, always)
 (b.size)                           -- OK : Int
 b.size()                           -- ERROR (row 1): ambiguous — field `size` /
@@ -510,13 +510,13 @@ v.empty()                          -- ERROR (row 5): `Vector` has no field `empt
 
 -- (j) Declared type variable with a matching bound member: dispatch
 --     [flipped by #304/#335 — was the row-6 redirect; §16.2]
-fun cmp<a: Ord>(x: a, y: a) =
+let cmp<a: Ord>(x: a, y: a) =
     x.compare(y)                     -- OK : Ordering — `compare` dispatched through
                                    --   the binder's `Ord` evidence; same elaboration
                                    --   as the qualified call at that type
 
 -- (j2) Declared type variable, no matching member: the options message
-fun go(x: a) =
+let go(x: a) =
     x.process()                      -- ERROR (row 7): `a` is a declared type variable,
                                    --   so `.process` can only be one of its
                                    --   constraints' members, and none of `a`'s
@@ -551,8 +551,8 @@ let n: Name = "hex"
 n.length()                         -- OK : Int   (String's companion; `Name` adds none)
 
 -- (m) Opaque outside home: pure companion surface
--- point.hex: opaque record Point = {x: Float, y: Float}
---            export fun getX(p: Point): Float = p.x
+-- point.hex: opaque record Point = { x: Float, y: Float }
+--            export let getX(p: Point): Float = p.x
 p.getX()                           -- OK : Float  (outside home; field x invisible,
                                    --   no collision possible)
 p.x                                -- ERROR: existing opacity error (Modules §4.2)
@@ -561,10 +561,10 @@ p.x                                -- ERROR: existing opacity error (Modules §4
 let n = 7.total(1)                 -- ERROR (row 4): Int at the dot (§3.3), and `total` is
                                    --   no field, companion operation, or honored member
                                    --   of Int
-fun m(x) = Num.multiply(x, x.total(1)) -- ERROR (row 17): `x` has no written type
+let m(x) = Num.multiply(x, x.total(1)) -- ERROR (row 17): `x` has no written type
 
 -- (o) Field-resolved dot call emits as itself
-fun run(r: {step: Int -> Int, ...}) = r.step(1)
+let run(r: { step: Int -> Int, ... }) = r.step(1)
                                    -- emits: r.step(1)   — POJO read, honest JS
 
 -- (p) A member of an open `fun` block: its result is not decided inside the block (§3.1)
@@ -575,11 +575,11 @@ fun
 --  Vector.isEmpty(b(n)) — the module's spelling — is OK
 
 -- (q) Rows connect by ordinary unification through the record spelling (§3.6)
-fun w(x) = ((x.make)().run)()      -- OK — make's result row unifies with run's
+let w(x) = ((x.make)().run)()      -- OK — make's result row unifies with run's
                                    --   receiver row; w is row-polymorphic
 
 -- (r) Home-module declaration order (§4.4): declared-below is its own error
--- box.hex: export record Box = {value: Int}
+-- box.hex: export record Box = { value: Int }
 --          export let use(b: Box): Int = b.twice()   -- ERROR (row 12): `Box`'s
 --                                                    --   companion declares `twice`
 --                                                    --   below this call; move it above
@@ -620,7 +620,7 @@ n.subtract(m)                      -- ERROR (row 15): exactly `n - m`'s refusal 
 i.pow(2n)                          -- ERROR (row 14): the exponent seat is Int; the fixit
                                    --   names BigInt.pow — as `i ** 2n` and Pow.pow(i, 2n)
 b.pow(i)                           -- OK — the door; i injected: pow(b, BigInt(i))   [was refused]
-fun scale<a: Signed>(count: Int, value: a): a = count.multiply(value)
+let scale<a: Signed>(count: Int, value: a): a = count.multiply(value)
                                    -- OK — one Signed<a> dictionary, count injected through
                                    --   fromInt; value.multiply(count) and count * value
                                    --   elaborate identically   [was refused]
@@ -746,7 +746,7 @@ let n: BigInt = b1.add(b2).gcd(b3)    -- ERROR (row 16) — Gcdish.gcd, the hono
 let n: BigInt = z1.add(z2).gcd(z3)    -- ERROR (row 16) — the field is one too
 let n: BigInt = (z1.add(z2): Baz).gcd(z3)
                                    -- OK — (add(z1, z2).gcd)(z3), the field call
-fun g(v): BigInt = v.multiply(2)      -- ERROR (row 17): the face decides nothing about `v`
+let g(v): BigInt = v.multiply(2)      -- ERROR (row 17): the face decides nothing about `v`
 ```
 
 ---

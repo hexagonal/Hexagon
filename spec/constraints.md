@@ -114,7 +114,7 @@ let plus<a: Num>(x: a, y: a): a = x + y
 let member<a: (Eq, Show)>(xs: Vector(a), x: a): Bool = ...
 ```
 
-Inference attaches constraints without annotation (`fun double(x) = x + x` infers the `Num` constraint from `+`'s elaboration to `add`; `fun times(x, y) = Num.multiply(x, y)` infers it from the member's qualified spelling, the declaring module's polymorphic read — Modules §5.3); the explicit `<...>` form attaches those constraints for documentation and restriction. It does not exist to name the variables — the lowercase spelling already does that, so an unconstrained binder is never written on a function (Functions §4.2.1). Generalisation of constrained type variables follows Functions §8 plus the Numeric Literals §4 defaulting rule, both unchanged by this spec.
+Inference attaches constraints without annotation (`let double(x) = x + x` infers the `Num` constraint from `+`'s elaboration to `add`; `let times(x, y) = Num.multiply(x, y)` infers it from the member's qualified spelling, the declaring module's polymorphic read — Modules §5.3); the explicit `<...>` form attaches those constraints for documentation and restriction. It does not exist to name the variables — the lowercase spelling already does that, so an unconstrained binder is never written on a function (Functions §4.2.1). Generalisation of constrained type variables follows Functions §8 plus the Numeric Literals §4 defaulting rule, both unchanged by this spec.
 
 ---
 
@@ -285,7 +285,7 @@ honor
 - an operator, interpolation, a `for` head, a numeric literal or a literal pattern at the instance's type (Numeric Literals §5.1), or any other elaboration that selects the instance by identity (Operators §1.1; Effects §5);
 - evidence handed to generic code at a type that selects the instance — `sort(points)`, a `Map` keyed by `P`;
 - a base-constraint obligation (§4.2) — `honor Ord<P>` relies on `Eq<P>` — and a parameterized head's obligations (§4.3), on the instances they name;
-- a derived instance's components (§4.5): `record Box derives Show = {value: Thing}` relies on `Show<Thing>`.
+- a derived instance's components (§4.5): `record Box derives Show = { value: Thing }` relies on `Show<Thing>`.
 
 A type annotation is not a use, nor is a bound (`<a: Show>`), nor a demand that stays generic: none of them selects an instance. A use stands where it is written, even where a later line decides which instance it selects (a binding pinned by its first use, Functions §8.2). An instance another module declares stands above every use in this one, as its module does (Modules §8.1). A use above its honor, outside the honor's knot, is refused in the top-down law's own words (§8).
 

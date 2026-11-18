@@ -27,7 +27,7 @@ An unsuffixed decimal literal is `Float` unless the checker already knows its ta
 Literals §5.1, #525). The literal's written digits are read, never the parsed double. An
 established `Float` value never becomes a `Rat`.
 
-A fraction is written with `//`: `1 // 3` is one third, and `n // d` takes a fraction
+A fraction is written with `//`: `1//3` is one third, and `n//d` takes a fraction
 apart in a pattern (§3). `Rat` is a prelude module, seated after `Dec` (§10), so neither
 needs an import. A `Dec` enters a `Rat` wherever a `Rat` is the home, as an integer does
 (Exact Integer Widening §9); a `Rat` becomes a `Dec` only through a named conversion that
@@ -79,19 +79,19 @@ The accessors expose the canonical values, never mutable storage.
 `bottom` and nothing else (Operators §6.4; Pattern Matching §2.10):
 
 ```hexagon
-let third = 1 // 3                  -- Rat.create(1, 3)
-let same = 6 // 10 == 3 // 5        -- True: create reduces
+let third = 1//3                    -- Rat.create(1, 3)
+let same = 6//10 == 3//5            -- True: create reduces
 match r with
-    0 // _ => "zero"
-    n // 1 => "the whole number ${n}"
-    n // d => "${n} over ${d}"
-let n // d = 4 // -5                -- n = -4n, d = 5n
+    0//_ => "zero"
+    n//1 => "the whole number ${n}"
+    n//d => "${n} over ${d}"
+let n//d = 4//-5                    -- n = -4n, d = 5n
 ```
 
-As a value, `top // bottom` is `create(top, bottom)`: both sides are integers, and a
+As a value, `top//bottom` is `create(top, bottom)`: both sides are integers, and a
 zero bottom throws `DivideByZeroFault` with `Rat.create: bottom is zero` when it runs.
-A bottom written as a literal zero never runs: `1 // 0` is refused when the program is
-compiled, and `1 // zero` faults when it runs (Division & Remainder §12).
+A bottom written as a literal zero never runs: `1//0` is refused when the program is
+compiled, and `1//zero` faults when it runs (Division & Remainder §12).
 As a pattern it matches every `Rat` and binds its canonical top and bottom, so it is
 a view of the canonical pair, not of construction history. `//` is a language form,
 like `..`, and not a declared pattern: `Rat` exports no pattern, nothing is imported
@@ -101,8 +101,8 @@ remains the canonical constructor name; `//` is the spelling a program writes.
 
 A `//` pattern that its literals show can never match is a dead case and is refused
 (Pattern Matching §7.2): a literal bottom of zero or less, or two literal sides not in
-lowest terms. The report gives the spelling that matches where one exists: `2 // 6`
-names `1 // 3`, and `1 // -3` names `-1 // 3`; a zero bottom has none, and the report
+lowest terms. The report gives the spelling that matches where one exists: `2//6`
+names `1//3`, and `1//-3` names `-1//3`; a zero bottom has none, and the report
 says to remove the case. The programmer lowers the terms; the compiler names the
 result.
 
@@ -147,7 +147,7 @@ the `BigInt.pow` door; nothing converts to `Float`, even internally.
   `Float`.
 - `Show<Rat>` emits `top/bottom`, including `/1` so the representation
   remains visible and unsurprising. The shown text is not the source spelling:
-  `1 // 3` shows as `1/3`, the text `Rat.parse` reads (Numeric Parsing).
+  `1//3` shows as `1/3`, the text `Rat.parse` reads (Numeric Parsing).
 - `Hash<Rat>` combines the canonical `BigInt` top and bottom hashes.
 - `Num<Rat>`, `Signed<Rat>`, and `Frac<Rat>` are provided. Num owns addition,
   multiplication, and exact `fromNat`; Signed extends it with subtraction, negation,
@@ -192,7 +192,7 @@ Rat.toDecEven
 Rat.toFloat
 ```
 
-`top // bottom` is the language's spelling of `create` and of matching on `top` and
+`top//bottom` is the language's spelling of `create` and of matching on `top` and
 `bottom` (§3), not a companion operation.
 
 All binary operations are subject-first and therefore dot-callable.
@@ -234,7 +234,7 @@ not merely round-trips.
 
 - A bottom written as a literal zero, at `//` or at `Rat.create` in any spelling, is
   refused when the program is compiled (Division & Remainder §12.5): "a fraction's
-  bottom is never zero, so `1 // 0` has no value; write the bottom that was meant",
+  bottom is never zero, so `1//0` has no value; write the bottom that was meant",
   with the note "a fraction's bottom written as a literal is checked when the program
   is compiled".
 - Any other zero bottom reports `DivideByZeroFault` when it runs and rewrites toward a
@@ -252,7 +252,7 @@ not merely round-trips.
 - A `//` side that is a `Rat`, `Dec`, or `Float` is refused at that side with the
   division that was meant (Operators §6.4): "a fraction's top and bottom are integers,
   and `r` is a `Rat` — to divide, write `r / 2`", and at a `Dec` side
-  `Rat.fromDec(d) / 2`. `1 // 2 // 3` is refused as a chain.
+  `Rat.fromDec(d) / 2`. `1//2//3` is refused as a chain.
 - A dead `//` pattern is refused as Pattern Matching §7.2 words it, with the spelling
   that matches where one exists: "this case is unreachable; a fraction comes apart in
   lowest terms with a positive bottom, so `2//6` never matches — write `1//3`"; at
@@ -293,21 +293,21 @@ Rat.toFloat(Rat.create(1, 3))                 -- 0.3333333333333333 (nearest dou
 Rat.toFloat(Rat.create(-7, 4))                -- -1.75
 Rat.toFloat(Rat.create(2 ** 1100, 1))         -- FloatRangeFault (would be Infinity)
 Rat.toFloat(Rat.create(1, 2 ** 1100))         -- FloatRangeFault (nonzero would erase to 0)
-1 // 3 == Rat.create(1, 3)                    -- true
-6 // -4                                       -- -3/2
--1 // 3 == -(1 // 3)                          -- true: the sign belongs to the top
-1 // 0                                        -- ERROR: a fraction's bottom is never zero
-1 // zero                                     -- DivideByZeroFault: Rat.create: bottom is zero
+1//3 == Rat.create(1, 3)                      -- true
+6//-4                                         -- -3/2
+-1//3 == -(1//3)                              -- true: the sign belongs to the top
+1//0                                          -- ERROR: a fraction's bottom is never zero
+1//zero                                       -- DivideByZeroFault: Rat.create: bottom is zero
 Rat.create(1, 2) / 0                          -- ERROR: division by zero
 Rat.reciprocal(0)                             -- DivideByZeroFault: not checked when compiled
 let half: Rat = 1.50d - 1                     -- 1/2: the Dec enters the Rat home
-(5 // 2).round()                              -- 3n
-(-5 // 2).round()                             -- -3n
-(5 // 2).roundEven()                          -- 2n
-(7 // 2).roundEven()                          -- 4n
-(-8 // 3).trunc()                             -- -2n
-(-5 // 2).floor()                             -- -3n
-(-5 // 2).ceil()                              -- -2n
+(5//2).round()                                -- 3n
+(-5//2).round()                               -- -3n
+(5//2).roundEven()                            -- 2n
+(7//2).roundEven()                            -- 4n
+(-8//3).trunc()                               -- -2n
+(-5//2).floor()                               -- -3n
+(-5//2).ceil()                                -- -2n
 ```
 
 The compiler conformance suite must execute the emitted JavaScript for normalization
@@ -351,14 +351,14 @@ canonical top and bottom with no `Float` intermediate. The five follow `Dec`'s
 integer-rounding operations (`dec.md` §5, §7) rule for rule:
 
 - `round` takes the nearest integer, and a fraction exactly halfway between two goes
-  to the one further from zero: `(5 // 2).round()` is `3n`, and `(-5 // 2).round()`
+  to the one further from zero: `(5//2).round()` is `3n`, and `(-5//2).round()`
   is `-3n`.
 - `roundEven` takes the nearest integer, and a fraction exactly halfway goes to the even
-  one: `(5 // 2).roundEven()` is `2n`, and `(7 // 2).roundEven()` is `4n`.
-- `trunc` drops the fractional part, toward zero: `(-8 // 3).trunc()` is `-2n`.
-- `floor` takes the greatest integer no greater than the fraction: `(-5 // 2).floor()`
+  one: `(5//2).roundEven()` is `2n`, and `(7//2).roundEven()` is `4n`.
+- `trunc` drops the fractional part, toward zero: `(-8//3).trunc()` is `-2n`.
+- `floor` takes the greatest integer no greater than the fraction: `(-5//2).floor()`
   is `-3n`.
-- `ceil` takes the least integer no less than the fraction: `(-5 // 2).ceil()` is `-2n`.
+- `ceil` takes the least integer no less than the fraction: `(-5//2).ceil()` is `-2n`.
 
 A whole number rounds to itself under all five. None can fail. They are companion
 operations, not constraint members, for the reason `dec.md` §3 gives: `Float.round`
