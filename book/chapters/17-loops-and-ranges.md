@@ -66,7 +66,7 @@ for number in 1..5 do Debug.log("Number ${number}")
 `Int` values:
 
 ```hexagon
-1..4       -- 1, 2, 3, 4
+1..4 -- 1, 2, 3, 4
 first..last
 Range.up(1, 4) -- the same Range as 1..4
 ```

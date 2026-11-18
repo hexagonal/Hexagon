@@ -128,7 +128,7 @@ let confirmedReservation = { reservation with confirmed = True }
 Every overridden field must already exist and keep its field type:
 
 ```hexagon
-{ reservation with seats = 4 }        -- same record type
+{ reservation with seats = 4 } -- same record type
 { reservation with table = "window" } -- error: update cannot add a field
 ```
 
@@ -172,7 +172,7 @@ update instead. Writing the JavaScript shape gets you a compile error pointing a
 
 ```hexagon
 { ...reservation, seats = 4 } -- error: records update with `with`
-{ ...a, ...b }                -- error: Hexagon has no record merge
+{ ...a, ...b } -- error: Hexagon has no record merge
 ```
 
 The emitted JavaScript is unaffected either way. An update compiles to the same spread
@@ -309,7 +309,7 @@ record Point = { x: Float, y: Float }
 let xCoordinate(point: { x: Float, ... }): Float = point.x
 let point = Point({ x = 3.0, y = 4.0 })
 
-xCoordinate(point)        -- error: Point is nominal
+xCoordinate(point) -- error: Point is nominal
 xCoordinate({ ...point }) -- accepted
 ```
 

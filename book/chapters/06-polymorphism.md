@@ -292,8 +292,8 @@ unwritten is inferred**. A hole is how you write "unwritten" inside an annotatio
 the contrast with a type variable makes the principle visible:
 
 ```hexagon
-let answer: _ = 42      -- fine: the hole is filled by inference; answer is an Int
-let general: a = 42     -- error: a claims every type, and one number cannot deliver that
+let answer: _ = 42 -- fine: the hole is filled by inference; answer is an Int
+let general: a = 42 -- error: a claims every type, and one number cannot deliver that
 ```
 
 The hole leaves the type to inference, which defaults the bare literal to `Int`. The
@@ -324,9 +324,9 @@ body stays free to demand more, exactly as `increment`'s body did.
 `padded`'s parameter now has three possible spellings, and they form a ladder of claims:
 
 ```hexagon
-entries: Vector(a)          -- every element type — refused: this body delivers only Int
-entries: Vector(_: Num)     -- some numeric element type — the strongest true claim
-entries: Vector(_)          -- some element type — true, but says less
+entries: Vector(a) -- every element type — refused: this body delivers only Int
+entries: Vector(_: Num) -- some numeric element type — the strongest true claim
+entries: Vector(_) -- some element type — true, but says less
 ```
 
 Write the strongest claim that is true. The variable over-claims here, the bare hole
