@@ -641,7 +641,7 @@ The tiers are judged per constructor occurrence — a nested witness may print a
 | A declared pattern's own seats — arity, match-only expression use, a contested suffix, the suffix under an undetermined type, the opaque refusal naming the exported patterns | Pattern Declarations §7 |
 | A `//` pattern whose literals show it never matches (`2//6`, `1//-3`, `n//-3`, `n//0`) | "this case is unreachable; a fraction comes apart in lowest terms with a positive bottom, so `2//6` never matches — write `1//3`", the matching spelling named where one exists; at a zero bottom "this case is unreachable; a fraction's bottom is never zero — remove the case" (§7.2) |
 | `1 // 2 // 3` in a pattern; a `//` pattern's side of a type other than `BigInt` | Operators §6.4's chain refusal; the ordinary mismatch at `BigInt` (§2.10) |
-| Constructor or record pattern over `Rat` abroad | "cannot destructure opaque record `Rat`; match it with `top // bottom`" (§2.10) |
+| Constructor or record pattern over `Rat` abroad | "cannot destructure opaque record `Rat`; match it with `top//bottom`" (§2.10) |
 
 ---
 
@@ -921,17 +921,17 @@ describe(6 // 4)                             -- "3 over 2"
 describe(-8 // 4)                            -- "the whole number -2"
 let n // d = 4 // -5                         -- irrefutable; n = -4n, d = 5n
 let tops = rats.map(n // _ => n)             -- one parameter, a fraction pattern; tops of each
-let f = 1 // d => d                          -- ERROR: this pattern can fail: `_ // _`; use match
+let f = 1 // d => d                          -- ERROR: this pattern can fail: `_//_`; use match
 match r with
     x when x > 1 // 2 => a                   -- the guard compares with a fraction; the arrow is the arm's
     _ => b
-let 1 // d = r                               -- ERROR: this pattern can fail: `_ // _`; use match
+let 1 // d = r                               -- ERROR: this pattern can fail: `_//_`; use match
 match r with
     2 // 6 => a                              -- ERROR: this case is unreachable; a fraction comes apart in
     _ => b                                   --   lowest terms with a positive bottom, so `2 // 6` never
-                                             --   matches — write `1 // 3`
+                                             --   matches — write `1//3`
 match r with
-    n // -3 => a                             -- ERROR: … so `n // -3` never matches — write `n // 3`,
+    n // -3 => a                             -- ERROR: … so `n // -3` never matches — write `n//3`,
     _ => b                                   --   which binds the negated top
 match r with
     n // 0 => a                              -- ERROR: this case is unreachable; a fraction's bottom is never zero — remove the case
@@ -940,7 +940,7 @@ match r with
     1 // 3 | 2 // 6 => a                     -- ERROR at `2 // 6` alone: the alternatives are judged one at a time
     _ => b
 match r with
-    0 // _ => a                              -- ERROR: match is missing cases: `_ // _`
+    0 // _ => a                              -- ERROR: match is missing cases: `_//_`
 match r with
     1.50d => a                               -- ERROR: the ordinary mismatch; a `Dec` literal pattern does not widen
     _ => b

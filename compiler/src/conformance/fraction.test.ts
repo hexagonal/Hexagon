@@ -216,6 +216,10 @@ describe("`p1 // p2` takes a fraction apart (Pattern Matching §2.10)", () => {
     // The fix rewrites bare literals; under `as` it would delete the binder.
     const fixed = compileMain(main("let r = 1 // 2\nlet s = match r with\n    (2 as two) // 6 => 1\n    _ => 2\n"));
     expect(fixed.diagnostics[0]?.fixes).toBeUndefined();
+    // A binder top's fix writes the negated-bottom spelling.
+    const binder = compileMain(main("let r = 1 // 2\nlet s = match r with\n    n//-3 => n\n    _ => 2\n"));
+    expect(binder.diagnostics[0]?.fixes?.flatMap(({ edits }) => edits.map(({ replacement }) => replacement)))
+      .toEqual(["n//3"]);
     // A bare literal's fix writes the rewrite the message names.
     const bare = compileMain(main("let r = 1 // 2\nlet s = match r with\n    2//6 => 1\n    _ => 2\n"));
     expect(bare.diagnostics[0]?.fixes?.map(({ message, edits }) => [message, edits.map(({ replacement }) => replacement)]))
@@ -226,6 +230,12 @@ describe("`p1 // p2` takes a fraction apart (Pattern Matching §2.10)", () => {
     // Nothing else about a side is read.
     expect(dead("1//3")).toEqual([]);
     expect(dead("n//3")).toEqual([]);
+  });
+
+  test("an arm it shadows names it with `//`", () => {
+    expect(messages("let r = 1 // 2\nlet s = match r with\n    n//3 => 1\n    1//3 => 2\n    _ => 3\n")).toEqual([
+      "this case is unreachable; the arm `n//3` above already covers it",
+    ]);
   });
 
   test("its sides are checked at `BigInt` and do not widen", () => {
