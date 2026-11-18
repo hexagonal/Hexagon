@@ -3,3 +3,4 @@ book/chapters/17-loops-and-ranges.md · one line · loop · for number in 1..5 d
 book/chapters/17-loops-and-ranges.md · one line · loop · for number in 1..limit do total := total + number
 book/chapters/17-loops-and-ranges.md · one line · loop · for pattern in source do body
 book/chapters/17-loops-and-ranges.md · one line · loop · for number in 1..5 do number * number
+book/chapters/15-dot-calls.md · let · fun · describe

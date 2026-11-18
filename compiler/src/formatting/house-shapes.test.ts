@@ -20,11 +20,20 @@
  * House text also begins every `for` and `while` loop on a line of its own
  * (H6): a loop has no value for H5 to place, so none follows an `=`, `:=`,
  * `=>`, `then` or `else` on its line. No baseline holds an exception.
+ *
+ * And house text writes `fun` only for a knot (N6; Functions §3.2): a function
+ * that is not recursive, by itself or with the members of its block, is a
+ * `let`. Whether it is recursive is the checker's own answer, read from the
+ * knots it typed (`knotlessFuns`), so each text is compiled. The baseline holds
+ * the Book's samples that show a `fun` the compiler refuses for its recursion,
+ * one to a line as `place · let · fun · name`; H9 reads the rest.
  */
 
 import { describe, expect, it } from "vitest";
 
+import { knotlessFuns } from "../passes/checker/checker.js";
 import { STDLIB_SOURCES } from "../stdlib-sources.js";
+import { compileFiles } from "../support/test-project.js";
 import { read } from "./analysis.js";
 import { constructs, wrongShapes } from "./widths.js";
 
@@ -106,6 +115,40 @@ function entryOf(place: string, should: string, kind: string, text: string): str
   return `${place} · ${should} · ${kind} · ${text}`;
 }
 
+/** The baseline's entries for N6 (`fun`), or with `funs` false, for H9. */
+function baselineOf(funs: boolean): string[] {
+  return readFileSync(baselineFile, "utf8")
+    .split("\n")
+    .filter((line) => line !== "" && (line.split(" · ")[2] === "fun") === funs);
+}
+
+/** Writes the baseline afresh: H9's entries, then N6's. */
+function writeBaseline(shapes: readonly string[], funs: readonly string[]): void {
+  const entries = [...shapes, ...funs];
+  writeFileSync(baselineFile, entries.length === 0 ? "" : entries.join("\n") + "\n");
+}
+
+/**
+ * What was found against what the baseline holds: the findings it does not
+ * hold, and the entries nothing found. Each entry counts as often as it is
+ * held: two identical constructs in one file are two.
+ */
+function against(
+  found: readonly { readonly entry: string; readonly named: string }[],
+  baseline: readonly string[],
+): { readonly unrecorded: string[]; readonly fixed: string[] } {
+  const remaining = new Map<string, number>();
+  for (const entry of baseline) remaining.set(entry, (remaining.get(entry) ?? 0) + 1);
+  const unrecorded: string[] = [];
+  for (const { entry, named } of found) {
+    const left = remaining.get(entry) ?? 0;
+    if (left > 0) remaining.set(entry, left - 1);
+    else unrecorded.push(named);
+  }
+  const fixed = [...remaining].flatMap(([entry, count]) => Array.from({ length: count }, () => entry));
+  return { unrecorded, fixed };
+}
+
 describe("House text holds every construct in its shape (H9)", () => {
   it("names no construct in the wrong shape beyond the recorded baseline, and the baseline holds none in its shape", async () => {
     const { samples, unread } = book();
@@ -123,22 +166,10 @@ describe("House text holds every construct in its shape (H9)", () => {
         });
       }
     }
-    const current = found.map(({ entry }) => entry);
     if (environment["HOUSE_SHAPES_UPDATE"] === "1") {
-      writeFileSync(baselineFile, current.length === 0 ? "" : current.join("\n") + "\n");
+      writeBaseline(found.map(({ entry }) => entry), baselineOf(true));
     }
-    const baseline = readFileSync(baselineFile, "utf8").split("\n").filter((line) => line !== "");
-
-    // Each entry counts as often as it is held: two identical constructs in one file are two.
-    const remaining = new Map<string, number>();
-    for (const entry of baseline) remaining.set(entry, (remaining.get(entry) ?? 0) + 1);
-    const unrecorded: string[] = [];
-    for (const { entry, named } of found) {
-      const left = remaining.get(entry) ?? 0;
-      if (left > 0) remaining.set(entry, left - 1);
-      else unrecorded.push(named);
-    }
-    const fixed = [...remaining].flatMap(([entry, count]) => Array.from({ length: count }, () => entry));
+    const { unrecorded, fixed } = against(found, baselineOf(false));
     expect(unrecorded, "constructs in the wrong shape").toEqual([]);
     expect(fixed, "baseline entries now in their shape: remove them from house-shapes.baseline.txt").toEqual([]);
   });
@@ -155,5 +186,42 @@ describe("House text holds every construct in its shape (H9)", () => {
       }
     }
     expect(midLine, "loops that do not begin their line").toEqual([]);
+  });
+
+  it("writes `fun` only for a knot, beyond the recorded baseline, and the baseline holds no `let` (N6)", async () => {
+    const found: { readonly entry: string; readonly named: string }[] = [];
+    const record = (place: string, offset: number, module: Parameters<typeof knotlessFuns>[0]): void => {
+      for (const { name, span } of knotlessFuns(module)) {
+        found.push({
+          entry: entryOf(place, "let", "fun", name),
+          named: `${place}:${span.start.line + 1 + offset} \`${name}\` is in no knot, so it is a \`let\``,
+        });
+      }
+    };
+    const isLibrary = (path: string | undefined): boolean => path?.startsWith("/Hex/") ?? false;
+
+    // Every module of the standard library is checked in any program.
+    const library = compileFiles([["/main.hex", "module Main\n"]]).typedModules.filter(({ modulePath }) =>
+      isLibrary(modulePath)
+    );
+    expect(library).toHaveLength(Object.keys(STDLIB_SOURCES).length);
+    for (const module of library) record(`stdlib${module.modulePath!.slice("/Hex".length)}`, 0, module);
+
+    const samples = [
+      ...await tutorials(),
+      ...book().samples.filter(({ text }) => /\bfun\b/u.test(text)),
+    ];
+    for (const { place, text, offset } of samples) {
+      for (const module of compileFiles([["/main.hex", text]]).typedModules) {
+        if (!isLibrary(module.modulePath)) record(place, offset, module);
+      }
+    }
+
+    if (environment["HOUSE_SHAPES_UPDATE"] === "1") {
+      writeBaseline(baselineOf(false), found.map(({ entry }) => entry));
+    }
+    const { unrecorded, fixed } = against(found, baselineOf(true));
+    expect(unrecorded, "`fun`s in no knot").toEqual([]);
+    expect(fixed, "baseline `fun`s now `let`: remove them from house-shapes.baseline.txt").toEqual([]);
   });
 });

@@ -233,6 +233,29 @@ export function destructSplits(module: Typed.Module, start: number, end: number)
 /** Each checked module's `#splitsAt`, for `destructSplits`. */
 const DEFERRED_SPLITS = new WeakMap<Typed.Module, (start: number, end: number) => readonly Typed.Destruct[]>();
 
+/** A `fun` member whose knot is itself alone and that never names itself. */
+export interface KnotlessFun {
+  readonly name: string;
+  readonly span: Source.Span;
+}
+
+/**
+ * The `fun` members in `module` that need no knot (Functions §3.2, house note
+ * N6): each one's strongly-connected component, as `#inferFunBlockMembers`
+ * computes it for typing, is the member alone, and its body does not name it.
+ * Such a function has no recursion for `fun` to declare, so it is a `let`.
+ *
+ * Read off the components the check already built, so the answer is the
+ * checker's own knot and never a second computation of it. Kept beside the
+ * checked tree, as `destructSplits` is, so the tree stays data.
+ */
+export function knotlessFuns(module: Typed.Module): readonly KnotlessFun[] {
+  return KNOTLESS_FUNS.get(module) ?? [];
+}
+
+/** Each checked module's knotless `fun` members, for `knotlessFuns`. */
+const KNOTLESS_FUNS = new WeakMap<Typed.Module, readonly KnotlessFun[]>();
+
 /**
  * What a refused constraint reference contributes to its diagnostic:
  * `#unknownConstraint`'s answer, spread by every seat over its own `severity`
@@ -6839,6 +6862,8 @@ class Checker {
    * close a cycle neither can see.
    */
   readonly #funGroups: Set<Resolved.SymbolId>[] = [];
+  /** The `fun` members whose knot is themselves alone and never named, for `knotlessFuns`. */
+  readonly #knotlessFuns: KnotlessFun[] = [];
   /**
    * The monomorphic knots whose bodies are currently being checked, innermost
    * last: one frame per strongly-connected component, holding the members typed
@@ -8486,6 +8511,7 @@ class Checker {
     if (this.#splitCandidates.length > 0) {
       DEFERRED_SPLITS.set(typed, (start, end) => this.#splitsAt(start, end));
     }
+    if (this.#knotlessFuns.length > 0) KNOTLESS_FUNS.set(typed, [...this.#knotlessFuns]);
     return typed;
   }
 
@@ -12256,6 +12282,11 @@ class Checker {
     );
     this.#funGroups.push(members);
     for (const component of components) {
+      const [only] = component;
+      if (component.length === 1 && only !== undefined && !references.get(only)?.has(only)) {
+        const item = bySymbol.get(only)!;
+        this.#knotlessFuns.push({ name: item.binding.name, span: item.span });
+      }
       const ordered = [...component].sort(
         (a, b) => sourceIndex.get(a)! - sourceIndex.get(b)!,
       );
