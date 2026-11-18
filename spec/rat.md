@@ -79,13 +79,13 @@ The accessors expose the canonical values, never mutable storage.
 `bottom` and nothing else (Operators §6.4; Pattern Matching §2.10):
 
 ```hexagon
-let third = 1//3                    -- Rat.create(1, 3)
-let same = 6//10 == 3//5            -- True: create reduces
+let third = 1//3 -- Rat.create(1, 3)
+let same = 6//10 == 3//5 -- True: create reduces
 match r with
     0//_ => "zero"
     n//1 => "the whole number ${n}"
     n//d => "${n} over ${d}"
-let n//d = 4//-5                    -- n = -4n, d = 5n
+let n//d = 4//-5 -- n = -4n, d = 5n
 ```
 
 As a value, `top//bottom` is `create(top, bottom)`: both sides are integers, and a
@@ -270,44 +270,44 @@ not merely round-trips.
 ## 9. Acceptance tests
 
 ```hexagon
-Rat.create(2, 4) == Rat.create(1, 2)       -- true
-Rat.create(1, -2) == Rat.create(-1, 2)     -- true
-Rat.top(Rat.create(1, -2))                  -- -1
-Rat.bottom(Rat.create(1, -2))               -- 2
-Rat.create(0, 99) == Rat.create(0, 1)      -- true
+Rat.create(2, 4) == Rat.create(1, 2) -- true
+Rat.create(1, -2) == Rat.create(-1, 2) -- true
+Rat.top(Rat.create(1, -2)) -- -1
+Rat.bottom(Rat.create(1, -2)) -- 2
+Rat.create(0, 99) == Rat.create(0, 1) -- true
 Rat.create(1, 2) + Rat.create(1, 3)
-    == Rat.create(5, 6)                         -- true
+        == Rat.create(5, 6) -- true
 Rat.create(1, 2) / Rat.create(1, 3)
-    == Rat.create(3, 2)                         -- true
-show(Rat.create(10, 12))                      -- "5/6"
-Rat.create(1, 0)                              -- ERROR: a fraction's bottom is never zero
-Rat.create(1, zero)                           -- DivideByZeroFault, after let zero = 0
+        == Rat.create(3, 2) -- true
+show(Rat.create(10, 12)) -- "5/6"
+Rat.create(1, 0) -- ERROR: a fraction's bottom is never zero
+Rat.create(1, zero) -- DivideByZeroFault, after let zero = 0
 Rat.pow(Rat.create(2, 1), 10)
-    == Rat.create(1024, 1)                        -- true
+        == Rat.create(1024, 1) -- true
 Rat.pow(Rat.create(2, 3), -2)
-    == Rat.create(9, 4)                           -- true (negative exponent inverts, exact)
-Rat.pow(Rat.create(4, 9), 0)  == Rat.create(1, 1) -- true (x ** 0 is 1/1)
-Rat.pow(Rat.create(0, 1), -1)                 -- DivideByZeroFault
-Rat.toFloat(Rat.create(1, 2))                 -- 0.5
-Rat.toFloat(Rat.create(1, 3))                 -- 0.3333333333333333 (nearest double)
-Rat.toFloat(Rat.create(-7, 4))                -- -1.75
-Rat.toFloat(Rat.create(2 ** 1100, 1))         -- FloatRangeFault (would be Infinity)
-Rat.toFloat(Rat.create(1, 2 ** 1100))         -- FloatRangeFault (nonzero would erase to 0)
-1//3 == Rat.create(1, 3)                      -- true
-6//-4                                         -- -3/2
--1//3 == -(1//3)                              -- true: the sign belongs to the top
-1//0                                          -- ERROR: a fraction's bottom is never zero
-1//zero                                       -- DivideByZeroFault: Rat.create: bottom is zero
-Rat.create(1, 2) / 0                          -- ERROR: division by zero
-Rat.reciprocal(0)                             -- DivideByZeroFault: not checked when compiled
-let half: Rat = 1.50d - 1                     -- 1/2: the Dec enters the Rat home
-(5//2).round()                                -- 3n
-(-5//2).round()                               -- -3n
-(5//2).roundEven()                            -- 2n
-(7//2).roundEven()                            -- 4n
-(-8//3).trunc()                               -- -2n
-(-5//2).floor()                               -- -3n
-(-5//2).ceil()                                -- -2n
+        == Rat.create(9, 4) -- true (negative exponent inverts, exact)
+Rat.pow(Rat.create(4, 9), 0) == Rat.create(1, 1) -- true (x ** 0 is 1/1)
+Rat.pow(Rat.create(0, 1), -1) -- DivideByZeroFault
+Rat.toFloat(Rat.create(1, 2)) -- 0.5
+Rat.toFloat(Rat.create(1, 3)) -- 0.3333333333333333 (nearest double)
+Rat.toFloat(Rat.create(-7, 4)) -- -1.75
+Rat.toFloat(Rat.create(2 ** 1100, 1)) -- FloatRangeFault (would be Infinity)
+Rat.toFloat(Rat.create(1, 2 ** 1100)) -- FloatRangeFault (nonzero would erase to 0)
+1//3 == Rat.create(1, 3) -- true
+6//-4 -- -3/2
+-1//3 == -(1//3) -- true: the sign belongs to the top
+1//0 -- ERROR: a fraction's bottom is never zero
+1//zero -- DivideByZeroFault: Rat.create: bottom is zero
+Rat.create(1, 2) / 0 -- ERROR: division by zero
+Rat.reciprocal(0) -- DivideByZeroFault: not checked when compiled
+let half: Rat = 1.50d - 1 -- 1/2: the Dec enters the Rat home
+(5//2).round() -- 3n
+(-5//2).round() -- -3n
+(5//2).roundEven() -- 2n
+(7//2).roundEven() -- 4n
+(-8//3).trunc() -- -2n
+(-5//2).floor() -- -3n
+(-5//2).ceil() -- -2n
 ```
 
 The compiler conformance suite must execute the emitted JavaScript for normalization

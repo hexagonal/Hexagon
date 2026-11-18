@@ -56,7 +56,7 @@ exception or implicit conversion is introduced.
 
 ```hexagon
 Nullable.undefined : Nullable(a)
-Nullable.null      : Nullable(a)
+Nullable.null : Nullable(a)
 ```
 
 These are qualified, typed values that can exist **only** as `Nullable(a)`. They provide explicit arguments for foreign APIs — `Nullable.undefined` for the ordinary omitted/default JS case, `Nullable.null` when the API specifically distinguishes explicit null — without admitting ambient nullish values into Hexagon. (Their use in modeling a foreign API's optional slot under the fixed-arity rule is Part 4's example, not new surface here.)
@@ -64,8 +64,8 @@ These are qualified, typed values that can exist **only** as `Nullable(a)`. They
 ### 2.3 Inspection predicates
 
 ```hexagon
-Nullable.isNullish   : Nullable(a) -> Bool
-Nullable.isNull      : Nullable(a) -> Bool
+Nullable.isNullish : Nullable(a) -> Bool
+Nullable.isNull : Nullable(a) -> Bool
 Nullable.isUndefined : Nullable(a) -> Bool
 ```
 
@@ -92,10 +92,7 @@ The house answer to "how do I narrow a `Nullable`?" is therefore: **you don't �
 The exact three-way reading is an ordinary Hexagon union:
 
 ```hexagon
-union NullableCase(a) =
-    Undefined
-    | Null
-    | Value(value: a)
+union NullableCase(a) = Undefined | Null | Value(value: a)
 ```
 
 ```hexagon
@@ -111,9 +108,9 @@ All three constructors are qualified-only in the prelude inventory: `NullableCas
 ## 4. `Option` conversions
 
 ```hexagon
-Nullable.toOption        : Nullable(a) -> Option(a)
-Nullable.fromOption      : Option(a) -> Nullable(a)   -- None -> undefined
-Nullable.fromOptionOrNull : Option(a) -> Nullable(a)  -- None -> null
+Nullable.toOption : Nullable(a) -> Option(a)
+Nullable.fromOption : Option(a) -> Nullable(a) -- None -> undefined
+Nullable.fromOptionOrNull : Option(a) -> Nullable(a) -- None -> null
 ```
 
 - `toOption` **deliberately collapses** both absence forms to `None`. It is the shorter common path when omission and explicit null mean the same thing — which is most APIs.
@@ -170,10 +167,10 @@ Element types obey Part 1 §5.2's recursive representation contract: `Array(Int)
 
 ```hexagon
 Array.length : Array(a) -> Int
-xs[i]                                 -- 1-based read-only; throws IndexFault out of bounds
-Array.at    : (Array(a), Int) -> a    -- signed from-end addressing; throws IndexFault
-Array.get   : (Array(a), Int) -> Option(a)
-xs[lo..hi]                            -- eager shallow slice: a fresh JS array
+xs[i] -- 1-based read-only; throws IndexFault out of bounds
+Array.at : (Array(a), Int) -> a -- signed from-end addressing; throws IndexFault
+Array.get : (Array(a), Int) -> Option(a)
+xs[lo..hi] -- eager shallow slice: a fresh JS array
 ```
 
 - `xs[i]` is **1-based and read-only**; there is no assignment-to-index grammar, and no `set` exists. Out-of-bounds throws `IndexFault` (Collections Part 3's declaration), asserting at the fault site. The index is Collections Part 3 §5.1's seat, checked as `Array.at`'s `Int` argument is: `xs[k]` and `xs[k - 1]` take a `k: Nat`.
@@ -248,10 +245,10 @@ This is legitimate precisely because of §6.5 — the array being iterated is He
 ## 9. The conversion surface
 
 ```hexagon
-Array.toSeq    : Array(a) -> Seq(a)      -- lazy view over the captured array
-Array.fromSeq  : Seq(a) -> Array(a)      -- eager, fresh JS array
-Array.toVector : Array(a) -> Vector(a)   -- eager, stable persistent snapshot
-Vector.toArray : Vector(a) -> Array(a)   -- eager, fresh JS array
+Array.toSeq : Array(a) -> Seq(a) -- lazy view over the captured array
+Array.fromSeq : Seq(a) -> Array(a) -- eager, fresh JS array
+Array.toVector : Array(a) -> Vector(a) -- eager, stable persistent snapshot
+Vector.toArray : Vector(a) -> Array(a) -- eager, fresh JS array
 ```
 
 - **`Array.toSeq` is lazy and allocates no copy**: it traverses the captured array, which is stable, so the sequence may be forced at any time and observes the same elements (§6.5). Everything about the resulting `Seq`'s persistence and memoization is Part 3's; nothing here adds to it, and no borrow is extended by holding it, because there is no borrow.

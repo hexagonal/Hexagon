@@ -212,38 +212,38 @@ Modules §11 owns emission; packages add the layout. The program's output root h
 -- Acme: module Geometry; module Util           Acme hexagon.json: {"name": "Acme", "dependencies": ["Bolt"]}
 -- Bolt: module Util                             Bolt hexagon.json: {"name": "Bolt"}
 -- both hoisted to the project's node_modules, so the project's lookup finds Bolt (§4.1)
-import Geometry                              -- OK: Acme.Geometry, the one visible provider
-import Util                                  -- OK: Acme.Util — Bolt is not visible to the project
-import Bolt.Util                             -- ERROR: Bolt is not a dependency of this package;
-                                             --   add "Bolt" to dependencies in hexagon.json
-                                             --   (a refused import binds no alias — Modules §5.2)
+import Geometry -- OK: Acme.Geometry, the one visible provider
+import Util -- OK: Acme.Util — Bolt is not visible to the project
+-- ERROR: Bolt is not a dependency of this package; add "Bolt" to dependencies in hexagon.json (a
+-- refused import binds no alias — Modules §5.2)
+import Bolt.Util
 -- Zed under the project's node_modules, listed by nobody; Acme (in the program) declares module Zed.Helper in a file nobody imports:
-import Zed.Tools                             -- ERROR: no module Zed.Tools — unknown module, the
-                                             --   manifest edit withheld: Acme's Zed.Helper would be
-                                             --   refused were Zed in the program (§3.3)
+-- ERROR: no module Zed.Tools — unknown module, the manifest edit withheld: Acme's Zed.Helper would
+-- be refused were Zed in the program (§3.3)
+import Zed.Tools
 -- inside Acme's module Geometry (Acme sees Acme, the prelude, and Bolt):
-import Util                                  -- OK: Acme.Util — Acme's own module wins over
-                                             --   Bolt.Util (§3.2), no contest
-import Bolt.Util as BoltUtil                 -- OK: Acme lists Bolt; `as` because the default
-                                             --   alias Util is bound above (Modules §5.2)
+-- OK: Acme.Util — Acme's own module wins over Bolt.Util (§3.2), no contest
+import Util
+-- OK: Acme lists Bolt; `as` because the default alias Util is bound above (Modules §5.2)
+import Bolt.Util as BoltUtil
 
 -- (b) Occlusion (§3.2)
 -- project: module Vector
-import Vector                                -- OK: the project's own; the prelude's Vector is
-                                             --   Hex.Vector, reachable
-import Hex.Vector as HexVector               -- OK
+-- OK: the project's own; the prelude's Vector is Hex.Vector, reachable
+import Vector
+import Hex.Vector as HexVector -- OK
 
 -- (c) Two packages contest (§3.3)
 -- project hexagon.json: {"dependencies": ["Acme", "Chroma"]}; both declare module Color
-import Color                                 -- ERROR: Color is provided by Acme and Chroma;
-                                             --   write import Acme.Color or import Chroma.Color
-import Chroma.Color                          -- OK
+-- ERROR: Color is provided by Acme and Chroma; write import Acme.Color or import Chroma.Color
+import Color
+import Chroma.Color -- OK
 
 -- (d) A package does not qualify itself (§3.3, §2.5)
 -- project hexagon.json: {"name": "MyApp"}; module Geometry
-import MyApp.Geometry                        -- ERROR: no module MyApp.Geometry; a package's own
-                                             --   modules are imported by their declared names:
-                                             --   import Geometry
+-- ERROR: no module MyApp.Geometry; a package's own modules are imported by their declared names:
+-- import Geometry
+import MyApp.Geometry
 
 -- (e) Manifest refusals, and the lookup's outcomes (§2.1, §4.1, §4.3, §4.4)
 -- the project's manifest: {"name": "Hex"}   -- ERROR: Hex is the standard library's package name
@@ -334,8 +334,8 @@ import MyApp.Geometry                        -- ERROR: no module MyApp.Geometry;
 
 -- (h) One reading of a dotted spelling; the program-wide first-segment rule (§3.3; Modules §2.2)
 -- project depends on Bolt; Bolt (listing no Acme) declares module Acme.Tools
-import Acme.Tools                            -- OK: Bolt's module by its declared name — no package
-                                             --   Acme is in the program
+-- OK: Bolt's module by its declared name — no package Acme is in the program
+import Acme.Tools
 -- the project adds a dependency Acme (module Tools):
                                              -- ERROR at program check: module Acme.Tools of package
                                              --   Bolt begins with the name of the package Acme, also
@@ -343,10 +343,10 @@ import Acme.Tools                            -- OK: Bolt's module by its declare
                                              --   or the one that brings Bolt, or combine them once
                                              --   Acme is renamed or Bolt renames its module
 -- project depends on Bolt, which depends on Acme (in the program's package set, not visible to the project):
-module Acme.Parser                           -- ERROR at program check: module Acme.Parser of the
-                                             --   project begins with the name of the package Acme,
-                                             --   also in this program (brought in by Bolt); rename
-                                             --   the module, or drop the dependency that brings Acme
+-- ERROR at program check: module Acme.Parser of the project begins with the name of the package
+-- Acme, also in this program (brought in by Bolt); rename the module, or drop the dependency that
+-- brings Acme
+module Acme.Parser
 -- project named MyApp depends on Bolt; Bolt declares module MyApp.Tools:
                                              -- ERROR at program check: module MyApp.Tools of package
                                              --   Bolt begins with the name of this project, MyApp;
@@ -355,8 +355,8 @@ module Acme.Parser                           -- ERROR at program check: module A
                                              --   Bolt renames its module
 
 -- (i) The runtime modules are members of Hex like any other (§2.4)
-import Hex.Runtime.VectorTrie                -- OK: binds VectorTrie, which exports nothing
-export let n: Int = VectorTrie.size          -- ERROR: module VectorTrie does not export size
+import Hex.Runtime.VectorTrie -- OK: binds VectorTrie, which exports nothing
+export let n: Int = VectorTrie.size -- ERROR: module VectorTrie does not export size
 ```
 
 ---

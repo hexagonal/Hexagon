@@ -30,11 +30,11 @@ export pattern clock(hours: Int, minutes: Int): Time
     view(t) = (hours(t), minutes(t))
     build = create
 
-pattern parts                                 -- private: the head infers (§2.2)
+pattern parts -- private: the head infers (§2.2)
     view(x) = (hours(x), minutes(x))
 
 export pattern rgb(r: Float, g: Float, b: Float): Color
-    view(c) = channels(c)                     -- match-only: no build
+    view(c) = channels(c) -- match-only: no build
 ```
 
 A **`pattern` head** — the contextual head word (Lexer §4.2), the pattern's non-uppercase-start name and, **together or not at all**, a binder list (Functions §4.2), a **component list**, and a **result type** — the whole head, or the bare name: a head that writes a binder list or a component list without the result type is refused at the head — "a pattern head is whole or absent: write the result type, or drop the component list", the slot it lacks named — since §2.2 has two modes and no third (a result type alone, `pattern zero: Time`, is a zero-arity head and the arity rule takes it first; binders alone lack the result type and draw this refusal) — ends its logical item and opens a **member block** (Lexer & Layout §2.1's row; Functions §7.3's shape): a declaration sequence with no value. The head word has one other form, the alias `pattern name = Alias.p` (§3.4), which opens no block. A block's members are:
@@ -79,13 +79,13 @@ match t with
     (12, 0)clock => Noon
     (h, m)clock => Other(h, m)
 
-let (h, m)clock = t                        -- irrefutable: the view is total
-let hourOf((h, _)clock) = h                -- a lambda head; the §3.1 gate is satisfied
+let (h, m)clock = t -- irrefutable: the view is total
+let hourOf((h, _)clock) = h -- a lambda head; the §3.1 gate is satisfied
 match c with
     (0.0, 0.0, 0.0)rgb => "black"
     (_, 0.0, _)hsl | (1.0, 1.0, 1.0)rgb => "achromatic"
     (r, g, b)rgb as colour => ...
-let (n)id = user                           -- one component: the parentheses are the list's
+let (n)id = user -- one component: the parentheses are the list's
 ```
 
 The form is `(p1, …, pn)name` — a parenthesised list of exactly *n* full sub-patterns, then the pattern's **name as a suffix**: a non-uppercase-start name, bare, always (§3.3) — never a hard keyword, since `(c)then` is a conditional's head (Lexer §4.4). It joins Pattern Matching §2's inventory beside the constructor pattern and is a pattern everywhere a pattern may stand (Pattern Matching §6): `match` and `catch` arms, `let`, `for..in`, lambda parameters, the match function's arms.
@@ -135,8 +135,8 @@ A pattern's name lives in the **pattern namespace** — a namespace of its own, 
 
 ```
 import Color
-import Paint                               -- both export rgb
-pattern rgb = Color.rgb                    -- own: occludes both, the contest is over
+import Paint -- both export rgb
+pattern rgb = Color.rgb -- own: occludes both, the contest is over
 match c with
     (r, g, b)rgb => ...
 ```
@@ -175,10 +175,10 @@ Pattern Matching §7's usefulness matrix treats a total view as a **one-construc
 - **Matching** hoists the view before the arm tests, once per pattern per position (§5), and destructures its result as a tuple's array (Products §2.6) — at arity one, the value itself:
 
   ```
-  match t with                              --  const [h, m] = __patt_clock.view(t);
-      (0, 0)clock => Midnight               --  if (h === 0 && m === 0) return Midnight;
-      (12, 0)clock => Noon                  --  if (h === 12 && m === 0) return Noon;
-      (h, m)clock => Other(h, m)            --  return Other(h, m);
+  match t with -- const [h, m] = __patt_clock.view(t);
+      (0, 0)clock => Midnight -- if (h === 0 && m === 0) return Midnight;
+      (12, 0)clock => Noon -- if (h === 12 && m === 0) return Noon;
+      (h, m)clock => Other(h, m) -- return Other(h, m);
   ```
 
   Binder names follow Pattern Matching's emission as for tuples; the illustration names the array slots for legibility only.
@@ -286,9 +286,9 @@ Pattern Matching §7's usefulness matrix treats a total view as a **one-construc
 --                  view(t) = (hours(t), minutes(t))
 --                  build = create
 import Time
-let t = (1, 90)clock                         -- emits: Time.__patt_clock.build(1, 90)
-let (h, m)clock = t                          -- irrefutable; h = 2, m = 30
-let same = (1, 90)clock == (2, 30)clock      -- True
+let t = (1, 90)clock -- emits: Time.__patt_clock.build(1, 90)
+let (h, m)clock = t -- irrefutable; h = 2, m = 30
+let same = (1, 90)clock == (2, 30)clock -- True
 let classify(t: Time): String =
     match t with
         (0, 0)clock => "midnight"
@@ -298,11 +298,11 @@ let classify(t: Time): String =
 
 -- (b) The door: an unimported home; a term of the same name blocks nothing
 -- module Mid: import Time; export let make(): Time = Time.create(9, 30)
-import Mid                                   -- Time never imported here
-let (h, m)clock = Mid.make()                 -- OK: the door, Time being the subject's home
-let x = (9, 30)clock                         -- ERROR: no clock here; import Time
-let clock = 3                                -- a term; the pattern namespace is untouched
-let (p, q)clock = Mid.make()                 -- OK
+import Mid -- Time never imported here
+let (h, m)clock = Mid.make() -- OK: the door, Time being the subject's home
+let x = (9, 30)clock -- ERROR: no clock here; import Time
+let clock = 3 -- a term; the pattern namespace is untouched
+let (p, q)clock = Mid.make() -- OK
 
 -- (c) Match-only, and the door on an opaque type abroad
 -- module Color: opaque record Color = { ... }
@@ -313,110 +313,122 @@ let (p, q)clock = Mid.make()                 -- OK
 import Color
 let name(c: Color): String =
     match c with
-        (0.0, 0.0, 0.0)rgb => "black"        -- each component through Eq<Float> (Pattern Matching §2.5)
+        (0.0, 0.0, 0.0)rgb => "black" -- each component through Eq<Float> (Pattern Matching §2.5)
         (_, 0.0, _)hsl => "grey"
-        _ => "colour"                        -- required: rgb and hsl rows never specialise together
+        _ => "colour" -- required: rgb and hsl rows never specialise together
 let bad(c: Color): String =
     match c with
         (0.0, 0.0, 0.0)rgb => "black"
-        (_, 0.0, _)hsl => "grey"             -- ERROR: match is missing cases: (_, _, _)rgb
+        (_, 0.0, _)hsl => "grey" -- ERROR: match is missing cases: (_, _, _)rgb
 let any(c: Color): String =
     match c with
         (0.0, 0.0, 0.0)rgb => "black"
-        (h, s, l)hsl => "any"                -- OK: exhaustive — the hsl row is irrefutable;
-                                             --   h, s, l are Float bindings
-        (1.0, 1.0, 1.0)rgb => "never"        -- ERROR: this case is unreachable; the arm
-                                             --   (h, s, l)hsl above already covers it
+        -- OK: exhaustive — the hsl row is irrefutable; h, s, l are Float bindings
+        (h, s, l)hsl => "any"
+        -- ERROR: this case is unreachable; the arm (h, s, l)hsl above already covers it
+        (1.0, 1.0, 1.0)rgb => "never"
 let zeros(c: Color): String =
     match c with
         (0.0, _, _)rgb => "no red"
-        (-0.0, _, _)rgb => "never"           -- ERROR: this case is unreachable; the arm
-                                             --   (0.0, _, _)rgb above already covers it (one Float literal, §4)
+        -- ERROR: this case is unreachable; the arm (0.0, _, _)rgb above already covers it (one
+        -- Float literal, §4)
+        (-0.0, _, _)rgb => "never"
         _ => "some red"
-let x = (0.0, 0.0, 0.0)rgb                   -- ERROR: rgb is a match-only pattern: its
-                                             --   declaration has no build
+-- ERROR: rgb is a match-only pattern: its declaration has no build
+let x = (0.0, 0.0, 0.0)rgb
 let channels(c: Color): Float =
-    match c with                             -- ERROR: cannot destructure opaque record Color;
-        Color({ channels }) => channels      --   match it with (r, g, b)rgb or (h, s, l)hsl
+    -- ERROR: cannot destructure opaque record Color; match it with (r, g, b)rgb or (h, s, l)hsl
+    match c with
+        Color({ channels }) => channels
 
 -- (d) The door is closed where the type is undetermined; contests; the alias
 -- module Lone (sees Color, and no other module exporting rgb):
-let g = ((r, _, _)rgb) => r                  -- ERROR: no rgb here: its type is not
-                                             --   determined at this pattern — import Color,
-                                             --   or bind the function with its own annotated let
+-- ERROR: no rgb here: its type is not determined at this pattern — import Color, or bind the
+-- function with its own annotated let
+let g = ((r, _, _)rgb) => r
 -- module Paint: export pattern rgb(r: Float, g: Float, b: Float): Color
 -- module Two:
 import Color
-import Paint                                 -- OK: imports never collide on a pattern
+import Paint -- OK: imports never collide on a pattern
 let g(c: Color): Float =
     match c with
-        (r, _, _)rgb => r                    -- ERROR: rgb is exported by Color and Paint;
-                                             --   declare pattern rgb = Color.rgb or
-                                             --   pattern rgb = Paint.rgb
+        -- ERROR: rgb is exported by Color and Paint; declare pattern rgb = Color.rgb or
+        -- pattern rgb = Paint.rgb
+        (r, _, _)rgb => r
 -- module Palette: import Color; export let black(): Color = ...
 -- module One:
-import Paint                                 -- Color never imported: the contest is keyed on
-import Palette                               --   Paint.rgb's declared subject, no type read
+-- Color never imported: the contest is keyed on Paint.rgb's declared subject, no type read
+import Paint
+import Palette
 let k(): Float =
     match Palette.black() with
-        (r, _, _)rgb => r                    -- ERROR: rgb here is Paint.rgb, over Color, whose
-                                             --   home exports its own rgb — import Color, then
-                                             --   declare pattern rgb = Color.rgb, or declare
-                                             --   pattern rgb = Paint.rgb
+        -- ERROR: rgb here is Paint.rgb, over Color, whose home exports its own rgb — import Color,
+        -- then declare pattern rgb = Color.rgb, or declare pattern rgb = Paint.rgb
+        (r, _, _)rgb => r
 -- module Named:
 import Color
 import Paint
-pattern rgb = Color.rgb                      -- own: the contest is over (a use above this line
-                                             --   would be the declared-later error, never a contest)
+-- own: the contest is over (a use above this line would be the declared-later error, never a
+-- contest)
+pattern rgb = Color.rgb
 let h(c: Color): Float =
     match c with
-        (r, _, _)rgb => r                    -- OK: Color.rgb
-export pattern rgb2 = Paint.rgb              -- ERROR: an exported alias is a re-export;
-                                             --   re-exports are deferred (Modules §12.2)
+        (r, _, _)rgb => r -- OK: Color.rgb
+-- ERROR: an exported alias is a re-export; re-exports are deferred (Modules §12.2)
+export pattern rgb2 = Paint.rgb
 
 -- (e) A private, unheaded pattern; a one-component pattern; the purity demand
 opaque record UserId = { n: Int }
-pattern id                                   -- infers: subject UserId, one component Int
-    view(u: UserId) = u.n                    --   (unannotated, u.n would infer a structural
-    build(n) = UserId({ n = n })             --   row, and build's UserId would not unify)
-let (n)id = (7)id                            -- n = 7
-let t = (7)id.n                              -- 7: the dot is on the built UserId, and this is its home
+-- infers: subject UserId, one component Int (unannotated, u.n would infer a structural row, and
+-- build's UserId would not unify)
+pattern id
+    view(u: UserId) = u.n
+    build(n) = UserId({ n = n })
+let (n)id = (7)id -- n = 7
+let t = (7)id.n -- 7: the dot is on the built UserId, and this is its home
 pattern noisy
-    view(u) =                                -- ERROR: a pattern's view is run by matching, so it
-        Debug.log!("viewed")                 --   is pure — the demand is the pattern head's, and
-        u.n                                  --   this function's face is ->! (Effects §4.3)
+    -- ERROR: a pattern's view is run by matching, so it is pure — the demand is the pattern head's,
+    -- and this function's face is ->! (Effects §4.3)
+    view(u) =
+        Debug.log!("viewed")
+        u.n
 
 -- (f) The declaration's own errors (module Fraction: opaque record Fraction = { top: BigInt, bottom: BigInt };
 --     export let create/top/bottom as Rat's; record Box = { n: Int }; let box(a: BigInt, b: BigInt): Box = …; record Span(a) = { lo: a, hi: a })
-pattern zero: Fraction                       -- ERROR: a pattern has at least one component;
-    view(x) = ()                             --   a test with no components is a guard
-pattern lonely(top: BigInt, bottom: BigInt): Fraction   -- ERROR: a pattern declares view
+-- ERROR: a pattern has at least one component; a test with no components is a guard
+pattern zero: Fraction
+    view(x) = ()
+pattern lonely(top: BigInt, bottom: BigInt): Fraction -- ERROR: a pattern declares view
     build = create
-pattern twisted                              -- unheaded: the members fix each other
+pattern twisted -- unheaded: the members fix each other
     view(x) = (top(x), bottom(x))
-    build = box                              -- ERROR: build returns Box; view takes Fraction —
-                                             --   a pattern's two directions share one subject
+    -- ERROR: build returns Box; view takes Fraction — a pattern's two directions share one subject
+    build = box
 pattern shaped(top: BigInt, bottom: BigInt): Fraction
     view(x) = (top(x), bottom(x))
-    build = box                              -- ERROR: build returns Box; the head says Fraction
-                                             --   (the member-shape error: the head fixes it)
+    -- ERROR: build returns Box; the head says Fraction (the member-shape error: the head fixes it)
+    build = box
 export let rat(t: BigInt, b: BigInt): Fraction = create(t, b)
-export pattern rat(top: BigInt, bottom: BigInt): Fraction   -- OK: exports __patt_rat beside term rat
+export pattern rat(top: BigInt, bottom: BigInt): Fraction -- OK: exports __patt_rat beside term rat
     view(x) = (top(x), bottom(x))
-export pattern parts                         -- ERROR: an exported pattern writes its head:
-    view(x) = (top(x), bottom(x))            --   pattern parts(c1: BigInt, c2: BigInt): Fraction
+-- ERROR: an exported pattern writes its head:
+--   pattern parts(c1: BigInt, c2: BigInt): Fraction
+export pattern parts
+    view(x) = (top(x), bottom(x))
 let k() =
-    pattern local                            -- ERROR: declarations live at module level
+    pattern local -- ERROR: declarations live at module level
         view(x) = x
-pattern sorted<a: Ord>(lo: a, hi: a): Span(a)  -- ERROR: a pattern's binders carry no constraints
+pattern sorted<a: Ord>(lo: a, hi: a): Span(a) -- ERROR: a pattern's binders carry no constraints
     view(s) = (s.lo, s.hi)
-pattern halves(top: BigInt, bottom: BigInt)  -- ERROR: a pattern head is whole or absent: write
-    view(x) = (top(x), bottom(x))            --   the result type, or drop the component list
+-- ERROR: a pattern head is whole or absent: write the result type, or drop the component list
+pattern halves(top: BigInt, bottom: BigInt)
+    view(x) = (top(x), bottom(x))
 pattern early(top: BigInt, bottom: BigInt): Fraction
     view(x) = (top(x), bottom(x))
-    build = later                            -- ERROR: later is declared later in this block;
-let later(t: BigInt, b: BigInt): Fraction = create(t, b)   --   declarations are read top-down
-let (n, d, e)rat = create(1, 2)              -- ERROR: rat has 2 components; write (_, _)rat
+    -- ERROR: later is declared later in this block; declarations are read top-down
+    build = later
+let later(t: BigInt, b: BigInt): Fraction = create(t, b)
+let (n, d, e)rat = create(1, 2) -- ERROR: rat has 2 components; write (_, _)rat
 
 -- (g) The .d.ts face
 -- export const __patt_clock: { view(t: Time): [number, number]; build(hours: number, minutes: number): Time };
@@ -565,10 +577,10 @@ effect of its `build` at the call's instantiation, exactly as an ordinary call
 does (Effects §3). The mark is attached to the end of the pattern name:
 
 ```hexagon
-(x)name     -- a build that is pure and cannot fail
-(x)name^    -- a build that may fail
-(x)name~    -- a build that is impure, and cannot fail
-(x)name!    -- a build that is impure, and may fail
+(x)name -- a build that is pure and cannot fail
+(x)name^ -- a build that may fail
+(x)name~ -- a build that is impure, and cannot fail
+(x)name! -- a build that is impure, and may fail
 ```
 
 Each form corresponds to the same mark on `build(x)`, and a reading,
@@ -599,8 +611,8 @@ following call on its result is bare. To mark the call on the result, group the
 constructed value, as with other compound callees:
 
 ```hexagon
-((x)factory)!(y)     -- pure construction, effectful call on the result
-((x)factory!)!(y)   -- both the construction and the call on the result is impure
+((x)factory)!(y) -- pure construction, effectful call on the result
+((x)factory!)!(y) -- both the construction and the call on the result is impure
 ```
 
 Each mark is checked against its own call. Argument evaluation is still once,

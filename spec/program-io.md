@@ -48,22 +48,22 @@ export union FileErrorReason =
 
 export exception FileError(reason: FileErrorReason, path: String, message: String)
 
-export let readText(path: String): String                  -- ->!
-export let readTextLossy(path: String): String             -- ->!
-export let writeText(path: String, text: String): Unit     -- ->!
-export let writeTextBom(path: String, text: String): Unit  -- ->!
+export let readText(path: String): String -- ->!
+export let readTextLossy(path: String): String -- ->!
+export let writeText(path: String, text: String): Unit -- ->!
+export let writeTextBom(path: String, text: String): Unit -- ->!
 ```
 
 ```hexagon
 module Stdio
 
-export let write(text: String): Unit           -- ->~
-export let writeLine(text: String): Unit       -- ->~
-export let writeError(text: String): Unit      -- ->~
-export let writeErrorLine(text: String): Unit  -- ->~
+export let write(text: String): Unit -- ->~
+export let writeLine(text: String): Unit -- ->~
+export let writeError(text: String): Unit -- ->~
+export let writeErrorLine(text: String): Unit -- ->~
 
-export let readText(): String                  -- ->~
-export let readTextLossy(): String             -- ->~
+export let readText(): String -- ->~
+export let readTextLossy(): String -- ->~
 ```
 
 ```hexagon
@@ -71,8 +71,8 @@ module Process
 
 export fault ExitStatusFault(status: Int)
 
-export let arguments(): Vector(String)          -- ->~
-export let setExitStatus(status: Int): Unit     -- ->~
+export let arguments(): Vector(String) -- ->~
+export let setExitStatus(status: Int): Unit -- ->~
 ```
 
 The colours in the comments are the inferred ones; each body's foreign calls carry them. A typical program:

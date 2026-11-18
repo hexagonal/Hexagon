@@ -67,10 +67,10 @@ Classification rules, normative:
 ### 4.1 Scalar decoders
 
 ```hexagon
-JsValue.toInt    : JsValue ->^ Int
-JsValue.toFloat  : JsValue ->^ Float
+JsValue.toInt : JsValue ->^ Int
+JsValue.toFloat : JsValue ->^ Float
 JsValue.toBigInt : JsValue ->^ BigInt
-JsValue.toBool   : JsValue ->^ Bool
+JsValue.toBool : JsValue ->^ Bool
 JsValue.toString : JsValue ->^ String
 ```
 
@@ -130,21 +130,21 @@ This part's composable decoder surface throws `JsConversionError`, and reasons a
 
 ```hexagon
 union JsPathSegment =
-    Field(name: String)
-    | Index(index: Int)                          -- 1-based
-    | MapKey(position: Int)                      -- 1-based source-iteration position
+    | Field(name: String)
+    | Index(index: Int) -- 1-based
+    | MapKey(position: Int) -- 1-based source-iteration position
     | MapValue(position: Int)
     | SetElement(position: Int)
 
 union JsConversionReason =
-    Shape
+    | Shape
     | Range
     | Cycle(firstSeen: Vector(JsPathSegment))
 
 exception JsConversionError(
     reason: JsConversionReason,
     path: Vector(JsPathSegment),
-    message: String
+    message: String,
 )
 ```
 
@@ -201,7 +201,7 @@ The accessors Exceptions §6.1 owed to this part, over the `JsError` payload (`e
 
 ```hexagon
 JsError.message : JsValue -> String
-JsError.stack   : JsValue -> Option(String)
+JsError.stack : JsValue -> Option(String)
 ```
 
 **Both are total and conservative, and suppress secondary throwing-property failures** (approved, §12.3). **Objects and functions alike are property-bearing values eligible for the single guarded read** — a thrown function is exotic but legal JS, and it carries properties like any object. The algorithms:

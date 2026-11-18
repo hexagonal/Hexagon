@@ -40,10 +40,10 @@ union Tree(a) = Leaf | Node(Tree(a), a, Tree(a))
 A constructor's parenthesised payload is declared like a function parameter list, except that names are optional — **per constructor, all slots are named or all are unnamed**; mixing is a parse error ("name all of this constructor's fields or none of them"). Rationale: a half-named payload would emit an object with fields `radius` and `item2` side by side, which fails the readable-JS test.
 
 ```
-Circle(radius: Float)          -- named slot
+Circle(radius: Float) -- named slot
 Rect(width: Float, height: Float)
-Node(Tree(a), a, Tree(a))      -- unnamed slots
-Point                          -- nullary: no parens at all
+Node(Tree(a), a, Tree(a)) -- unnamed slots
+Point -- nullary: no parens at all
 ```
 
 - Unnamed slots take the tuple vocabulary at the representation level: they emit as `item1 … itemN` fields (§6). This is emission-facing only — there is **no** `s.itemN` access on a union value (§5).
@@ -94,11 +94,11 @@ match shape with
 ### 4.2 Constructor patterns (this grammar's degenerate case; the full grammar is Pattern Matching's)
 
 ```
-Circle(r)        -- constructor, binding each slot to a fresh non-uppercase-start name
-Rect(_, h)       -- `_` discards a slot; may repeat
-Point            -- nullary constructor
+Circle(r) -- constructor, binding each slot to a fresh non-uppercase-start name
+Rect(_, h) -- `_` discards a slot; may repeat
+Point -- nullary constructor
 Node(Leaf, x, r) -- nested sub-patterns: legal (Pattern Matching §2.2)
-_                -- wildcard arm: matches anything, binds nothing
+_ -- wildcard arm: matches anything, binds nothing
 ```
 
 - **The flat forms above are the degenerate case of the single pattern grammar** (Pattern Matching §2). Nesting, literals, guards, or-patterns, as-patterns, tuple/record/vector patterns, and **generalized `match` scrutinees** (tuples, records, `Bool`, …) all ship there; an uppercase-start name in a slot position is simply a nested constructor pattern.

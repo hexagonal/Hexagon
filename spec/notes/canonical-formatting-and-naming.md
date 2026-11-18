@@ -178,8 +178,9 @@ house text makes them this way. **House text** is the standard library,
 the Book, the Playground's tutorials and the spec's own examples.
 
 - **H1** House text is formatted at Maximum line length 100. A line that
-  cannot be broken, such as one holding a long string or comment, stays
-  longer. (Canonical Layout §3.1, §9)
+  cannot be broken, such as one holding a long string or a comment that
+  begins its line, stays longer; a comment that ends a line does not (H10).
+  (Canonical Layout §3.1, §9)
 - **H2** It is formatted with Collapse extra spaces on: the house never
   lines things up with spaces. (Canonical Layout §3.2)
 - **H3** In house text, a function with a doc comment has a blank line
@@ -357,6 +358,26 @@ the Book, the Playground's tutorials and the spec's own examples.
           "many thousands of items"
       else
           "only a few items"
+  ```
+
+- **H10** A comment that ends a line has exactly one space before it: the
+  house lines nothing up, comments included (H2). The whole line, comment
+  included, fits within 100. Format document keeps the gap as written
+  (Canonical Layout §8.3), and its own measure of a line leaves a trailing
+  comment out (§9.2), so house text keeps both by hand. A note that would
+  pass 100, or that needs more than one line, goes above its code as
+  comments that begin their lines, at the code's indentation (Canonical
+  Layout §8.2), filled to 100, and is never carried on in comments beneath
+  the line it ends. Where the code has a doc comment, the note goes above
+  the doc comment, which stays against its declaration. A comment that
+  begins its line is not otherwise this rule's. (Canonical Layout §8.2,
+  §8.3, §9.2)
+
+  ```
+  let total = subtotal + shipping -- before tax
+  -- The rate is the one in force on the day the order was placed, not the day it ships, so an order
+  -- placed before a change and shipped after it keeps the old rate.
+  let taxed = total * rate
   ```
 
 ---

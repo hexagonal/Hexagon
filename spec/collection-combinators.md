@@ -62,9 +62,9 @@ the items the `Seq` function would produce. For a callback `p` that is pure and
 cannot fail:
 
 ```hexagon
-C.filter(c, p)   ≡  C.fromSeq(Seq.filter(c, p))
-C.map(c, f)      ≡  C.fromSeq(Seq.map(c, f))        -- Map: where f's keys are distinct (§5.1)
-C.fold(c, z, f)  ≡  Seq.fold(c, z, f)
+C.filter(c, p) ≡ C.fromSeq(Seq.filter(c, p))
+C.map(c, f) ≡ C.fromSeq(Seq.map(c, f)) -- Map: where f's keys are distinct (§5.1)
+C.fold(c, z, f) ≡ Seq.fold(c, z, f)
 ```
 
 The eager forms also accept callbacks that are impure or may fail, which the
@@ -199,8 +199,8 @@ entries, in traversal order. `filter` keeps the stored key representatives.
 returns:
 
 ```hexagon
-m.map(((name, score)) => (name, score * 10))          -- keys kept, values changed
-m.map(((name, score)) => (String.toLower(name), score))   -- keys changed
+m.map(((name, score)) => (name, score * 10)) -- keys kept, values changed
+m.map(((name, score)) => (String.toLower(name), score)) -- keys changed
 ```
 
 Where the returned keys are distinct, the result is

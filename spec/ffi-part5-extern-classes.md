@@ -134,8 +134,8 @@ extern from "web-response"
 Hexagon calls emit property reads (plus, for a result type naming a captured foreign collection, FFI Part 1 §5.4's copy of what was read — `Array(Int)` from a `get` is Hexagon's snapshot, #876):
 
 ```hexagon
-Response.status!(response)    -- emits: response.status
-Response.headers!(response)   -- emits: response.headers
+Response.status!(response) -- emits: response.status
+Response.headers!(response) -- emits: response.headers
 ```
 
 `get` means a **property-read operation**. It deliberately does not distinguish a stored data property from a JavaScript accessor getter: callers use the same syntax either way, and the foreign implementation may change between the two without altering the binding.
@@ -256,7 +256,7 @@ new as create(text: String) -> Url
 ```
 
 ```hexagon
-Url.create(text)      -- emits: new URL(text)
+Url.create(text) -- emits: new URL(text)
 ```
 
 Rules:
@@ -341,9 +341,9 @@ Consequence: two extern classes declared in one module whose members share a nam
 Extern receiver members were shaped subject-first precisely so they enter Hexagon as companion operations, and the Method Syntax spec's machinery is designed to need nothing new here: an extern class's (or extern type's) home module is the binding module that declares it, and its exported subject-first members are exactly a companion operation set. The intended consequence:
 
 ```hexagon
-url.toString!()       -- companion dispatch: Url.toString!(url) — emits url.toString()
-url.hostname!()       -- companion dispatch: Url.hostname!(url) — emits url.hostname
-params.get!("name")   -- companion dispatch: SearchParams.get!(params, "name")
+url.toString!() -- companion dispatch: Url.toString!(url) — emits url.toString()
+url.hostname!() -- companion dispatch: Url.hostname!(url) — emits url.hostname
+params.get!("name") -- companion dispatch: SearchParams.get!(params, "name")
 ```
 
 with zero new dispatch machinery: the dot call rewrites to the qualified companion call (Method Syntax §1), and *that* call's extern linkage does the receiver-call or property-read emission (§2.2, §3.1). Opaque extern types have no visible fields, so no field/companion collision surface exists outside pathological cases — the cleanest receivers the dot-call feature has, alongside nominal unions.

@@ -150,9 +150,7 @@ Seq-expected position. Those would require their own contracts.
 ## 3. Result
 
 ```hexagon
-export union Result(a) =
-    | Ok(value: a)
-    | Err(error: Exn)
+export union Result(a) = Ok(value: a) | Err(error: Exn)
 
 export let map(source: Result(a), transform: a ->! b): Result(b) =
     match source with

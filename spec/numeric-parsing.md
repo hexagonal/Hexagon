@@ -87,7 +87,7 @@ exception NumberFormatError(message: String)
 Effects §3.1 owns this; it is recorded here because parsing is where it is met first. A reading is `Some` of its call. So the call's result widens into the `T` of an `Option(T)` exactly where `Some(…)` written around the call would widen it (Functions §4.3): where a seat's own type reaches it — an annotation, an ascription, a parameter's type, a `var`'s type — directly or through a forwarding form, a pipe stage's reading included:
 
 ```hexagon
-let id(text: String): Option(BigInt) = Int.parse?(text)      -- an Int, widened inside Some
+let id(text: String): Option(BigInt) = Int.parse?(text) -- an Int, widened inside Some
 ```
 
 The widening is of the call's result, inside `Some`; the `Option` is never converted. Only the numeric widenings apply (Numeric Literals §5.1). A join widens nothing inside an `Option`: `if c then Some(1n) else Int.parse?(s)` is refused, as `if c then Some(1n) else Some(Int.parse^(s))` is, because a sibling's type is no seat's.

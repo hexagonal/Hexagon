@@ -93,13 +93,13 @@ The prelude home is not user-editable, but naming it makes the two-home rule acc
 
 ```
 let words = ["red", "green", "blue"]
-String.fromSeq(words)                   -- String.fromSeq(Iterable.toSeq(words))
+String.fromSeq(words) -- String.fromSeq(Iterable.toSeq(words))
 
-let view: Seq(String) = words           -- adapted at the annotation
-let same = words                        -- Vector(String): no seat asks for a sequence
+let view: Seq(String) = words -- adapted at the annotation
+let same = words -- Vector(String): no seat asks for a sequence
 
 let colors(): Seq(String) =
-    ["red", "green"]                    -- adapted at the declared result
+    ["red", "green"] -- adapted at the declared result
 ```
 
 **The seats** are Functions §4.3's supplying seats whose expected type is headed by `Seq`, and the parts that section hands an expected type to:
@@ -153,8 +153,8 @@ Seq.length(if useFirst then names else moreNames)
 
 ```
 let go(v) =
-    let total = sumInts(v)              -- sumInts : (Seq(Int)) -> Int
-    v.map(match                         -- refused: the arms see a variable
+    let total = sumInts(v) -- sumInts : (Seq(Int)) -> Int
+    v.map(match -- refused: the arms see a variable
         n when n < 0 => "negative"
         _ => "other")
 ```
@@ -298,7 +298,7 @@ Exactly the Part 2 §5.3 form — nothing loop-specific:
 ```
 honor Iterable<Bag(a)> =
     type Item = a
-    toSeq(bag) = ...            -- the conversion body; §8.2's worked example
+    toSeq(bag) = ... -- the conversion body; §8.2's worked example
 ```
 
 The member *is* the type's `toSeq`: the honoring module writes the conversion here rather than as a plain export — a module-level binding of a member's spelling alongside the instance would be the rebinding error (Constraints §4.6) — and `Bag.toSeq` remains a correct consumer spelling as the uniform-access honored-member read (Modules §5.3). Exactly-once member binding, the (constraint, constructor) coherence slot, and the orphan rule (home of `Iterable` — the prelude — or home of `Bag`) all apply unchanged (Part 2 §5.3–§5.4, Modules §7.2). Writing the instance adds the row; §3's resolution needs nothing else. The instance is legal on `record` and `union` types alike, `opaque` or not — opacity hides structure, not capabilities (Modules §4.2).
@@ -339,8 +339,8 @@ opaque record Bag(a) = { counts: Map(a, Int) }
 
 export let fromSeq<a: Hash>(items: Seq(a)): Bag(a) = ...
 export let add<a: Hash>(bag: Bag(a), x: a): Bag(a) = ...
-export let count<a: Hash>(bag: Bag(a), x: a): Int = ...   -- 0 when absent
-export let size(bag: Bag(a)): Int = ...                    -- total multiplicity
+export let count<a: Hash>(bag: Bag(a), x: a): Int = ... -- 0 when absent
+export let size(bag: Bag(a)): Int = ... -- total multiplicity
 
 honor Iterable<Bag(a)> =
     type Item = a
@@ -357,8 +357,8 @@ import Bag
 
 let bag = Bag.fromSeq(Vector.toSeq([1, 2, 2, 3]))
 var total = 0
-for x in bag do              -- Item = Int; resolution: head constructor Bag → the instance
-    total := total + x         -- 8
+for x in bag do -- Item = Int; resolution: head constructor Bag → the instance
+    total := total + x -- 8
 
 -- The generic form remains unwritable in v1, exactly as designed:
 let sum<c: Iterable>(xs: c): Int = ...
@@ -367,7 +367,7 @@ let sum<c: Iterable>(xs: c): Int = ...
 
 -- The idiom:
 let sum(xs: Seq(Int)): Int = ...
-sum(bag)                     -- 8: the Seq seat adapts through Bag's instance (§3.4)
+sum(bag) -- 8: the Seq seat adapts through Bag's instance (§3.4)
 ```
 
 What the example fixes, normatively:
@@ -565,74 +565,72 @@ The roadmap and agenda edits queued at landing were applied then; the companion-
 
 ```
 -- (a) Every standard row loops, with the right element type
-for i in 1..3 do         -- i : Int      (counting-loop emission, mandatory)
+for i in 1..3 do -- i : Int (counting-loop emission, mandatory)
     ...
-for x in [10, 20] do     -- x : Int      (Vector)
+for x in [10, 20] do -- x : Int (Vector)
     ...
-for c in "héllo" do      -- c : String   (one codepoint; emits for (const c of s))
+for c in "héllo" do -- c : String (one codepoint; emits for (const c of s))
     ...
-for x in Set.fromVector([1, 2]) do   -- x : Int
+for x in Set.fromVector([1, 2]) do -- x : Int
     ...
 
 -- (b) Map: tuple head; vector-pattern head still gated
-for (k, v) in m do       -- irrefutable tuple head; emits for (const [k, v] of ...)
+for (k, v) in m do -- irrefutable tuple head; emits for (const [k, v] of ...)
     ...
-for [k, v] in m do       -- ERROR: this pattern can fail; use match (Part 4 §9)
+for [k, v] in m do -- ERROR: this pattern can fail; use match (Part 4 §9)
     ...
 
 -- (c) String conversion suite (contract per §5.3)
-String.toSeq("ab")                          -- Seq(String): "a", "b"
-String.fromSeq(String.toSeq(s)) == s        -- true, for every s (one-sided round trip)
-String.fromSeq(Vector.toSeq(["ab", "", "c"]))  -- "abc" (any-length elements; concat)
-String.fromSeq(Seq.empty)                   -- ""
+String.toSeq("ab") -- Seq(String): "a", "b"
+String.fromSeq(String.toSeq(s)) == s -- true, for every s (one-sided round trip)
+String.fromSeq(Vector.toSeq(["ab", "", "c"])) -- "abc" (any-length elements; concat)
+String.fromSeq(Seq.empty) -- ""
 -- No golden test asserts chunk-boundary preservation through toSeq ∘ fromSeq.
 
 -- (d) The Bag example end-to-end (per §8.2)
-let bag = Bag.fromSeq(Vector.toSeq([1, 2, 2, 3]))   -- fromSeq needs Hash<Int>: provided
+let bag = Bag.fromSeq(Vector.toSeq([1, 2, 2, 3])) -- fromSeq needs Hash<Int>: provided
 var total = 0
-for x in bag do                             -- iteration needs no Hash
-    total := total + x                        -- total = 8
+for x in bag do -- iteration needs no Hash
+    total := total + x -- total = 8
 -- emits: for (const x of __Iterable_Bag.toSeq(bag)) { total = total + x; }
 
 -- (e) Rigid vs unsolved: a refusal, and a head that waits
 let f(xs: c) =
-    for x in xs do                            -- ERROR: `xs` has the generic type `c`, and
-        ...                                     --   Iterable declares an implied type and cannot
-                                            --   constrain a type variable in v1; take a Seq(a)
-                                            --   parameter instead
+    -- ERROR: `xs` has the generic type `c`, and Iterable declares an implied type and cannot
+    -- constrain a type variable in v1; take a Seq(a) parameter instead
+    for x in xs do
+        ...
 let g(xs) =
-    for x in xs do                            -- the head waits for g's close (§3.1 step 2)
+    for x in xs do -- the head waits for g's close (§3.1 step 2)
         ()
-    Vector.length(xs)                         -- g : (Vector(a)) -> Int — and the same with
-                                            --   the two statements swapped (#1118)
+    -- g : (Vector(a)) -> Int — and the same with the two statements swapped (#1118)
+    Vector.length(xs)
 let h(xs) =
-    for x in xs do                            -- nothing describes xs: h : (Seq(a)) -> Unit
+    for x in xs do -- nothing describes xs: h : (Seq(a)) -> Unit
         ()
 
 -- (f) Non-iterable: plain vs user-nominal (two legal homes)
-for x in 42 do                              -- ERROR: `Int` is not iterable
+for x in 42 do -- ERROR: `Int` is not iterable
     ...
-for x in widget do                          -- widget : Widget, user record, no instance
-    ...                                       -- ERROR: `Widget` is not iterable. Define
-                                            --   honor Iterable<Widget> in module Widget,
-                                            --   which declares Widget. The only other
-                                            --   legal home is the prelude module
-                                            --   declaring Iterable. Alternatively,
-                                            --   convert or take a Seq(a) parameter.
+for x in widget do -- widget : Widget, user record, no instance
+    -- ERROR: `Widget` is not iterable. Define honor Iterable<Widget> in module Widget, which
+    -- declares Widget. The only other legal home is the prelude module declaring Iterable.
+    -- Alternatively, convert or take a Seq(a) parameter.
+    ...
 
 -- (g) Collision with a standard row: one orphan error, naming the row's home
-honor Iterable<Vector(a)> =                 -- in user code
+honor Iterable<Vector(a)> = -- in user code
     type Item = a
     toSeq(xs) = Vector.toSeq(xs)
 -- ERROR: orphan instance — this module declares neither `Iterable` nor `Vector`;
 --        Iterable<Vector(a)> is already declared in module Vector
 
 -- (h) User-vs-user duplicate (same module)
-honor Iterable<Bag(a)> = ...                -- second declaration in module Bag
+honor Iterable<Bag(a)> = ... -- second declaration in module Bag
 -- ERROR at the second declaration: duplicate instance of Iterable<Bag>
 
 -- (i) Once-evaluation of the source
-for x in expensive() do                     -- expensive() called exactly once
+for x in expensive() do -- expensive() called exactly once
     ...
 -- emits: for (const x of expensive()) { ... }  -- the head is evaluated once; no temporary
 
@@ -640,14 +638,14 @@ for x in expensive() do                     -- expensive() called exactly once
 -- nats: an infinite Seq of 1, 2, 3, ... (producer illustrative — any infinite
 -- Seq specimen serves; the combinator surface is the stdlib listing's)
 for n in nats do
-    if n > 3 then throw(Done()) else consume(n)   -- consume : Int -> Unit
+    if n > 3 then throw(Done()) else consume(n) -- consume : Int -> Unit
 -- pulls 1, 2, 3, 4; consumes 1, 2, 3; throws on 4; each element computed on
 -- demand; nothing materialized
 
 -- (k) var mutation in loop bodies keeps working (blocks, not lambdas)
 var acc = ""
 for c in "abc" do
-    acc := acc ++ c                           -- acc = "abc"
+    acc := acc ++ c -- acc = "abc"
 
 -- (l) No Iterable machinery in .d.ts
 -- module Bag's emitted Bag.d.ts contains no Iterable, no Item, no Iterable-instance
@@ -656,59 +654,63 @@ for c in "abc" do
 -- neither way here.)
 
 -- (m) Seq seats adapt (§3.4); words : Vector(String), bag : Bag(Int)
-String.fromSeq(words)                       -- String.fromSeq(Iterable.toSeq(words))
-let view: Seq(String) = words               -- adapted; `let same = words` stays Vector(String)
+String.fromSeq(words) -- String.fromSeq(Iterable.toSeq(words))
+let view: Seq(String) = words -- adapted; `let same = words` stays Vector(String)
 let colors(): Seq(String) = ["red", "green"] -- adapted at the declared result
-let o: Option(Seq(String)) = Some(words)    -- constructor argument
-let p: (Seq(String), Int) = (words, 1)      -- literal part
-Seq.length(if c then words else moreWords)  -- moreWords : Set(String): elements join, each adapts
-Seq.length(bag)                             -- a user instance, statically resolved
-let s: Seq(String) = someSeq                -- a Seq passes unchanged
+let o: Option(Seq(String)) = Some(words) -- constructor argument
+let p: (Seq(String), Int) = (words, 1) -- literal part
+Seq.length(if c then words else moreWords) -- moreWords : Set(String): elements join, each adapts
+Seq.length(bag) -- a user instance, statically resolved
+let s: Seq(String) = someSeq -- a Seq passes unchanged
 -- emits the explicit call's JS at each site: the instance's toSeq, statically resolved
 
 -- (n) What never adapts
-let bad: Seq(Float) = ints                  -- ints : Vector(Int) — ERROR: expected Seq(Float),
-                                            --   found Vector(Int), which supplies Seq(Int)
-let held: Option(Seq(String)) = maybeWords  -- maybeWords : Option(Vector(String)) — ERROR
-var s2: Seq(String) = words                 -- ERROR: a var's annotation is not a Seq seat
-Seq.length(if c then ints else words)       -- ERROR at the `if`: Int and String disagree
-pick(someSeq, words)                        -- pick<a>(x: a, y: a) — ERROR: no Seq seat
-words.map(f)                                -- Vector.map; never Seq.map by adaptation
+-- ints : Vector(Int) — ERROR: expected Seq(Float), found Vector(Int), which supplies Seq(Int)
+let bad: Seq(Float) = ints
+let held: Option(Seq(String)) = maybeWords -- maybeWords : Option(Vector(String)) — ERROR
+var s2: Seq(String) = words -- ERROR: a var's annotation is not a Seq seat
+Seq.length(if c then ints else words) -- ERROR at the `if`: Int and String disagree
+pick(someSeq, words) -- pick<a>(x: a, y: a) — ERROR: no Seq seat
+words.map(f) -- Vector.map; never Seq.map by adaptation
 
 -- (o) A source whose head is not yet known (§3.5)
-let f1(xs) = String.fromSeq(xs)             -- f1 : (Seq(String)) -> String
+let f1(xs) = String.fromSeq(xs) -- f1 : (Seq(String)) -> String
 let f2(xs) =
-    let s = String.fromSeq(xs)              -- decided when the head arrives, in either statement order
-    Vector.length(xs)                       -- f2 : (Vector(String)) -> Int, xs adapted
+    let s = String.fromSeq(xs) -- decided when the head arrives, in either statement order
+    Vector.length(xs) -- f2 : (Vector(String)) -> Int, xs adapted
 let f3(v) =
-    let total = sumInts(v)                  -- the element is linked here: Int
-    Seq.map(v, match                        -- accepted: the callback reads Int
+    let total = sumInts(v) -- the element is linked here: Int
+    Seq.map(v, match -- accepted: the callback reads Int
         n when n < 0 => "negative"
         _ => "other")
-let t(x) = Iterable.toSeq(x)                -- ERROR: an explicit call alone keeps its refusal
+let t(x) = Iterable.toSeq(x) -- ERROR: an explicit call alone keeps its refusal
 let go(v) =
     let total = sumInts(v)
-    v.map(match                             -- ERROR: the text does not decide v's type, so the
-        n when n < 0 => "negative"          --   dot is refused (Method Syntax §3.5); annotate
-        _ => "other")                       --   `v: Seq(Int)`, or write Seq.map(v, match …)
+    -- ERROR: the text does not decide v's type, so the dot is refused (Method Syntax §3.5);
+    -- annotate `v: Seq(Int)`, or write Seq.map(v, match …)
+    v.map(match
+        n when n < 0 => "negative"
+        _ => "other")
 let z(xs, ys) =
-    let s = String.fromSeq(xs)              -- xs waits
-    xs.zip(ys)                              -- a goal on a waiting receiver
+    let s = String.fromSeq(xs) -- xs waits
+    xs.zip(ys) -- a goal on a waiting receiver
 -- at z's close xs takes Seq(String), the goal resolves to Seq.zip and meets ys at a
 -- Seq parameter, ys waits in turn and takes Seq(b):
 -- z : (Seq(String), Seq(b)) -> Seq((String, b))
 let late(v) =
-    let total = sumInts(v)                  -- ERROR here, at sumInts(v): expected Seq(Int), found
-    let k: Vector(String) = v               --   Vector(String), which supplies Seq(String) —
-    total                                   --   the same place with the two lines swapped
+    -- ERROR here, at sumInts(v): expected Seq(Int), found Vector(String), which supplies
+    -- Seq(String) — the same place with the two lines swapped
+    let total = sumInts(v)
+    let k: Vector(String) = v
+    total
 
 -- (p) An instance's own subject, in its own toSeq (§3.6)
 record Stack(a) = { items: Vector(a) }
 honor Iterable<Stack(a)> =
     type Item = a
-    toSeq(s) = s                            -- ERROR: a Stack(a) is not converted inside
-                                            --   Iterable<Stack(a)>'s own toSeq; convert its
-                                            --   contents (s.items) or write the call
+    -- ERROR: a Stack(a) is not converted inside Iterable<Stack(a)>'s own toSeq; convert its
+    -- contents (s.items) or write the call
+    toSeq(s) = s
 -- toSeq(s) = s.items adapts the Vector; a helper `let flat(s: Stack(a)): Seq(a) = s`
 -- called as toSeq(s) = flat(s) adapts through the instance being defined (recursion
 -- the program wrote, visible at flat)

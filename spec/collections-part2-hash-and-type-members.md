@@ -146,7 +146,7 @@ Each component's `same` is its type's instance, read from the instance context i
 
 ```
 honor Hash<UserId> =
-    hash(u) = u.n * 31        -- ERROR
+    hash(u) = u.n * 31 -- ERROR
 ```
 
 — is a **hard error with its own message** (§9), distinct from the generic non-derivable-constraint error: the user found the right constraint and the wrong door, and the message must say which door is open. Everything else about `honor ... = derive` (placement, orphan rule, coherence) is §3.1.
@@ -279,28 +279,28 @@ An unannotated binding generalizes (Functions §8), and a variable carrying a pr
 - **No advice names a projection-bearing constraint.** Such a demand never joins a contract refusal's advised list (Functions §4.2) or an exported binding's required binder list (Modules §4.1.1): advice to write it would itself be refused by this section.
 
 ```
-let t(x) = Iterable.toSeq(x)             -- error: `t` leaves the type of `x` open
-let t(x: c) = Iterable.toSeq(x)          -- error: `x` has the generic type `c`
-let t = Iterable.toSeq                   -- error: `t` leaves open which type `Iterable.toSeq` is used at
-let g(xs) = String.fromSeq(xs)           -- a seat asked for the sequence: g : (Seq(String)) -> String
+let t(x) = Iterable.toSeq(x) -- error: `t` leaves the type of `x` open
+let t(x: c) = Iterable.toSeq(x) -- error: `x` has the generic type `c`
+let t = Iterable.toSeq -- error: `t` leaves open which type `Iterable.toSeq` is used at
+let g(xs) = String.fromSeq(xs) -- a seat asked for the sequence: g : (Seq(String)) -> String
 
 let f(xs) =
-    let items = Iterable.toSeq(xs)       -- settled two lines down
-    let firsts: Seq(String) = items      -- `items` is not generic: its element is pinned to `xs`
+    let items = Iterable.toSeq(xs) -- settled two lines down
+    let firsts: Seq(String) = items -- `items` is not generic: its element is pinned to `xs`
     let known: Vector(String) = xs
-    items                                -- f : (Vector(String)) -> Seq(String)
+    items -- f : (Vector(String)) -> Seq(String)
 
 let outer(xs) =
-    let inner() = Iterable.toSeq(xs)     -- xs belongs to outer, which settles it
+    let inner() = Iterable.toSeq(xs) -- xs belongs to outer, which settles it
     let known: Vector(String) = xs
     inner()
 
 let pick(f) = f
-let held = pick((x) => Iterable.toSeq(x))   -- error at `held`: held back, not left for a first use
+let held = pick((x) => Iterable.toSeq(x)) -- error at `held`: held back, not left for a first use
 
-let h = pick((x) => x)                      -- held back: one type, fixed by its first use
-let u(y) = Iterable.toSeq(h(y))             -- the module holds y's type, so u's close does not decide it
-let words: Seq(String) = u(["a", "b"])      -- this first use settles it; u stays single-typed
+let h = pick((x) => x) -- held back: one type, fixed by its first use
+let u(y) = Iterable.toSeq(h(y)) -- the module holds y's type, so u's close does not decide it
+let words: Seq(String) = u(["a", "b"]) -- this first use settles it; u stays single-typed
 ```
 
 The dot never reaches this rule: a dot call whose subject's type the text does not decide is refused at the dot (Method Syntax §3.5), and one whose subject the text decides knows the subject's outer constructor there, so no unsettled projection-bearing demand is made through it.
@@ -447,99 +447,106 @@ The v2 implied-types remainder is also routed here: deferred `Item(α)` goals, t
 ```
 -- (1) Derives Hash; usable as a key-shaped value
 record Point derives (Eq, Hash) = { x: Float, y: Float }
-let h = Point({ x = 1.0, y = 2.0 }).hash()         -- OK : Int
+let h = Point({ x = 1.0, y = 2.0 }).hash() -- OK : Int
 
 -- (2) Law-relevant Float normalisation
-(-0.0).hash() == (0.0).hash()                    -- true
-(0.0 / 0.0).hash() == Float.nan.hash()           -- true (all NaNs one value)
+(-0.0).hash() == (0.0).hash() -- true
+(0.0 / 0.0).hash() == Float.nan.hash() -- true (all NaNs one value)
 
 -- (3) Structural types: automatic, conditional
-let t = Hash.hash((1, "a", true))                -- OK (all components Hash)
-let u = Hash.hash((1, fn))                       -- ERROR: no Hash for Int -> Int (component)
+let t = Hash.hash((1, "a", true)) -- OK (all components Hash)
+let u = Hash.hash((1, fn)) -- ERROR: no Hash for Int -> Int (component)
 
 -- (4) Hand-written Hash: closed door, signposted
 honor Hash<UserId> =
-    hash(u) = u.n                                  -- ERROR: Hash instances must be derived;
-                                                 --   use `derives (Eq, Hash)` on the
-                                                 --   declaration of `UserId`
+    -- ERROR: Hash instances must be derived; use `derives (Eq, Hash)` on the declaration of
+    -- `UserId`
+    hash(u) = u.n
 
 -- (5) Eq-agreement rule
 record Weird = { s: String }
 honor Eq<Weird> =
     equals(a, b) = String.lower(a.s) == String.lower(b.s)
-honor Hash<Weird> = derive                       -- ERROR: `Weird` has a hand-written `Eq`
-                                                 --   instance; a derived hash is only
-                                                 --   consistent with a derived equality
+-- ERROR: `Weird` has a hand-written `Eq` instance; a derived hash is only consistent with a derived
+-- equality
+honor Hash<Weird> = derive
 
 -- (6) Missing base constraint, hinted
-record P derives Hash = { n: Int }               -- ERROR: missing Eq
-                                                 --   hint: add `Eq` to the `derives` list
+-- ERROR: missing Eq
+-- hint: add `Eq` to the `derives` list
+record P derives Hash = { n: Int }
 
 -- (7) Whitelist message names all four
-honor Signed<P> = derive                            -- ERROR: only Eq, Ord, Show, and Hash
-                                                 --   have derivable forms
+-- ERROR: only Eq, Ord, Show, and Hash have derivable forms
+honor Signed<P> = derive
 
 -- (8) A user collection joins for..in (operational check in Part 5)
 union Bag(a) = MkBag(Vector(a))
 let elements(b: Bag(a)): Seq(a) = ...
 honor Iterable<Bag(a)> =
     type Item = a
-    toSeq(xs) = elements(xs)                       -- OK; instance row: Bag → Item = a
+    toSeq(xs) = elements(xs) -- OK; instance row: Bag → Item = a
 
 -- (9) Exactly-once on the instance side
 honor Iterable<Box(a)> =
-    toSeq(xs) = ...                                -- ERROR: instance is missing `type Item`
+    toSeq(xs) = ... -- ERROR: instance is missing `type Item`
 
 -- (10) Projection-bearing binder ban, all positions
-let f<c: Iterable>(xs: c): Int = ...             -- ERROR: `Iterable` declares an implied
-                                                 --   type and cannot constrain a type
-                                                 --   variable; take a `Seq(a)` parameter
-constraint Countable<c: Iterable> =              -- ERROR: same rule, base constraint position
+-- ERROR: `Iterable` declares an implied type and cannot constrain a type variable; take a `Seq(a)`
+-- parameter
+let f<c: Iterable>(xs: c): Int = ...
+constraint Countable<c: Iterable> = -- ERROR: same rule, base constraint position
     count(xs: c) -> Int
 
 -- (11) Reference ban (no module-level `Item` in scope)
-let g(e: Item): Int = ...                        -- ERROR: `Item` is an implied type of
-                                                 --   `Iterable` and cannot appear in type
-                                                 --   expressions
+-- ERROR: `Item` is an implied type of `Iterable` and cannot appear in type expressions
+let g(e: Item): Int = ...
 
 -- (12) Monomorphic member call: legal today
-let n = MkBag(v).toSeq()                         -- OK : Seq(Int)   (head constructor known)
+let n = MkBag(v).toSeq() -- OK : Seq(Int) (head constructor known)
 
 -- (13) Owner-scoped identity (two user constraints, one module)
 constraint Source<c> =
     type Item
-    next(xs: c) -> Option(Item)                     -- Item here is Source.Item
+    next(xs: c) -> Option(Item) -- Item here is Source.Item
 constraint Sink<c> =
-    type Item                                      -- OK: Sink.Item is a distinct implied
-    put(xs: c, x: Item) -> c                        --   type; the owner disambiguates
+    -- OK: Sink.Item is a distinct implied type; the owner disambiguates
+    type Item
+    put(xs: c, x: Item) -> c
 
 -- (14) Occlusion inside an owner's body
-type Item = Int                                  -- a module-level alias, coexisting freely
+type Item = Int -- a module-level alias, coexisting freely
 constraint Queue<c> =
-    type Item                                      -- OK: no conflict with the alias
-    peek(xs: c) -> Option(Item)                     -- Item = Queue.Item here (occludes the alias)
+    type Item -- OK: no conflict with the alias
+    peek(xs: c) -> Option(Item) -- Item = Queue.Item here (occludes the alias)
 ```
 
 ```
 -- (15) `same`: derived, and finer than `==` where a function can see the difference
-record Reading derives (Eq, Hash) = { at: Float, label: String }
-Reading({ at = 0.0, label = "a" }) == Reading({ at = -0.0, label = "a" })      -- true
-Reading({ at = 0.0, label = "a" }).same(Reading({ at = -0.0, label = "a" }))   -- false
-Hash.same((1, "a"), (1, "a"))                                                  -- true
-(0.0 / 0.0).same(Float.nan)                                                    -- true
-1.0d == 1.00d                                                                  -- true
-1.0d.same(1.00d)                                                               -- false
-Map.fromVector([("Aa", 1), ("BB", 2)]) == Map.fromVector([("BB", 2), ("Aa", 1)])         -- true
-Hash.same(Map.fromVector([("Aa", 1), ("BB", 2)]), Map.fromVector([("BB", 2), ("Aa", 1)])) -- false
+record Reading derives (Eq, Hash) = {
+    at: Float,
+    label: String,
+}
+Reading({ at = 0.0, label = "a" }) == Reading({ at = -0.0, label = "a" }) -- true
+Reading({ at = 0.0, label = "a" }).same(Reading({ at = -0.0, label = "a" })) -- false
+Hash.same((1, "a"), (1, "a")) -- true
+(0.0 / 0.0).same(Float.nan) -- true
+1.0d == 1.00d -- true
+1.0d.same(1.00d) -- false
+Map.fromVector([("Aa", 1), ("BB", 2)]) == Map.fromVector([("BB", 2), ("Aa", 1)]) -- true
+Hash.same(
+    Map.fromVector([("Aa", 1), ("BB", 2)]),
+    Map.fromVector([("BB", 2), ("Aa", 1)]),
+) -- false
 
 -- (16) The member claims its spelling
 record Tag derives (Eq, Hash) = { name: String }
-let same(a: Tag, b: Tag): Bool = a == b          -- ERROR: `same` is already bound: the
-                                                 --   `Hash<Tag>` instance binds it as a member
+-- ERROR: `same` is already bound: the `Hash<Tag>` instance binds it as a member
+let same(a: Tag, b: Tag): Bool = a == b
 
 -- (17) Through evidence
 let both<a: Hash>(x: a, y: a): Bool = x.same(y)
-both(0.0, -0.0)                                  -- false
+both(0.0, -0.0) -- false
 ```
 
 *(Bare `Item` outside any owner's body still means the module-level alias where one is in scope — as after test (14)'s alias; inside `Queue`'s body it means `Queue.Item`. Standard local-wins scoping — §6, §7.3.)*

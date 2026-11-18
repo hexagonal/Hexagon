@@ -141,7 +141,7 @@ The classification is **per-binder, not per-form**: `let f(x) = x + 1` binds `f`
 
    ```
    let y =
-       let y = 5      -- error: `y` is already being defined by the enclosing `let`
+       let y = 5 -- error: `y` is already being defined by the enclosing `let`
        y
    ```
 
@@ -178,7 +178,7 @@ The Head Binder Shadowing rule is mildly novel as a crisp rule. Nearest relative
 
 ```
 let (state, a) = step1(state0)
-let (state, b) = step2(state)      -- error
+let (state, b) = step2(state) -- error
 ```
 
 OCaml/F# bread-and-butter, and *more* common with tuples than the scalar rebinding Hexagon already bans, because tuple returns are how state is threaded without mutation; the scalar escape hatch is also unavailable (`var` forbids destructuring, §6.1). Rejected anyway: it preserves the silent-rebinding hazard, which is worse; the scalar analogue is already an error, so the doctrine already demands fresh names (`state1`, `state2`) or restructuring into a `for`/fold; the cost is honest friction where the hazard is real. Whether state-threading pressure eventually justifies `var` destructuring is a field-evidence question, §10.6 — the classification itself is closed.
@@ -216,8 +216,8 @@ That rewrite is for a **read** of the current value. An attempted assignment get
   ```
   var shift = computeShift()
   ...
-  let s = shift                  -- freeze the current value
-  xs |> Seq.map(x => x + s)      -- fine: s is a let
+  let s = shift -- freeze the current value
+  xs |> Seq.map(x => x + s) -- fine: s is a let
   ```
 
 - **`fun` can never touch a `var`**, as a corollary: a `fun` member is header syntax denoting a lambda (Functions §7.1), so the rule applies wholesale.
@@ -298,68 +298,68 @@ This spec imposed two requirements on loops, both now normative in `loops-ranges
 -- (a) The accumulator shape (loop form per loops-ranges-iteration.md)
 let sumTo(n) =
     var total = 0
-    ... total := total + i ...        -- however iterated
+    ... total := total + i ... -- however iterated
     total
 -- total : Int; emits let total = 0; ... total = total + i; ... return total;
 
 -- (b) Block-final assignment: Unit function, no ceremony
-let bump() = count := count + 1     -- ERROR if count is outer (crosses the function's lambda);
-                                    -- legal only for a var in the same body — so:
+let bump() = count := count + 1 -- ERROR if count is outer (crosses the function's lambda)
+-- legal only for a var in the same body — so:
 let step(n) =
     var x = n
     x := x + 1
-    x                                  -- step : Int -> Int
+    x -- step : Int -> Int
 
 -- (c) Discarded value
 let process(items) =
-    validateAll(items)                 -- ERROR: value discarded; use ignore(...)
+    validateAll(items) -- ERROR: value discarded; use ignore(...)
     saveAll(items)
 
 let process2(items) =
-    ignore(validateAll(items))         -- fine; emits validateAll(items);
+    ignore(validateAll(items)) -- fine; emits validateAll(items);
     saveAll(items)
 
 -- (d) Block-final binding
 let f() =
-    let x = compute()                  -- ERROR: block cannot end with a let;
-                                     -- did you mean to return x?
+    -- ERROR: block cannot end with a let; did you mean to return x?
+    let x = compute()
 
 -- (e) Lambda boundary
 let g(xs) =
     var shift = 1
-    xs |> Seq.map(x => x + shift)   -- ERROR: shift is a var; copy to a let first
+    xs |> Seq.map(x => x + shift) -- ERROR: shift is a var; copy to a let first
 
 let g2(xs) =
     var shift = 1
     ...
     let s = shift
-    xs |> Seq.map(x => x + s)       -- fine
+    xs |> Seq.map(x => x + s) -- fine
 
 -- (f) Head Binder Shadowing
 let x = 1
-let x = 2                            -- ERROR: x is already bound
-xs |> Seq.map(x => x * 2)            -- fine: head binder shadows
+let x = 2 -- ERROR: x is already bound
+xs |> Seq.map(x => x * 2) -- fine: head binder shadows
 
 let x = 42
-let f(x) = x + 1                     -- fine: header-sugar parameter is a head binder
+let f(x) = x + 1 -- fine: header-sugar parameter is a head binder
 -- f(1) evaluates to 2; x is still 42 (guards against checking shadowing pre-desugar)
 
 -- (f2) let-pattern binders are sequential (§5.4)
 let x = 10
-let (x, y) = getPair()               -- ERROR: x is already bound (destructure with _
-                                     -- or fresh names)
+-- ERROR: x is already bound (destructure with _ or fresh names)
+let (x, y) = getPair()
 let name = currentUser()
-let { name, total } = order          -- ERROR: name is already bound; rename the
-                                     -- field: { name = orderName }
+-- ERROR: name is already bound; rename the field: { name = orderName }
+let { name, total } = order
 match order with
-    { name, total } => use(name, total) -- fine: match-arm binder is a head binder;
-                                     -- same pattern, different position, different class
+    -- fine: match-arm binder is a head binder; same pattern, different position, different class
+    { name, total } => use(name, total)
 
 -- (g) Monomorphic var, value restriction
 let h() =
-    var xs = emptyList()               -- xs : List(?1)
-    xs := ints                         -- pins ?1 := Int
-    xs := strings                      -- ERROR: xs has type List(Int)
+    var xs = emptyList() -- xs : List(?1)
+    xs := ints -- pins ?1 := Int
+    xs := strings -- ERROR: xs has type List(Int)
 ```
 
 ### 9.2 Edit notes to existing specs (apply on merge)

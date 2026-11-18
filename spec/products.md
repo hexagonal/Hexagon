@@ -24,9 +24,9 @@
 ### 2.1 Syntax and typing
 
 ```
-(1, "a")                 -- term: 2-tuple
-(Int, String)            -- type
-(1, "a", true)           -- arity 3; no upper cap
+(1, "a") -- term: 2-tuple
+(Int, String) -- type
+(1, "a", true) -- arity 3; no upper cap
 ```
 
 - **Arity 0, or 2 and above — every arity except one.** `()` is the empty tuple, whose type is named `Unit` (§2.7; formerly a primitive — Primitive Types §9 is now the pointer); `(e)` is grouping — there are no 1-tuples (Functions spec §3.1). No maximum arity. *(corrected 2026-07-30, #159 — record §10)* The parenthesized form's element grammar — every element is `expression (: Type)?`, including the ascription reading of the one-element case `(e: T)` — is the Ascription spec's.
@@ -44,7 +44,7 @@ C#-style `(x: 1, y: 2)` is a **parse error** with the hint: "tuples are position
 ### 2.3 Positional access: `itemN`
 
 ```
-t.item1     -- first component (1-based)
+t.item1 -- first component (1-based)
 t.item2
 ```
 
@@ -59,7 +59,7 @@ t.item2
 ```
 let (x, y) = t
 let (a, _, c) = triple
-let ((a, b), c) = nested          -- nested irrefutable patterns: legal (Pattern Matching)
+let ((a, b), c) = nested -- nested irrefutable patterns: legal (Pattern Matching)
 ```
 
 - The pattern's arity must equal the tuple's arity (compile error otherwise, same report as §2.1).
@@ -111,12 +111,12 @@ Two rules about the *name*:
 ### 3.1 Syntax
 
 ```
-{ x: Float, y: Float }       -- type: closed row (exactly these fields)
-{ x = 1.0, y = 2.0 }         -- literal
-{}                           -- the empty record (type and value); never a block
-r.x                          -- field access
-{ r with x = 3.0 }           -- functional update (§3.3)
-{ ...r }                     -- bare shallow copy; the §5.3 crossing
+{ x: Float, y: Float } -- type: closed row (exactly these fields)
+{ x = 1.0, y = 2.0 } -- literal
+{} -- the empty record (type and value); never a block
+r.x -- field access
+{ r with x = 3.0 } -- functional update (§3.3)
+{ ...r } -- bare shallow copy; the §5.3 crossing
 ```
 
 - `name: Type` in type position / `name = expr` in term position, comma-separated, braces (§1 doctrine; §8 correction record). Field names are non-uppercase-start identifiers (term-level names, Functions spec §2 case rule), and a hard keyword is one: a field name is a label seat, and its access a dotted seat (Lexer §4.4), so `{ type: String }`, `{ type = "click" }`, and `ev.type` describe the JavaScript objects that carry such keys *(#1014)*.
@@ -164,10 +164,10 @@ Three tiers; the word "row" appears in none of them.
 **Tier 0 — invisible (the default).** Unannotated code gets row polymorphism from inference alone:
 
 ```
-let getX(r) = r.x        -- inferred: works on any record with field x
+let getX(r) = r.x -- inferred: works on any record with field x
 getX({ x = 1.0, y = 2.0 }) -- fine
-getX({ x = 1.0 })        -- fine
-getX({ y = 2.0 })        -- compile error: no field x
+getX({ x = 1.0 }) -- fine
+getX({ y = 2.0 }) -- compile error: no field x
 ```
 
 **Tier 1 — `...` in annotations: "and possibly more fields."**

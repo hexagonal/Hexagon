@@ -265,7 +265,7 @@ assert respectively a safe integral number, an arbitrary JS number, a JS bigint,
 Dynamic checks belong to operations whose purpose is to establish a narrower invariant from an uncertain value:
 
 ```hexagon
-BigInt.toInt  : BigInt -> Option(Int)
+BigInt.toInt : BigInt -> Option(Int)
 ```
 
 `BigInt.toInt` checks range; a Float- or unknown-value-to-`Int` conversion uses `Number.isSafeInteger`; an explicit structural decoder for an unknown array of integers must inspect every element and is necessarily O(n). None of this weakens the zero-scan rule for a trusted declaration.

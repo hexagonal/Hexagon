@@ -92,9 +92,9 @@ The bitwise levels (2, 8–10) take Lean 4's `~~~`, `&&&`, `^^^`, `|||` position
 `not` binds **looser than comparisons, tighter than `and`** — the Python position. Therefore:
 
 ```
-not a == b        -- parses as  not (a == b)
-not a < b < c     -- parses as  not (a < b and b < c)
-not a and b       -- parses as  (not a) and b
+not a == b -- parses as not (a == b)
+not a < b < c -- parses as not (a < b and b < c)
+not a and b -- parses as (not a) and b
 ```
 
 The early draft placed `not` above the comparisons (C-family habit), making `not a == b` mean `(not a) == b` — a parse that requires `a : Bool` and is almost never what was typed, while contradicting the plain-English and mathematical reading. Rejected; recorded here so it is not re-litigated. Note the pleasant consequence: `(not a) == b` is still expressible with parens, and `a != b` remains the idiomatic spelling of "not equal."
@@ -104,10 +104,10 @@ The early draft placed `not` above the comparisons (C-family habit), making `not
 `=>` (lambda), `if … then … else` (§11), `match`, the loops `for … do` and `while … do` (Loops §2.1, §4), and the body forms `attempt` and `assume` (Exceptions §8.2, §8.3) are **prefix expression forms whose body extends as far right as possible** — maximal munch, ended only by a closing delimiter, a layout boundary, or end of input. They have no level number because they are not infix: they may appear (a) anywhere parenthesized, and (b) bare as the **final operand** of any infix expression, where they swallow the rest of the line.
 
 ```
-1 + if c then a else b        -- 1 + (if c then a else b)
-xs |> Seq.map(x => x + 1)     -- lambda is map's argument (delimited by the paren)
-f(x) + match y with ...       -- match is the right operand of +
-x => x |> f                   -- the whole pipe is the lambda body
+1 + if c then a else b -- 1 + (if c then a else b)
+xs |> Seq.map(x => x + 1) -- lambda is map's argument (delimited by the paren)
+f(x) + match y with ... -- match is the right operand of +
+x => x |> f -- the whole pipe is the lambda body
 ```
 
 A loop's body eats to the right where it is written on its head's line, after `do`, exactly as a branch after `then` does: `for name in names do name |> print` runs `name |> print` for every `name`. No forced parentheses when the form is rightmost — that is the point. A bare eats-right form in a *non-final* operand position is a parse error with the fixit "parenthesize the `if`/lambda/`match`" (or the loop, the `attempt` or the `assume`). So `assume Int.parse^(s) |> f` is `assume (Int.parse^(s) |> f)`: a pipe stage runs after its left side, and there is no `|> assume`.
@@ -208,10 +208,10 @@ Types without the instance simply cannot use the operator: `==` on functions is 
 A run of comparison operators at level 12 is parsed as a **chain**, desugaring to a conjunction of pairwise comparisons with shared middle operands bound once (§5.4):
 
 ```
-a < b < c          -- a < b and b < c
-a <= b < c         -- a <= b and b < c
-lo <= x <= hi      -- the idiom the feature exists for
-a == b == c        -- a == b and b == c
+a < b < c -- a < b and b < c
+a <= b < c -- a <= b and b < c
+lo <= x <= hi -- the idiom the feature exists for
+a == b == c -- a == b and b == c
 ```
 
 Chains short-circuit left-to-right exactly as the desugared `and`s do.
@@ -339,12 +339,12 @@ Lineage: Haskell, Elm, PureScript, and (as `<>`/append) the broader ML family. O
 **Token from F#, semantics from ReScript** — record this loudly, since F# programmers will assume currying semantics. F#'s `x |> f` applies a curried function to its *last*-supplied argument. Hexagon has no currying; its pipe is **first-argument insertion**, a purely syntactic rewrite performed *before* type inference:
 
 ```
-a |> f(b, c)      -- rewrites to  f(a, b, c)
-a |> f            -- rewrites to  f(a)          (bare form: allowed)
+a |> f(b, c) -- rewrites to f(a, b, c)
+a |> f -- rewrites to f(a) (bare form: allowed)
+-- show(Signed.negate(x))
 x |> Signed.negate |> show
-                  -- show(Signed.negate(x))
+-- Seq.take(Seq.filter(Seq.map(xs, x => x + 1), p), 3)
 xs |> Seq.map(x => x + 1) |> Seq.filter(p) |> Seq.take(3)
-                  -- Seq.take(Seq.filter(Seq.map(xs, x => x + 1), p), 3)
 ```
 
 - Left-associative, level 18 (loosest infix — §3.3 covers the two `=>` interaction cases).
@@ -487,8 +487,7 @@ chain. A false branch with preceding statements remains an ordinary block.
 An effect-position conditional canonically uses the else-less form:
 
 ```
-if delayed then
-    print("Order delayed")
+if delayed then print("Order delayed")
 ```
 
 Writing the desugared `else ()` explicitly is legal but not canonical — the
@@ -635,44 +634,44 @@ a < b and c or d implies e iff f
 --         (!( (a<b&&c) || d ) || e) === f; either is acceptable readable JS
 
 -- (b) not below comparisons (the fixed footgun)
-not a == b                     -- not (a == b) → emits !(a === b)
-not a and not b or c           -- ((not a) and (not b)) or c → (!a && !b) || c
+not a == b -- not (a == b) → emits !(a === b)
+not a and not b or c -- ((not a) and (not b)) or c → (!a && !b) || c
 
 -- (c) Chains: single evaluation, short-circuit, direction rule
-1 <= f(x) <= 10                -- let _m = f(x); 1 <= _m and _m <= 10
-a < b > c                      -- ERROR: mixed-direction chain (fixit: split)
-a != b != c                    -- ERROR: != does not chain
+1 <= f(x) <= 10 -- let _m = f(x); 1 <= _m and _m <= 10
+a < b > c -- ERROR: mixed-direction chain (fixit: split)
+a != b != c -- ERROR: != does not chain
 
 -- (d) iff evaluates both sides, once each
-sideA() iff sideB()            -- emits sideA() === sideB(); both effects run
+sideA() iff sideB() -- emits sideA() === sideB(); both effects run
 
 -- (e) implies short-circuits
-False implies loop()           -- True; loop() not evaluated → !false || loop()
+False implies loop() -- True; loop() not evaluated → !false || loop()
 
 -- (f) Exponentiation, the math way
-2 ** 3 ** 2                    -- 2 ** (3 ** 2) = 512
--2 ** 2                        -- -(2 ** 2) = -4 → emits -(2 ** 2)
-2 ** -3                        -- Float: 0.125; Int: NegativeExponentFault at runtime
-2 ** 10                        -- Int 1024 → emits Int.pow(2, 10)
+2 ** 3 ** 2 -- 2 ** (3 ** 2) = 512
+-2 ** 2 -- -(2 ** 2) = -4 → emits -(2 ** 2)
+2 ** -3 -- Float: 0.125; Int: NegativeExponentFault at runtime
+2 ** 10 -- Int 1024 → emits Int.pow(2, 10)
 
 -- (g) Concatenation
 -- s.concat(t) and Concat.concat(s, t) at String emit what s ++ t emits: s + t (#808; Constraints §6.1)
-"foo" ++ "bar" ++ s            -- String → emits "foo" + "bar" + s
-"a" + "b"                      -- ERROR: String is not Num; did you mean `++`?
+"foo" ++ "bar" ++ s -- String → emits "foo" + "bar" + s
+"a" + "b" -- ERROR: String is not Num; did you mean `++`?
 
 -- (h) Pipe, including both => interaction cases
-xs |> Seq.map(x => x + 1) |> Seq.take(3)   -- Seq.take(Seq.map(xs, x => x + 1), 3)
-x |> Signed.negate |> show                 -- show(Signed.negate(x))
-let f = x => x |> g                  -- lambda body is the whole pipe: f = x => g(x)
+xs |> Seq.map(x => x + 1) |> Seq.take(3) -- Seq.take(Seq.map(xs, x => x + 1), 3)
+x |> Signed.negate |> show -- show(Signed.negate(x))
+let f = x => x |> g -- lambda body is the whole pipe: f = x => g(x)
 
 -- (i) Range precedence
-1..n+1                         -- 1..(n + 1)
-a*2..b*2                       -- (a * 2)..(b * 2)
-1..2..3                        -- ERROR: `..` does not chain
+1..n+1 -- 1..(n + 1)
+a*2..b*2 -- (a * 2)..(b * 2)
+1..2..3 -- ERROR: `..` does not chain
 
 -- (j) if eats right; short inline form
-1 + if c then a else b         -- 1 + (if c then a else b) → 1 + (c ? a : b)
-if c then a else b + 1         -- else arm is (b + 1)
+1 + if c then a else b -- 1 + (if c then a else b) → 1 + (c ? a : b)
+if c then a else b + 1 -- else arm is (b + 1)
 
 -- (k) Canonical multiline form
 let clamp(x, lo, hi) =
@@ -686,38 +685,38 @@ let clamp(x, lo, hi) =
 -- clamp : (Int, Int, Int) -> Int  (at an Int call site)
 
 -- (l) := grammar
-total := if c then a else b    -- fine; RHS is the eats-right if
-x := y := z                    -- ERROR: `:=` does not chain
+total := if c then a else b -- fine; RHS is the eats-right if
+x := y := z -- ERROR: `:=` does not chain
 
 -- (m) Bitwise levels (bitwise.md §11 carries the full set)
-flags band mask == 0           -- (flags band mask) == 0
-a bor b bxor c band d          -- a bor (b bxor (c band d))
-bnot x ** 2                    -- (bnot x) ** 2;  -x ** 2 stays -(x ** 2)
+flags band mask == 0 -- (flags band mask) == 0
+a bor b bxor c band d -- a bor (b bxor (c band d))
+bnot x ** 2 -- (bnot x) ** 2; -x ** 2 stays -(x ** 2)
 
 -- (n) Fractions (§6.4)
-half * 1//2                    -- half * (1//2), at half : Rat
-x / 2//3                       -- x / (2//3)
-1//2 * 3//4                    -- (1//2) * (3//4) = 3/8
--1//3                          -- (-1)//3
-1//-3                          -- 1//(-3) = -1/3
-2 ** 3//4                      -- (2 ** 3)//4 = 2/1
-(5//2).round()                 -- 3n; the dot call needs the parentheses
-let third = 1//3               -- Rat → emits Rat.create(1n, 3n)
-1//2//3                        -- ERROR: `//` does not chain
-r//2                           -- ERROR at r : Rat: to divide, write `r / 2`
-1.5//2                         -- ERROR: a fraction's top and bottom are integers — write `1.5 / 2`
-1//0                           -- ERROR: a fraction's bottom is never zero, so `1//0` has no value
-1//zero                        -- DivideByZeroFault when it runs, after `let zero = 0`
-let q: Rat = 1 / 0             -- ERROR: division by zero: `1 / 0` has no value
-let x: Float = 1 / 0           -- Infinity: `Float` is not checked
+half * 1//2 -- half * (1//2), at half : Rat
+x / 2//3 -- x / (2//3)
+1//2 * 3//4 -- (1//2) * (3//4) = 3/8
+-1//3 -- (-1)//3
+1//-3 -- 1//(-3) = -1/3
+2 ** 3//4 -- (2 ** 3)//4 = 2/1
+(5//2).round() -- 3n; the dot call needs the parentheses
+let third = 1//3 -- Rat → emits Rat.create(1n, 3n)
+1//2//3 -- ERROR: `//` does not chain
+r//2 -- ERROR at r : Rat: to divide, write `r / 2`
+1.5//2 -- ERROR: a fraction's top and bottom are integers — write `1.5 / 2`
+1//0 -- ERROR: a fraction's bottom is never zero, so `1//0` has no value
+1//zero -- DivideByZeroFault when it runs, after `let zero = 0`
+let q: Rat = 1 / 0 -- ERROR: division by zero: `1 / 0` has no value
+let x: Float = 1 / 0 -- Infinity: `Float` is not checked
 
 -- (o) A condition carried across lines (§11.1; Lexer & Layout §2.4)
 if ready
-        and not stale then     -- one condition: the deeper line carries it on to `then`
+        and not stale then -- one condition: the deeper line carries it on to `then`
     run()
 if (ready and
-        not stale) then        -- brackets hold the condition open as well
+        not stale) then -- brackets hold the condition open as well
     run()
 if ready
-    run()                      -- ERROR at the `if`: `if` requires `then`
+    run() -- ERROR at the `if`: `if` requires `then`
 ```

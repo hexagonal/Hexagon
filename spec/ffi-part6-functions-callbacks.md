@@ -219,13 +219,13 @@ Excluded from v1 and reserved for a later FFI/async deep dive; nothing here pre-
 -- (a) Identity round trip: same function object out, registered and removed
 let onEvent(e: Event): Unit = log(Event.describe(e))
 addListener!(target, onEvent)
-removeListener!(target, onEvent)         -- same JS identity; actually deregisters
+removeListener!(target, onEvent) -- same JS identity; actually deregisters
 
 -- (b) Extra JS callback arguments are harmless
 -- foreign: array.forEach(cb) invokes cb(value, index, array)
 extern from "helpers"
     fun each(values: Array(Int), callback: Int ->! Unit) >-> Unit
-each!(xs, n => JsArray.push!(total, n))  -- index/array ignored by representation
+each!(xs, n => JsArray.push!(total, n)) -- index/array ignored by representation
 
 -- (c) Meaningful callback result preserved
 extern from "helpers"
@@ -235,20 +235,20 @@ extern from "helpers"
 extern from "collections"
     type JsArray
     method push(arr: JsArray, value: Int) ->! Unit
-JsArray.push!(arr, 3)                    -- JS push returns the new length; discarded
+JsArray.push!(arr, 3) -- JS push returns the new length; discarded
 
 -- (e) Hexagon exception through a callback, caught back in Hexagon
 try
-    each(xs, n => if n < 0 then throw(Negative) else ())   -- a pure callback: the conduit's call is bare
+    -- a pure callback: the conduit's call is bare
+    each(xs, n => if n < 0 then throw(Negative) else ())
 catch
-    Negative => ...                        -- still branded through the foreign frames
-    JsError(e) => ...                      -- a throw from `each` itself lands here
+    Negative => ... -- still branded through the foreign frames
+    JsError(e) => ... -- a throw from `each` itself lands here
 
 -- (f) Rejected: adapter in callback position
 extern from "stream-tools"
+    -- ERROR (§5.4): names Seq(Int), offers the three rewrites; top-level Seq unaffected
     fun visit(callback: Seq(Int) -> Unit) ->! Unit
-                                         -- ERROR (§5.4): names Seq(Int), offers the
-                                         --   three rewrites; top-level Seq unaffected
 ```
 
 ---
