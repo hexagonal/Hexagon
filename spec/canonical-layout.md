@@ -1,6 +1,6 @@
 # Hexagon Spec: Canonical Layout
 
-**Status:** Decided (November 2026). The layout that Format document and Format selection write (#1561; the formatter's stages are gathered under #1567). Amended 2026-11-16 (#1573): a head, which ends with its closing word, may be broken, though never before that word; a loop's body goes beneath its `do` (§5.3, §7.1, §9.3, §9.4, §10, §11). Amended 2026-11-16 (#1586): brackets whose only item is bracketed open and close with it, a lambda that is a call's last argument, a record's last field or a binding's value keeps its head on its line, and brackets of literals are filled (§5.2, §9.4, §10). Amended 2026-11-16 (#1590): an assignment is laid out as a binding is, its value beneath its `:=` (§5.3, §9.4, §10, §11). Amended 2026-11-16 (#1594): a list whose closing bracket begins its line ends with a comma, which Format document adds unless the third option, Leave trailing commas as written, is on, and a `<…>` list the author spreads opens as other brackets do (§1, §3, §5, §7, §9, §10–§14). Amended 2026-11-17 (#1598): the code inside a string's interpolation holes is spaced as code is anywhere, while a string's text is never changed and a hole is never broken (§1, §4–§7, §9.3, §10, §12, §13). Amended 2026-11-17 (#1602): each kind of construct has a width limit on one line, and a fourth option, Apply width limits, spreads a construct over its width limit, or a nested conditional or loop, though its line fits; Format document also leads the first alternative of a union written one alternative to a line with `|`, removes a trailing comma that a break leaves after a block, and opens a spread record declaration's braces on its `=`'s line (§1, §3, §6.3, §9, §10–§16).
+**Status:** Decided (November 2026). The layout that Format document and Format selection write (#1561; the formatter's stages are gathered under #1567). Amended 2026-11-16 (#1573): a head, which ends with its closing word, may be broken, though never before that word; a loop's body goes beneath its `do` (§5.3, §7.1, §9.3, §9.4, §10, §11). Amended 2026-11-16 (#1586): brackets whose only item is bracketed open and close with it, a lambda that is a call's last argument, a record's last field or a binding's value keeps its head on its line, and brackets of literals are filled (§5.2, §9.4, §10). Amended 2026-11-16 (#1590): an assignment is laid out as a binding is, its value beneath its `:=` (§5.3, §9.4, §10, §11). Amended 2026-11-16 (#1594): a list whose closing bracket begins its line ends with a comma, which Format document adds unless the third option, Leave trailing commas as written, is on, and a `<…>` list the author spreads opens as other brackets do (§1, §3, §5, §7, §9, §10–§14). Amended 2026-11-17 (#1598): the code inside a string's interpolation holes is spaced as code is anywhere, while a string's text is never changed and a hole is never broken (§1, §4–§7, §9.3, §10, §12, §13). Amended 2026-11-17 (#1602): each kind of construct has a width limit on one line, and a fourth option, Apply width limits, spreads a construct over its width limit, or a nested conditional or loop, though its line fits; Format document also leads the first alternative of a union written one alternative to a line with `|`, removes a trailing comma that a break leaves after a block, and opens a spread record declaration's braces on its `=`'s line (§1, §3, §6.3, §9, §10–§16). Amended 2026-11-19 (#PRNUM): every bracket is written tight, braces included, and a value, body or branch that begins with brackets that open keeps its opening bracket on the line of its `=`, `:=`, `=>`, `then` or `else` (§3.3, §5, §7.1, §7.4, §9.4, §10, §11, §13–§15).
 **Scope:** What the two formatting commands change and what they refuse (§1–§2); the four options and the test any later option must pass (§3); line ends (§4), indentation (§5), blank lines (§6) and spacing within a line (§7); comments (§8); how a line longer than the Maximum line length is broken (§9); what the formatter leaves to the author (§13); the trailing comma it adds (§14); the width limit on each kind of construct, and the spreading of a construct over it (§15); the leading bar it adds to a union (§16).
 **Not in scope:** Changes to tokens other than adding a trailing comma (§14), removing one that a break leaves after a block (§14), and adding a union's leading bar (§16): removing or adding parentheses or a degenerate `x: _`, removing a leading `|`, and moving imports. Each waits for a ruling of its own (§13). House style, which is how the standard library and the Book are written where the formatter leaves the author free: `notes/canonical-formatting-and-naming.md`. The editors' commands and settings screens, which are the implementation's (§12).
 **Companions:** Lexer & Layout (blocks, the block-head inventory §2.1, the continuation tokens §2.3, heads and their closing words §2.4, lists and the trailing comma §7), Lexer §2 (line ends, tabs) and §7 (trivia), Comments §2–§4, Doc Comments §3–§4, Operators §3 and §11.3 (the conditional's shapes), Method Syntax §2.1 (the chain's shape), Unions §2, Modules §2–§3 (headers, closers, imports), Ascription §2, `notes/canonical-formatting-and-naming.md` (house style).
@@ -67,7 +67,7 @@ These are the first four options, not necessarily the last. Any option must pass
 
 All four pass. Maximum line length only adds line breaks, and no setting removes one. Collapse extra spaces only removes spaces, and no setting adds them back. Leave trailing commas as written only keeps the formatter from adding commas, and no setting removes one, except the comma after a block that §14 removes under every setting and no setting adds. A line's length counts a comma §14 would add whether or not it is written (§9.2), so adding the comma never carries a line past a limit it was formatted to. Apply width limits only adds line breaks, as Maximum line length does, together with the trailing commas §14 gives the brackets it opens, and the leading bar (§16) and blank line (§6.3) of a union it spreads, and no setting removes any of these. A width limit measures a construct spaced as Collapse extra spaces on spaces it, and without a trailing comma (§15.2), so the other options never change what it spreads.
 
-An option where one setting adds what another removes fails the second test. Two developers with different settings would rewrite the same lines back and forth on every save. Padding inside record braces is the example: it is a rule (§7.1), not an option.
+An option where one setting adds what another removes fails the second test. Two developers with different settings would rewrite the same lines back and forth on every save. Padding inside record braces is the example: §7.1 rules on the space inside a bracket, and no option does.
 
 ### 3.4 Leave trailing commas as written
 
@@ -137,8 +137,8 @@ let ready =
             and notExpired(session)
 
 let corners = [
-    { x = 0, y = 0 },
-    { x = 1, y = 1 },
+    {x = 0, y = 0},
+    {x = 1, y = 1},
 ]
 
 let selected =
@@ -273,12 +273,10 @@ These rules govern the gaps between two code tokens on the same line. They do no
 | Either side of `=`, `:=`, `=>`, `\|`, `\|>` and a type arrow (`->`, `->^`, `->~`, `->!`, `>->` and the other follows arrows) | one space | `let n = 1`, `x => x`, `a ->! b` |
 | `..` and `//` | no space either side | `1..n - 1`, `1//2`, `n//d` |
 | `.` | no space either side | `xs.length`, `Vector.at(xs, 1)` |
-| Before `,` or `;`; after `,` or `;` | none before; one after, except none between a comma and `)`, `]` or a `>` that closes a list | `f(a, b)`, `let x = 1; let y = 2`, `f(a, b,)` |
+| Before `,` or `;`; after `,` or `;` | none before; one after, except none between a comma and `)`, `]`, `}` or a `>` that closes a list | `f(a, b)`, `let x = 1; let y = 2`, `f(a, b,)` |
 | Before `:`; after `:` | none before; one after | `width: Float`, `(e: Type)`, `x: _: Num`, `<a: Num>` |
-| Inside an interpolation hole's `${` and the `}` that closes it | none | `"${total}"`, `"${{ x = 1 }.x}"` |
-| Inside `{` and `}` with something between them | one space | `{ top = 1, bottom = 2 }` |
-| `{}` | no space | `{}` |
-| Inside `(` `)`, `[` `]` and `<` `>` | none | `f(x)`, `[1, 2]`, `Pow<a: Num>` |
+| Inside an interpolation hole's `${` and the `}` that closes it | none | `"${total}"`, `"${{x = 1}.x}"` |
+| Inside `(` `)`, `[` `]`, `{` `}` and `<` `>` | none | `f(x)`, `[1, 2]`, `{top = 1, bottom = 2}`, `{x: Int}`, `{}`, `Pow<a: Num>` |
 | `derives` after a declaration head, and the token on either side of it | one space | `union Ping derives (Eq, Show)`, `record Pair(a, b) derives (Eq, Show)` |
 | An opening bracket after a name, a closing bracket or the `>` of a binder list | none | `f(x)`, `xs[i]`, `Vector(a)`, `Show<Ping>`, `<a: Ord>(x)` |
 | A binder list's `<` after a keyword | none | `fun<a: Eq>`, `honor<a: Show>` |
@@ -288,6 +286,8 @@ These rules govern the gaps between two code tokens on the same line. They do no
 | Any other two tokens | as the author wrote them: a gap stays a gap (§7.3), and no gap stays none | |
 
 Colons have one spacing everywhere. Every colon is tight on its left with one space after. This holds for a binding's annotation, an ascription, a constrained hole and a binder list alike. The space before a colon carries no meaning: horizontal whitespace is trivia, not a token (Lexer §7), and no rule of the lexer or the parser reads whether a colon touches what stands before it. Hexagon writes parameters in brackets and has no application by juxtaposition. Gleam is the same in both respects, and its documentation writes `fn add(x: Int, y: Int) -> Int`.
+
+Brackets also have one spacing everywhere. Nothing stands inside a bracket's edges, whether the bracket is a call's or a tuple's parenthesis, a vector's or an index's square bracket, a binder list's `<` and `>`, an interpolation hole's braces or a record's. So a record is spaced alike as a type, a literal, a pattern and an update, as in `{x: Int}`, `{x = 1}`, `{x, y}` and `{p with x = 2}`, and as `show` prints it (Products §3.4). A tight `{` never meets the comment opener `{-`, since no record begins with `-` (Lexer & Layout §1).
 
 `derives` is a keyword in the header of a `record`, `union` or foreign enum, before its `=` (Lexer §4.2). It lexes as a name, but it is spaced as a keyword, so its brackets never look like a call's: `union Ping derives (Eq, Show)`. Anywhere else `derives` is an ordinary name, and a function named `derives` is called tight, as in `derives(1)`.
 
@@ -326,7 +326,7 @@ let label = "${count + 1} of ${total - skipped}"
 
 with Collapse extra spaces on. With it off, `total  -  skipped` keeps its wider gaps, and every other change is the same.
 
-- **A hole's own braces** take no space inside them (§7.1), as parentheses take none: `${total}`. They are not a record's braces. A record inside a hole is spaced as a record is anywhere, as in `${{ x = 1 }.x}`.
+- **A hole's own braces** take no space inside them (§7.1), as no bracket does: `${total}`. They are not a record's braces, and a record inside a hole is spaced as a record is anywhere, as in `${{x = 1}.x}`.
 - **A string inside a hole** has text and holes of its own, and this section applies to them at any depth.
 - **A comment inside a hole** is a comment. Its inside is never changed (§8.1), and the gap before a trailing comment is kept, never less than one space (§8.3).
 - **Only the gaps between a hole's tokens on one line change.** A hole is never broken (§9.3). A hole the author wrote over several lines is a named limit: it keeps its line breaks and blank lines, the indentation of each line that begins inside it and any spaces at the end of such a line, and it takes no trailing comma (§4, §5.4, §6.1, §14). The layout pass does not read a hole's lines (Lexer §6.1), so §5's levels, which follow blocks and items, give them none to take, and how they are laid out waits for a ruling of its own. A `${` that ends its line and a `}` that begins one stay where they are.
@@ -372,17 +372,17 @@ A line with nothing left to break stays long, and the formatter does not report 
 
 ### 9.4 How a line is broken
 
-The formatter breaks the **outermost** structure of a too-long line first, and stops as soon as every line fits. A line that holds a construct §15 spreads is broken in the same way, and breaking stops once that construct is spread as well (§15.3). It uses the contents shape wherever there is something to open, and carries a line on at two levels only where nothing can be opened. The brackets it opens take a trailing comma where §14 calls for one. Each kind of structure breaks in one shape, except that a lambda or a bare `match` that is a binding's value, a call's last argument or a record's last field first tries keeping its head on its line (rules 1 and 2):
+The formatter breaks the **outermost** structure of a too-long line first, and stops as soon as every line fits. A line that holds a construct §15 spreads is broken in the same way, and breaking stops once that construct is spread as well (§15.3). It uses the contents shape wherever there is something to open, and carries a line on at two levels only where nothing can be opened. The brackets it opens take a trailing comma where §14 calls for one. Each kind of structure breaks in one shape, except that a lambda or a bare `match` that is a binding's value, a call's last argument or a record's last field first tries keeping its head on its line (rules 1 and 2), and a value, body or branch that begins with an opening bracket keeps it on its line wherever its brackets open (rules 1 and 4):
 
-1. **A binding, declaration, assignment, arm or lambda.** The value goes beneath its `=`, or the body beneath its `=>`, one level in (§5). An assignment is laid out as a binding is: what §9.4 says of a binding and its `=` holds for an assignment and its `:=`. A value that is a lambda or a bare `match` stays on its `=`'s line, and only the lambda's body goes beneath its `=>`, where a bare `match`'s arms always are. Only where that line, ending with the `=>` or with `match`, is still too long does the value go beneath the `=` instead, and its body is then moved beneath the `=>` only if that line is too long in turn. Any other value ends the same whether the author began it on the header line or beneath it. A header that is itself too long, before its `=`, opens its parameter brackets. A lambda that is a call's last argument, or the value of a record's last field, keeps its head on the line where the brackets open (rule 2). Any other lambda passed as an argument sits inside the call's brackets, which are outside it and so open first.
-2. **Brackets.** Their contents go one item per line, and the closing bracket takes a line of its own at the indentation of the opening bracket's line. A `<…>` list is never opened here (§5.2). Three kinds of brackets take a shape of their own:
+1. **A binding, declaration, assignment, arm or lambda.** The value goes beneath its `=`, or the body beneath its `=>`, one level in (§5). An assignment is laid out as a binding is: what §9.4 says of a binding and its `=` holds for an assignment and its `:=`. A value that is a lambda or a bare `match` stays on its `=`'s line, and only the lambda's body goes beneath its `=>`, where a bare `match`'s arms always are. Only where that line, ending with the `=>` or with `match`, is still too long does the value go beneath the `=` instead, and its body is then moved beneath the `=>` only if that line is too long in turn. A value or body that begins with an opening bracket, `(`, `[` or `{`, goes beneath its `=` or `=>` only where, once there, the brackets it begins with stay closed. Where they would open, it stays on the line of its `=` or `=>`, and they open there instead: the opening bracket ends that line, and the closing bracket begins a line at that line's indentation, followed by the rest of the value (rule 2). So the formatter never leaves a value's opening bracket alone on the line beneath its `=` or `=>`. Any other value ends the same whether the author began it on the header line or beneath it. A value that begins with an opening bracket and that the author began beneath its `=` stays there, brackets and all, since the formatter never joins lines (§1). A header that is itself too long, before its `=`, opens its parameter brackets. A lambda that is a call's last argument, or the value of a record's last field, keeps its head on the line where the brackets open (rule 2). Any other lambda passed as an argument sits inside the call's brackets, which are outside it and so open first.
+2. **Brackets.** Their contents go one item per line, and the closing bracket begins a line of its own at the indentation of the opening bracket's line, keeping after it whatever followed it, as in `).gcd(s)`. A `<…>` list is never opened here (§5.2). Three kinds of brackets take a shape of their own:
     - **Brackets whose only item is a vector literal, a record or a tuple** open and close with it, as in `Map.fromVector([` … `])` and `Regex({` … `})`. The opening brackets share a line, and so do the closing brackets. The inner brackets' contents break as this rule says for them, one level in (§5.2).
-    - **A call whose last argument is a lambda or a bare `match`**, or a record whose last field's value is one, keeps everything before the lambda's body on the line where its brackets open. Only the body goes beneath the `=>`, one level in (§5.3), where a bare `match`'s arms always are, and the closing bracket takes a line of its own. Only where that line, ending with the `=>` or with `match`, is still too long do the brackets open one item per line instead, with the lambda's head, or `match`, beginning the last of them, and the body is then moved beneath the `=>` only if that line is too long in turn (rule 1). A record that is a call's only item takes this shape inside the first shape, as in `Seq({ pull = () =>`.
+    - **A call whose last argument is a lambda or a bare `match`**, or a record whose last field's value is one, keeps everything before the lambda's body on the line where its brackets open. Only the body goes beneath the `=>`, one level in (§5.3), where a bare `match`'s arms always are, and the closing bracket takes a line of its own. Where the body stays on the `=>`'s line instead, because the brackets it begins with open there (rule 1), the closing bracket of the call or record follows the body's on its line, as in `))`. Only where that line, ending with the `=>` or with `match`, is still too long do the brackets open one item per line instead, with the lambda's head, or `match`, beginning the last of them, and the body is then moved beneath the `=>` only if that line is too long in turn (rule 1). A record that is a call's only item takes this shape inside the first shape, as in `Seq({pull = () =>`.
     - **Brackets whose items are all literals, or tuples of literals,** open as other brackets do, and their contents are filled: each line holds as many items as fit, and at least one, and a line breaks only after a comma. A literal here is a numeric literal (Lexer §5), with or without a leading `-`, or a string with no interpolation hole that ends on the line where it begins. A tuple counts only when every item in it is a literal, so a tuple of tuples does not, nor does `()`. Literals and such tuples may be mixed.
 
     A line that holds several items of open brackets (§5.2), whose opening bracket is on an earlier line, is broken between those items, after their commas, before anything inside them breaks: one item to a line, or filled where the brackets are filled. The lines around it stay as they are, since the formatter never joins lines (§1), so a filled list is not filled again from its start.
 3. **A chain** of two or more links, where each link is a dot call or a `|>` stage, takes Method Syntax §2.1's form. The receiver ends its line, and every link takes a line of its own. Where the receiver begins its line, as it does once a value is beneath its `=`, the links sit at the receiver's level; otherwise they are carried on, two levels in (§5.1). Every link is broken, or none. A chain breaks before the brackets inside its links do. A dot after an uppercase name is a module qualifier and never breaks; nor does a field path such as `order.customer.name`. A single link is not a chain, and its brackets open instead.
-4. **A conditional** takes Operators §11.3's multiline shape. `then` stays on the condition's line, each branch goes on a line of its own one level in (§5.3), and `else` takes its item's level (§5.1), which is under `if` wherever `if` begins the line, as it does once a value is beneath its `=`. An `else` and its `if` stay on one line. Every branch of the conditional is broken, or none. A condition still too long once the branches are beneath it breaks as a head does (rule 7), and `then` ends its last line.
+4. **A conditional** takes Operators §11.3's multiline shape. `then` stays on the condition's line, each branch goes on a line of its own one level in (§5.3), and `else` takes its item's level (§5.1), which is under `if` wherever `if` begins the line, as it does once a value is beneath its `=`. An `else` and its `if` stay on one line. A branch that begins with an opening bracket stays on the line of its `then` or `else` wherever its brackets would open beneath it, as a value does after its `=` (rule 1): they open there, and the closing bracket begins a line at that line's indentation, with any `else` on the line after it. Every branch of the conditional is broken, or none. A condition still too long once the branches are beneath it breaks as a head does (rule 7), and `then` ends its last line.
 5. **An operator.** An expression whose outermost structure is an operator has nothing to open. It is carried on at two levels, broken before each of its loosest operators, so that each carried-on line begins with an operator and holds one operand (§9.5). An operator the author wrote at the end of a line is not broken before: it stays where it is (§9.5).
 6. **A loop** whose body is on its head's line puts the body beneath `do`, one level in (§5.3), as an arm's body goes beneath its `=>`.
 7. **A head**, the text from its keyword to its closing word (Lexer & Layout §2.4), breaks only once nothing else on its line is left to break: a value beneath its `=`, a body beneath its `=>` or `do`, and a conditional's branches beneath it. It then breaks as any expression does, by rules 2, 3 and 5: its brackets open, its chain breaks, or its operator is carried on two levels in from the head's first line. Its closing word ends its last line (§9.3), and its block stays one level in (§5.3).
@@ -470,6 +470,27 @@ while remaining > 0
 
 The head's expression is an operator, so it is carried on at its loosest operator, `and`, and `do` ends the carried-on line.
 
+A value that begins with its brackets keeps them on its `=`'s line wherever they open. With the limit at 50,
+
+```
+let corners = [Point(0, 0), Point(width, 0), Point(width, height)]
+let greeting = ("Good morning", nameOf(person), today)
+```
+
+becomes
+
+```
+let corners = [
+    Point(0, 0),
+    Point(width, 0),
+    Point(width, height),
+]
+let greeting =
+    ("Good morning", nameOf(person), today)
+```
+
+Beneath its `=`, the vector would still be too long and its brackets would open, so it stays on the `=`'s line and they open there. The tuple fits on a line of its own, so it goes beneath its `=` as any other value does.
+
 ### 9.5 Which side of the operator
 
 Where the formatter breaks a line at an operator, the carried-on line begins with the operator. With the limit at 30, for example:
@@ -509,7 +530,7 @@ Both are legal. A line indented deeper than its item continues the item whatever
 7. **Token changes in version one**, other than the trailing comma (§14), added or removed after a block, and a union's leading bar (§16). These include dropping `x: _`, whose author may be on the way to `x: _: Num`, removing parentheses and moving imports. A formatter that changes whitespace, and adds or removes only commas and bars that change no tree, carries the strongest check there is: identical tokens apart from those commas and bars (§1). Each other token change needs its own ruling.
 8. **A continuation indented one level, or aligned under an opening bracket.** One level makes a carried-on line look like the first line of a block. Alignment under a bracket moves whenever a name is renamed. Two levels has precedent. Google's Java style indents a block +2 and a continuation at least +4, and Python's PEP 8 adds a level where a continuation would otherwise line up with the body.
 9. **A spaced colon, or a spacing that depends on the colon's role.** One alternative wrote a binding's annotation tight but an ascription and a constrained hole's constraint colon spaced, as in `(e : Type)` and `x: _ : Num`. Another spaced every colon, as in `x : Int`. One spacing is simpler to read and to teach. Tight suits a language whose parameters are bracketed, as Gleam's are (§7.1).
-10. **Record braces written tight**, as in `{x = 1}`. Elm's guide writes `{ first = "John", last = "Hobson", age = 81 }`, and ocamlformat adds a space inside a record's braces by default. The space also keeps a record clear of the comment opener `{-`.
+10. **Record braces written with a space inside**, as in `{ x = 1 }`, while every other bracket is tight. With none, nothing stands inside any bracket's edges, and a record's braces agree with a hole's (§7.1, §7.4). The colleagues that pad a record's braces do so for reasons Hexagon does not have. Elm breaks a record with a comma leading each line, and the space after `{` lines the first field up with the fields after each `, `; Hexagon ends each line with its comma (§14) and lines nothing up. OCaml and F# have openers that begin with a bracket, such as `[|`, `{<` and `{|`, and ocamlformat and Fantomas pad every bracket, a list's included, which keeps them clear of those; Hexagon's one such opener is the comment's `{-`, and no record begins with `-` (Lexer & Layout §1). In Rust, JavaScript and C#, braces are also blocks, and a record is spaced as a block is; Hexagon's braces are never a block (Lexer & Layout §1), and Go, whose braces are blocks as well, writes its literals tight, as `Point{X: 1}`. Haskell writes a record tight on one line, and so does `show` (Products §3.4).
 11. **`//` spaced as `1 // 2`.** `//` sits at level 5, tighter than `*` and `/` (Operators §3), so `half * 1//2` reads as it groups. Julia writes a fraction tight, as `2//3` (Operators §6.4).
 12. **Formatting part of a declaration.** Re-indenting part of a block can change what it means. Format selection widens to whole top-level items, as Prettier's range formatting widens to whole statements.
 13. **Formatting a document with a syntax error, as far as it parses.** Without a tree, the formatter cannot show that the program is unchanged (§1).
@@ -527,7 +548,7 @@ Both are legal. A line indented deeper than its item continues the item whatever
 25. **Removing a trailing comma**, from a one-line list or while Leave trailing commas as written is on. One setting would then remove what another adds, which fails §3.3's second test. A comma on a one-line list is the author's to keep or remove (§13).
 26. **A comma that ends a block**, so that a lambda whose body is beneath its `=>` could take its comma on the body's last line. The layout pass would have to close blocks at a comma, and a comma also separates the items of a `<…>` list, which the layout pass does not track as brackets (Lexer & Layout §2.2, §3.2), so it would close blocks that are still open. A list whose last item ends in a block takes no comma instead (§14).
 27. **Leaving an interpolation hole as written.** A hole holds code, and the spaces between its tokens are no part of the string's value, so spacing them changes nothing the program computes. Left as written, `${10 // 12 == 5 // 6}` would disagree with the same code written outside a string, `10//12 == 5//6`. Prettier spaces the code inside a JavaScript template literal's `${…}` in the same way, and keeps it on its line (§7.4).
-28. **A space inside a hole's braces**, as in `${ total }`, as a record's braces take one. A hole's braces enclose one expression, as parentheses do, and Hexagon writes parentheses tight. Swift's hole is a pair of parentheses, `\(total)`. Prettier spaces a JavaScript object's braces and writes a template literal's hole tight, side by side as `${{ x: 1 }.x}` (§7.4).
+28. **A space inside a hole's braces**, as in `${ total }`. A hole's braces enclose one expression, as parentheses do, and Hexagon writes every bracket tight (§7.1). Swift's hole is a pair of parentheses, `\(total)`. Prettier spaces a JavaScript object's braces and writes a template literal's hole tight, side by side as `${{ x: 1 }.x}` (§7.4).
 29. **Leaving it to the author whether a construct that fits is spread**, as "a genuinely short conditional stays on one line" did. Whoever wrote each line decided what "short" meant, so one file held the same construct in two shapes. Each kind of construct has exactly one rule (§15.1).
 30. **A width limit that is a share of Maximum line length**, such as 60 percent of it. A width limit describes how much a reader takes in at once, not the width of a window. rustfmt's limits, which its documentation calls ratios, stay fixed at every line length of 100 or less in its source. Where Maximum line length is less than a width limit, the line limit is reached first (§15.2).
 31. **Measuring a width limit on the whole line**, indentation and the rest of the line included. The same conditional would then be one line at the left margin and spread inside a nested block (§15.2).
@@ -539,6 +560,8 @@ Both are legal. A line indented deeper than its item continues the item whatever
 37. **Leaving a multi-line union's first bar to the author.** A formatted document would hold both spellings, `Shape` and `| Shape`, beneath the same kind of `=`, as it would hold both spellings of a list if only some had their trailing comma (item 24). Unions §2 already gives every alternative of a multi-line union its bar (§16).
 38. **An option to leave a union's bars as written**, as Leave trailing commas as written does for commas. The bar-led spelling is the one Unions §2 records for a multi-line union, and for any formatter, so there is no second house to serve (§16).
 39. **A bar only where a union has two or more alternatives.** `union Id =` with `Wrap(Int)` beneath it would then be spelled unlike the same union with a second alternative, and adding that alternative would change the first one's line too. The bar follows where the alternatives stand, not how many there are (§16).
+40. **A value's opening bracket alone on the line beneath its `=`**, with the value's contents a further level in, as in `let reservation =` with a lone `{` beneath it. The line holds nothing but the bracket, and it lays a record value out unlike a record declaration, which keeps `record Flags = {` on one line (§15.3). Rust, Go, Swift, TypeScript and Gleam open such a value on its `=`'s line. A value that begins otherwise, such as `Map.fromVector([`, still goes beneath its `=`, since its first line holds more than a bracket (§9.4 rule 1).
+41. **A closing bracket at the end of its last item's line**, as Lisp writes it, to match the opening bracket kept on its `=`'s line. The last item could then take no trailing comma (§14), adding an item would change the line above it, and nothing would show, at the indentation where the value began, where it ends. The opening bracket has a line to join, the one that introduces its value, and the closing bracket has none (§5.2, §9.4 rule 1).
 
 ## 11. Edit notes to existing specs
 
@@ -567,6 +590,8 @@ Applied with the trailing comma (#1594): **Lexer & Layout §7** says that every 
 
 Applied with the width limits (#1602): **Operators §11.3** and **`notes/canonical-formatting-plan.md` §5** say that a conditional stays on one line up to its width limit of 60, and that an `else if` chain never does. **`notes/canonical-formatting-and-naming.md`** rewords F3 and gains H9, which restates §15.1's table and adds the half the formatter does not do. **Unions §2** says that Format document writes the leading bar of a union whose alternatives stand one to a line (§16 here).
 
+Applied with tight brackets (#PRNUM): **Operators §11.3** says that a branch that begins with brackets spread over lines opens them on its `then` or `else` line. **Lexer, Products, Pattern Matching, FFI Part 1 and Statements** quote their reports with tight braces. **`notes/canonical-formatting-and-naming.md`** rewords H5 and H9 and gains H11, which says where house text puts a value's brackets.
+
 ## 12. Conformance
 
 An implementation of the formatter (#1562) must meet these conditions.
@@ -584,7 +609,7 @@ The language server serves both commands (#1564), and the VS Code extension reli
 
 The formatter deliberately leaves these choices to the author. The house style for the standard library and the Book is written in `notes/canonical-formatting-and-naming.md`.
 
-- **Where lines break**, except in a line longer than the Maximum line length, and in a construct that Apply width limits spreads (§15). This covers which line a keyword stands on, such as `match x with` on the header line or on a line of its own. It also covers whether a construct within its width limit is written on one line or several, and whether brackets are open. While Apply width limits is off, it covers a construct over its width limit too. House text decides these by its table (`notes/canonical-formatting-and-naming.md` H9).
+- **Where lines break**, except in a line longer than the Maximum line length, and in a construct that Apply width limits spreads (§15). This covers which line a keyword stands on, such as `match x with` on the header line or on a line of its own. It also covers whether a construct within its width limit is written on one line or several, and whether brackets are open. While Apply width limits is off, it covers a construct over its width limit too. It covers whether a value stands on its `=`'s line or beneath it, so an opening bracket the author wrote alone beneath an `=` stays there (§9.4 rule 1). House text decides these by its table and its rules (`notes/canonical-formatting-and-naming.md` H5, H9, H11).
 - **Grouping by blank lines**, beyond the three places the formatter adds one (§6.2) and the cap of one.
 - **Extra spaces that align columns**, while Collapse extra spaces is off, and a wide gap before a trailing comment.
 - **The tokens:** parentheses, a leading `|` on any union §16 does not cover, `;` or a new line, a degenerate `x: _`, the fused `fun f(…) = …` or a `fun` block, and the order and place of imports. Each token-level rule that other chapters name for "the formatter" waits for a ruling of its own. Until then, the canonical spelling is the author's to write.
@@ -599,8 +624,8 @@ Every list in brackets may end with a comma after its last item (Lexer & Layout 
 
 ```
 let corners = [
-    { x = 0, y = 0 },
-    { x = 1, y = 1 },
+    {x = 0, y = 0},
+    {x = 1, y = 1},
 ]
 
 let primes = [
@@ -676,8 +701,8 @@ A construct that fits on its line can still be too dense to read there. Each kin
 | A loop with a one-line body | up to 60 | its body beneath `do` (§9.4 rule 6) |
 | A chain of two or more links, dot calls or `\|>` stages | up to 60 | each link on a line of its own (§9.4 rule 3) |
 | The arguments of a call or constructor, two or more | up to 60 | its brackets open (§9.4 rule 2) |
-| A record literal | up to 60 | its braces open (§9.4 rule 2) |
-| A record declaration | up to 60 | its braces open where they stand, one field to a line, its value kept on its `=`'s line (§9.4 rule 2) |
+| A record literal | up to 60 | its braces open (§9.4 rules 1 and 2) |
+| A record declaration | up to 60 | its braces open where they stand, one field to a line, its value kept on its `=`'s line (§9.4 rules 1 and 2) |
 | A union declaration | up to 60 | its alternatives beneath its `=`, one to a line, each led by `|` (§15.3, §16) |
 | A lambda | up to 60 | its body beneath its `=>` (§9.4 rule 1) |
 | A match arm | up to 80 | its body beneath its `=>` (§9.4 rule 1) |
@@ -744,7 +769,7 @@ print(
 
 The conditional is 73 wide. The call's brackets open first, since the call is the outermost structure, and only then is the conditional spread. Its last branch is a block, so the brackets take no comma (§14).
 
-A construct that is not on one line is left as it is, whatever its width: the option spreads only what stands on one line. So brackets the author opened stay as they are, while a record declaration with its braces closed on the line beneath its `=` is spread, its braces opening on that line. A construct in a place that §9.3 never breaks, such as a string's interpolation hole, stays on its line too.
+A construct that is not on one line is left as it is, whatever its width: the option spreads only what stands on one line. So brackets the author opened stay as they are, while a record declaration with its braces closed on the line beneath its `=` is spread, its braces opening on that line, where the author put them (§9.4 rule 1). A construct in a place that §9.3 never breaks, such as a string's interpolation hole, stays on its line too.
 
 A union declaration has no shape in §9.4, since breaking a long line never splits its alternatives (§9.3). Spread, its alternatives go beneath its `=`, one level in and one to a line, and §16 leads the first with a `|` as the others are led. Where it has two or more alternatives, the union is then multi-line, so a blank line follows it (§6.2, §6.3). With the limit at 100,
 
@@ -762,13 +787,13 @@ union Reason =
     | Other(text: String)
 ```
 
-A record declaration is spread as house text writes one, not outermost first: its braces open where they stand, one field to a line, and its value stays on its `=`'s line, so the closing brace stands at the declaration's column. With the limit at 100,
+A record declaration is spread as any value that begins with its brackets is (§9.4 rule 1): its braces open where they stand, one field to a line, and its value stays on its `=`'s line, so the closing brace stands at the declaration's column. With the limit at 100,
 
 ```
-record Flags = { folded: Bool, multiLine: Bool, dotAll: Bool, extended: Bool }
+record Flags = {folded: Bool, multiLine: Bool, dotAll: Bool, extended: Bool}
 ```
 
-which is 78 wide, becomes
+which is 76 wide, becomes
 
 ```
 record Flags = {

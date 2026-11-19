@@ -39,7 +39,7 @@
 
 ### 2.2 No named elements (decided)
 
-C#-style `(x: 1, y: 2)` is a **parse error** with the hint: "tuples are positional; for named fields use a record: `{ x = 1, y = 2 }`." Rationale: records already are the anonymous named product; a second one with subtly different semantics is pure confusion surface. The mechanism moved with the Ascription spec — the element colon is now grammar, so the failure is the type parse (`1` is a term where a type must stand) — while this error and its hint stand; `(x: Int, y: String)` is that spec's tuple of ascribed components, not named elements.
+C#-style `(x: 1, y: 2)` is a **parse error** with the hint: "tuples are positional; for named fields use a record: `{x = 1, y = 2}`." Rationale: records already are the anonymous named product; a second one with subtly different semantics is pure confusion surface. The mechanism moved with the Ascription spec — the element colon is now grammar, so the failure is the type parse (`1` is a term where a type must stand) — while this error and its hint stand; `(x: Int, y: String)` is that spec's tuple of ascribed components, not named elements.
 
 ### 2.3 Positional access: `itemN`
 
@@ -186,7 +186,7 @@ let getX(r: { x: Float, ... }): Float = r.x
 let touch(p: { x: Float, ...r }): { x: Float, ...r } = { p with x = p.x + 1.0 }
 ```
 
-Non-uppercase-start per the type-variable start-class rule; lowercase `a` remains the display convention. It is scoped like other type variables in the same signature, so it is written only where a signature is: a `type` alias, whose tail is fresh at each use (bare `...` above), may not name one *(#1406)*. Named there, the tail would be no parameter of the alias (Declarations Preamble §3) and, inlined, would join whatever tail of that name the using signature has. The refusal stands at the name, under the Rewrite Rule: "a `type` alias's row tail is fresh at each use, so it cannot be named; write `...` for `...r`", whose applied edit deletes the name, and the alias reads as its rewrite. A name the head also lists as a parameter, and the body uses nowhere else, is used, not unused, and the report adds "and remove the parameter `r`", with no edit, the repair being two. A tail a signature shares between an alias's two uses is written by that signature itself (`{ x: Float, ...r }`). Rarely written; it exists because inferred types must be *displayable* — LSP hover on Tier-0 `getX` shows `{ x: Float, ... } -> Float`, or `...a` when a tail is shared across positions. The pretty-printer's output is the ceiling of what a user ever sees.
+Non-uppercase-start per the type-variable start-class rule; lowercase `a` remains the display convention. It is scoped like other type variables in the same signature, so it is written only where a signature is: a `type` alias, whose tail is fresh at each use (bare `...` above), may not name one *(#1406)*. Named there, the tail would be no parameter of the alias (Declarations Preamble §3) and, inlined, would join whatever tail of that name the using signature has. The refusal stands at the name, under the Rewrite Rule: "a `type` alias's row tail is fresh at each use, so it cannot be named; write `...` for `...r`", whose applied edit deletes the name, and the alias reads as its rewrite. A name the head also lists as a parameter, and the body uses nowhere else, is used, not unused, and the report adds "and remove the parameter `r`", with no edit, the repair being two. A tail a signature shares between an alias's two uses is written by that signature itself (`{ x: Float, ...r }`). Rarely written; it exists because inferred types must be *displayable* — LSP hover on Tier-0 `getX` shows `{x: Float, ...} -> Float`, or `...a` when a tail is shared across positions. The pretty-printer's output is the ceiling of what a user ever sees.
 
 **Observable unification behaviour** (internals in the type-system spec): field-order-insensitive; open rows unify by matching common fields and constraining tails; **no field addition/deletion/concatenation operations exist** — rows appear in record types only, Elm-0.16-level power, deliberately (Elm's retreat from full extension is the calibration point). No width subtyping; unification only.
 
@@ -245,19 +245,19 @@ What does **not** work, by design: passing `p` directly where `{ x: Float, ... }
 | Situation | Error / hint |
 |---|---|
 | Named tuple elements `(x: 1, y: 2)` | parse error; hint: use a record `{ x = 1, y = 2 }` (§2.2) |
-| `:` in a term-position record — `{ x: 1 }` as a literal | parse error; fixit: "record fields bind with `=`: `{ x = 1 }`; `:` gives a field its type in record *types*" (§8; the JS-muscle-memory near-miss, permanent diagnostic) |
+| `:` in a term-position record — `{ x: 1 }` as a literal | parse error; fixit: "record fields bind with `=`: `{x = 1}`; `:` gives a field its type in record *types*" (§8; the JS-muscle-memory near-miss, permanent diagnostic) |
 | `{ x := 1 }` in a literal | parse error; fixit: "did you mean `=`? `:=` assigns to a `var` (Statements §6)" (§8) |
-| `{ x => e }` in a term brace | parse error; fixit: "did you mean `=`? `=>` is the lambda/arm arrow — a lambda-valued field is `{ x = y => e }`" (§8; the hash-rocket habit, one character from `=`; distinct from Lexer & Layout §5's `x => { ... }` braces-as-block case) |
+| `{ x => e }` in a term brace | parse error; fixit: "did you mean `=`? `=>` is the lambda/arm arrow — a lambda-valued field is `{x = y => e}`" (§8; the hash-rocket habit, one character from `=`; distinct from Lexer & Layout §5's `x => { ... }` braces-as-block case) |
 | Tuple passed to n-ary function | arity error + destructuring hint (Functions spec §5; §2.1) |
 | `t.item0` / `t.itemN` beyond arity | targeted messages (§2.3) |
 | Destructuring arity mismatch | tuple-arity error (§2.4) |
 | Refutable pattern at `let`/lambda param; `let`-pattern rebinding | Pattern Matching §5.3 and Statements §9.3 own the respective errors and fixits (§2.4 routes) |
 | Record update adds a field | "record update cannot add fields; `p` has no field `z`" (§3.3) |
-| Spread-spelled update — `{ ...p, x = 3.0 }`, any spread with overrides in any order or count | parse error; fixit: "records update with `with`: `{ p with x = 3.0 }`; `{ ...p }` alone is the copy/crossing" (§3.3, §9; the JS-idiom near-miss, permanent diagnostic) |
+| Spread-spelled update — `{ ...p, x = 3.0 }`, any spread with overrides in any order or count | parse error; fixit: "records update with `with`: `{p with x = 3.0}`; `{...p}` alone is the copy/crossing" (§3.3, §9; the JS-idiom near-miss, permanent diagnostic) |
 | Update head not a dotted path — `{ f(x) with y = 3 }` | parse error; fixit: "bind the base first: `let base = f(x)`" (§3.3) |
-| `{ p with }` — no overrides | parse error; hint: "the no-override copy is `{ ...p }`" (§3.3) |
+| `{ p with }` — no overrides | parse error; hint: "the no-override copy is `{...p}`" (§3.3) |
 | Named tail in a `type` alias (`type Row = { n: Int, ...r }`) | at the name: "a `type` alias's row tail is fresh at each use, so it cannot be named; write `...` for `...r`" + applied edit deleting the name (§4) |
-| Spread merge — `{ ...a, ...b }` | parse error; fixit: "Hexagon has no record merge; `{ ...p }` copies, `{ p with f = e }` updates" (§3.3, §9; the JS merge habit — the most common spread idiom after copy — permanent diagnostic) |
+| Spread merge — `{ ...a, ...b }` | parse error; fixit: "Hexagon has no record merge; `{...p}` copies, `{p with f = e}` updates" (§3.3, §9; the JS merge habit — the most common spread idiom after copy — permanent diagnostic) |
 | Closed-row annotation rejects wider record | mention *extra* fields; suggest `...` (§4) |
 | `...` (bare or named, at any depth, through any alias) in a nominal `record`'s field types, a union payload type, or an `exception`'s payload type | hard error at the field or slot: "a `record` names every field of its values; `r`'s type says the record may have more fields — name them, or give the field the type `JsValue`" (§4; Unions §2.1; FFI Part 1 §5.4 item 7 for the extern-declaration and constraint-member twins) |
 | Missing field on access | name the known fields (§3.2; never an empty enumeration — Modules §4.2, #587) |

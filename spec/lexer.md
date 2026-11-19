@@ -411,7 +411,7 @@ decidable from neighbouring tokens alone.
   name seat and takes the ordinary hard-keyword report (§10).
 - **A pun is a bare name.** `{ type }` in a literal, an update (`{ ev with type }`), or
   a pattern reads or binds `type` bare, so a keyword field is written out: "`type`
-  is reserved; write the field out: `{ type = … }`".
+  is reserved; write the field out: `{type = …}`".
 - **A pattern declaration's name stays bare.** It is written against its
   parenthesis (Pattern Declarations §3.1), where `(c)then` is a conditional's
   head, so a keyword there takes the ordinary hard-keyword refusal.
@@ -716,7 +716,7 @@ token inventory and the lexer must not report the same source code unit twice.
 | Hard keyword in a bare name position — a lambda, tuple, constructor, `for`, or `catch` binder, a pattern declaration's name, a member-block item's name, a declared `true`/`false` (§4.4) | "`WORD` is reserved and cannot be used as a name" — including `true`/`false`; **no constructor fixit in this position** (`let True = ...` would be a refutable pattern, a second error) *(#147; position-dependent rows: the lexer emits the token, the **parser** selects the message — §4.1/§4.2's division)* |
 | Hard keyword naming a local or parameter-like name in a name seat (§4.4) | "`type` is reserved; a local or parameter name is only ever written bare — choose another name" |
 | Unexported module-level declaration named with a hard keyword (§4.4) | "`match` is reserved; a declaration named `match` is reached only through a dot, from an importer or on its home type — export it, or choose another name" |
-| Hard keyword as a pun (§4.4) | "`type` is reserved; write the field out: `{ type = … }`" |
+| Hard keyword as a pun (§4.4) | "`type` is reserved; write the field out: `{type = …}`" |
 | Bare keyword whose spelling the module declares as a term (§4.4) | the seat's parse error adds a note: "this module's `match` is reached only through a dot, from an importer or on its home type" |
 | `true`/`false` in value position | "`true` is reserved; Bool's constructors are `True` and `False` — write `True`" (resp. `False`); one-token fixit *(#147, §4.1; selection is parser work, same note as above)* |
 | Malformed `_` in a number | "`_` in a number must have a digit on both sides" |

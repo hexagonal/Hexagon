@@ -386,13 +386,13 @@ let h() =
 | Function-typed `var` — at the declaration, or at the pinning use that settles the monotype to an arrow | "`step` is a `var`, and a `var` cannot hold a function — vars accumulate data; model changing behavior as a union and `match` on it" (§6.1, #700) |
 | `var` name reuses a name in scope / any sequential rebinding | "`x` is already bound (line N); Hexagon does not allow rebinding — choose a different name" (§5.1) |
 | Sequential binder claims a name whose definition is in progress | "`y` is already being defined by the enclosing `let` (line N); Hexagon does not allow rebinding — choose a different name" — "by the enclosing `var`" / "by the enclosing member definition" as the pending form dictates; primary span the inner binder, line N the outer binder's name (§5.1) |
-| `let`-pattern binds a name already in scope (incl. punned fields) | same "already bound" error, pattern-aware fixits: "discard it with `_`", "rename the field: `{ name = orderName }`"; for the state-threading shape, suggest fresh names or a `for`/fold (§5.1, §5.4) |
+| `let`-pattern binds a name already in scope (incl. punned fields) | same "already bound" error, pattern-aware fixits: "discard it with `_`", "rename the field: `{name = orderName}`"; for the state-threading shape, suggest fresh names or a `for`/fold (§5.1, §5.4) |
 | Lambda reads an outer `var` | "`shift` is a `var` and cannot be used inside a lambda; copy it to a `let` first" (§6.2) |
 | Lambda assigns an outer `var` | "`total` is a `var` and cannot be updated inside a lambda; use a `for` loop for mutable iteration, or have the lambda return the updated value and assign it outside" (§6.2) |
 | `:=` to a `let`-bound name | "`y` was bound with `let`; declare it with `var` if you need to update it" (§6.3) |
 | `:=` to a parameter / pattern binder | "`x` is a parameter and cannot be assigned; declare a `var`" (§6.3) |
 | `:=` to an undeclared name | ordinary unbound-name error; never suggest implicit declaration (§6.3) |
-| `p.x := e` on a record | "records are immutable; build an updated copy: `{ p with x = e }`" (§6.3) |
+| `p.x := e` on a record | "records are immutable; build an updated copy: `{p with x = e}`" (§6.3) |
 | `t.itemN := e` on a tuple | "tuples are immutable; construct a new tuple with the changed slot" (§6.3) |
 | Non-name `:=` target | parse error: "`:=` assigns to a `var` name" (§6.3) |
 | Assignment type mismatch | "`count` has type `Int`; cannot assign a `String`" — phrased against the `var`, not as generic unification (§6.3) |
