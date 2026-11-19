@@ -1,4 +1,4 @@
-# Taught: Book chapter 5 shows a comment-only line at a deeper indentation, to teach that it does not reshape the block.
+# Taught (decision 5): Book chapter 5 shows a comment-only line at a deeper indentation, to teach that it does not reshape the block.
 Format document · book/chapters/05-layout.md · -- Comment-only indentation is ignored.
 
 # Formatter bug #1607: Format document over-indents the alternatives of an `enum` in `extern from`.
