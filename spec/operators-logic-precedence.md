@@ -447,10 +447,18 @@ conditional on one line that is wider than 60 or holds another (Canonical
 Layout §3.5, §15). A block arm's value is its final expression per the standard
 block rule.
 
+A branch that begins with brackets spread over lines opens them on its `then`
+or `else` line instead. Its closing bracket begins the line after its contents,
+at that line's indentation, and an `else` that follows begins the line after it
+(Canonical Layout §9.4 rule 4; `notes/canonical-formatting-and-naming.md` H11,
+whose example shows `else {`).
+
 A condition too long for one line is carried on at two levels, each carried-on
 line beginning with its operator, and `then` ends the condition's last line
 (Canonical Layout §5.1, §9.4). The branch is measured from the `if`'s line, not
-from the line where the condition ends (Canonical Layout §5.3):
+from the line where the condition ends (Canonical Layout §5.3), unless it opens
+brackets on the `then` line, which are measured from that line (Canonical Layout
+§5.2, §9.4 rule 4):
 
 ```
 if configured and connected

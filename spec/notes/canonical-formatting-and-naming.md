@@ -156,8 +156,9 @@ declarations through this list before considering the segment done.
   stays on one line up to 60 wide; otherwise the multiline form (H9). An
   `else if` chain is never on one line, nor is a conditional that holds
   another. A chain keeps each `else` and its `if` together on a line,
-  aligned with the first `if`; each branch body indents one level.
-  (Operators §11.2–§11.3; Canonical Layout §15; canonical-formatting-plan §5
+  aligned with the first `if`; each branch body indents one level,
+  except a branch that begins with spread brackets, which opens them on
+  its `then` or `else` line (H11). (Operators §11.2–§11.3; Canonical Layout §15; canonical-formatting-plan §5
   restates)
 - **F4 [canonical, v1 stance]** *(#700.)* The fused `fun f(…) = …` and the
   single-member `fun` block are both legal, and the formatter rewrites
@@ -206,11 +207,13 @@ the Book, the Playground's tutorials and the spec's own examples.
   never joins lines, so house text makes this move by hand. A doc comment
   changes nothing here (H3), and a conditional's branches take F3's
   shape. An expression that runs on over further lines begins a line of
-  its own beneath, one level in, brackets and all.
+  its own beneath, one level in, unless it begins with brackets that are
+  spread, which open on its `=`, `:=` or `=>` line (H11).
   Format document also puts a value too long for its line beneath its
-  `=` or `:=`, before it opens any brackets. An `else if` stays on one line
-  (F3), and a match function or lambda keeps its head where H7 puts it.
-  (Canonical Layout §9.4, §13)
+  `=` or `:=` before it opens any brackets, but keeps it on the `=`'s line
+  where the brackets it begins with would open beneath it (H11). An
+  `else if` stays on one line (F3), and a match function or lambda keeps
+  its head where H7 puts it. (Canonical Layout §9.4, §13)
 
   ```
   let scriptNames: Map(String, String) =
@@ -344,8 +347,9 @@ the Book, the Playground's tutorials and the spec's own examples.
   keeping its head on that call's line (H7). An expression the table
   spreads runs on over further lines, so H5 puts it on a line of its own
   beneath its `=`, `:=` or `=>`, unless it is a lambda, whose head H7
-  keeps where it stands. A union whose alternatives stand beneath its
-  `=`, one to a line, leads every alternative with `|`, its first
+  keeps where it stands, or begins with brackets that are then spread,
+  which H11 opens on that line. A union whose alternatives stand beneath
+  its `=`, one to a line, leads every alternative with `|`, its first
   included and a lone one too (Unions §2), as Format document writes it
   (Canonical Layout §16). An `else if` chain is spread however short, so
   `if a then 1 else if b then 2 else 3` takes six lines.
@@ -378,6 +382,52 @@ the Book, the Playground's tutorials and the spec's own examples.
   -- The rate is the one in force on the day the order was placed, not the day it ships, so an order
   -- placed before a change and shipped after it keeps the old rate.
   let taxed = total * rate
+  ```
+
+- **H11** A value's opening bracket goes on the line that introduces the
+  value. A value that begins with an opening bracket, `(`, `[` or `{`,
+  and whose brackets are spread over lines, begins after its `=`, `:=` or
+  `=>`, or after a branch's `then` or `else`, and its opening bracket ends
+  that line. Its contents go beneath, one level in, and its closing
+  bracket begins the line after them, at the indentation of the line the
+  opening bracket ends. The rest of the expression may follow the closing
+  bracket on its line, as in `).gcd(s)` and `])`, while an `else` still
+  begins a line of its own (F3). The opening bracket has a line to join,
+  and the closing bracket has none: at the end of the last item's line it
+  would leave that item no trailing comma (H8), and nothing would show
+  where the value ends. A value that begins otherwise, such as
+  `Map.fromVector([`, has more than a bracket on its first line, and runs
+  on beneath its `=` as H5 says (H5's example); so does a value whose
+  first brackets open and close on one line, such as `(a + b)` carried on
+  at an operator. Format document writes this shape where it moves a
+  value itself, but leaves a value the author began beneath its `=` there,
+  since it never joins lines, so that value's brackets may open beneath
+  it; house text makes the move by hand, as it does H5's. (Canonical
+  Layout §5.2, §9.4, §13, §14)
+
+  ```
+  let reservation = {
+      guest = "Mira Castellanos",
+      seats = 3,
+      table = Some(tableFor(party)),
+  }
+
+  let settings =
+      if compact then
+          {width = 40, margin = 1}
+      else {
+          width = preferredWidth(screen),
+          margin = 4,
+          title = Some("Full report"),
+      }
+
+  let n: BigInt = (
+      if c then
+          let z = p.add(q)
+          z.abs()
+      else
+          p
+  ).gcd(s)
   ```
 
 ---
