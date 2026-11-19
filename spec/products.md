@@ -244,7 +244,7 @@ What does **not** work, by design: passing `p` directly where `{ x: Float, ... }
 
 | Situation | Error / hint |
 |---|---|
-| Named tuple elements `(x: 1, y: 2)` | parse error; hint: use a record `{ x = 1, y = 2 }` (§2.2) |
+| Named tuple elements `(x: 1, y: 2)` | parse error; hint: use a record `{x = 1, y = 2}` (§2.2) |
 | `:` in a term-position record — `{ x: 1 }` as a literal | parse error; fixit: "record fields bind with `=`: `{x = 1}`; `:` gives a field its type in record *types*" (§8; the JS-muscle-memory near-miss, permanent diagnostic) |
 | `{ x := 1 }` in a literal | parse error; fixit: "did you mean `=`? `:=` assigns to a `var` (Statements §6)" (§8) |
 | `{ x => e }` in a term brace | parse error; fixit: "did you mean `=`? `=>` is the lambda/arm arrow — a lambda-valued field is `{x = y => e}`" (§8; the hash-rocket habit, one character from `=`; distinct from Lexer & Layout §5's `x => { ... }` braces-as-block case) |

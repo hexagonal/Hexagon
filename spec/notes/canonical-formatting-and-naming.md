@@ -156,8 +156,9 @@ declarations through this list before considering the segment done.
   stays on one line up to 60 wide; otherwise the multiline form (H9). An
   `else if` chain is never on one line, nor is a conditional that holds
   another. A chain keeps each `else` and its `if` together on a line,
-  aligned with the first `if`; each branch body indents one level.
-  (Operators §11.2–§11.3; Canonical Layout §15; canonical-formatting-plan §5
+  aligned with the first `if`; each branch body indents one level,
+  except a branch that begins with spread brackets, which opens them on
+  its `then` or `else` line (H11). (Operators §11.2–§11.3; Canonical Layout §15; canonical-formatting-plan §5
   restates)
 - **F4 [canonical, v1 stance]** *(#700.)* The fused `fun f(…) = …` and the
   single-member `fun` block are both legal, and the formatter rewrites
@@ -398,10 +399,11 @@ the Book, the Playground's tutorials and the spec's own examples.
   `Map.fromVector([`, has more than a bracket on its first line, and runs
   on beneath its `=` as H5 says (H5's example); so does a value whose
   first brackets open and close on one line, such as `(a + b)` carried on
-  at an operator. Format document writes this shape where it breaks a
-  value itself, and leaves an opening bracket the author wrote alone
-  beneath an `=`, since it never joins lines; house text makes that move
-  by hand, as it does H5's. (Canonical Layout §5.2, §9.4, §13, §14)
+  at an operator. Format document writes this shape where it moves a
+  value itself, but leaves a value the author began beneath its `=` there,
+  since it never joins lines, so that value's brackets may open beneath
+  it; house text makes the move by hand, as it does H5's. (Canonical
+  Layout §5.2, §9.4, §13, §14)
 
   ```
   let reservation = {
