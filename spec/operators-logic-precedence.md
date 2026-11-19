@@ -456,7 +456,9 @@ whose example shows `else {`).
 A condition too long for one line is carried on at two levels, each carried-on
 line beginning with its operator, and `then` ends the condition's last line
 (Canonical Layout §5.1, §9.4). The branch is measured from the `if`'s line, not
-from the line where the condition ends (Canonical Layout §5.3):
+from the line where the condition ends (Canonical Layout §5.3), unless it opens
+brackets on the `then` line, which are measured from that line (Canonical Layout
+§5.2, §9.4 rule 4):
 
 ```
 if configured and connected

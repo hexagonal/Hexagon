@@ -178,7 +178,7 @@ let piece =
     })
 ```
 
-The same holds where an open pair ends the brackets' last item and the outer closing bracket follows the inner one on its line, as for a call whose last argument is a lambda whose body keeps its opening bracket on the `=>`'s line, closing as `))` (§9.4 rule 2).
+The same holds where the brackets' last item ends on a line that an open pair's closing bracket begins, and the outer closing bracket follows on that line, as for a call whose last argument is a lambda whose body keeps its opening bracket on the `=>`'s line, closing as `))`, `]}` or `).gcd(s))` (§9.4 rule 2).
 
 ### 5.3 The construct that owns a block
 
@@ -374,12 +374,12 @@ A line with nothing left to break stays long, and the formatter does not report 
 
 ### 9.4 How a line is broken
 
-The formatter breaks the **outermost** structure of a too-long line first, and stops as soon as every line fits. A line that holds a construct §15 spreads is broken in the same way, and breaking stops once that construct is spread as well (§15.3). It uses the contents shape wherever there is something to open, and carries a line on at two levels only where nothing can be opened. The brackets it opens take a trailing comma where §14 calls for one. Each kind of structure breaks in one shape, except that a lambda or a bare `match` that is a binding's value, a call's last argument or a record's last field first tries keeping its head on its line (rules 1 and 2), and a value, body or branch that begins with an opening bracket keeps it on its line wherever its brackets open (rules 1 and 4):
+The formatter breaks the **outermost** structure of a too-long line first, and stops as soon as every line fits. A line that holds a construct §15 spreads is broken in the same way, and breaking stops once that construct is spread as well (§15.3). It uses the contents shape wherever there is something to open, and carries a line on at two levels only where nothing can be opened. The brackets it opens take a trailing comma where §14 calls for one. Each kind of structure breaks in one shape, except that a lambda or a bare `match` that is a binding's value, a call's last argument or a record's last field first tries keeping its head on its line (rules 1 and 2), and a value, body or branch that begins with an opening bracket stays on the line where it begins, rather than going beneath, wherever its brackets would open there (rules 1 and 4):
 
 1. **A binding, declaration, assignment, arm or lambda.** The value goes beneath its `=`, or the body beneath its `=>`, one level in (§5). An assignment is laid out as a binding is: what §9.4 says of a binding and its `=` holds for an assignment and its `:=`. A value that is a lambda or a bare `match` stays on its `=`'s line, and only the lambda's body goes beneath its `=>`, where a bare `match`'s arms always are. Only where that line, ending with the `=>` or with `match`, is still too long does the value go beneath the `=` instead, and its body is then moved beneath the `=>` only if that line is too long in turn. A value or body that begins with an opening bracket, `(`, `[` or `{`, other than a lambda, whose head the sentences before place, goes beneath its `=` or `=>` only where, once there and broken by these rules, the brackets it begins with stay closed. Where they would open, it stays on the line of its `=` or `=>`, and they open there instead: the opening bracket ends that line, and the closing bracket begins a line at that line's indentation, followed by the rest of the value (rule 2), which these rules break in turn where that line is still too long. So the formatter never moves a value beneath its `=` or `=>` to open its first brackets there. Any other value ends the same whether the author began it on the header line or beneath it. A value that begins with an opening bracket and that the author began beneath its `=` stays there, brackets and all, since the formatter never joins lines (§1). A header that is itself too long, before its `=`, opens its parameter brackets. A lambda that is a call's last argument, or the value of a record's last field, keeps its head on the line where the brackets open (rule 2). Any other lambda passed as an argument sits inside the call's brackets, which are outside it and so open first.
 2. **Brackets.** Their contents go one item per line, and the closing bracket begins a line at the indentation of the opening bracket's line, keeping after it whatever followed it, as in `).gcd(s)`. A `<…>` list is never opened here (§5.2). Three kinds of brackets take a shape of their own:
     - **Brackets whose only item is a vector literal, a record or a tuple** open and close with it, as in `Map.fromVector([` … `])` and `Regex({` … `})`. The opening brackets share a line, and so do the closing brackets. The inner brackets' contents break as this rule says for them, one level in (§5.2).
-    - **A call whose last argument is a lambda or a bare `match`**, or a record whose last field's value is one, keeps everything before the lambda's body on the line where its brackets open. Only the body goes beneath the `=>`, one level in (§5.3), where a bare `match`'s arms always are, and the closing bracket takes a line of its own. Where the body stays on the `=>`'s line instead, because the brackets it begins with open there (rule 1), the closing bracket of the call or record follows the body's last token on its line, as in `))` or `]}`. Only where that line, ending with the `=>` or with `match`, is still too long do the brackets open one item per line instead, with the lambda's head, or `match`, beginning the last of them, and the body is then moved beneath the `=>` only if that line is too long in turn (rule 1). A record that is a call's only item takes this shape inside the first shape, as in `Seq({pull = () =>`.
+    - **A call whose last argument is a lambda or a bare `match`**, or a record whose last field's value is one, keeps everything before the lambda's body on the line where its brackets open. Only the body goes beneath the `=>`, one level in (§5.3), where a bare `match`'s arms always are, and the closing bracket begins a line. Where the body stays on the `=>`'s line instead, because the brackets it begins with open there (rule 1), the closing bracket of the call or record follows the body's last token on its line, as in `))` or `]}`. Only where that line, ending with the `=>` or with `match`, is still too long do the brackets open one item per line instead, with the lambda's head, or `match`, beginning the last of them, and the body is then moved beneath the `=>` only if that line is too long in turn (rule 1). A record that is a call's only item takes this shape inside the first shape, as in `Seq({pull = () =>`.
     - **Brackets whose items are all literals, or tuples of literals,** open as other brackets do, and their contents are filled: each line holds as many items as fit, and at least one, and a line breaks only after a comma. A literal here is a numeric literal (Lexer §5), with or without a leading `-`, or a string with no interpolation hole that ends on the line where it begins. A tuple counts only when every item in it is a literal, so a tuple of tuples does not, nor does `()`. Literals and such tuples may be mixed.
 
     A line that holds several items of open brackets (§5.2), whose opening bracket is on an earlier line, is broken between those items, after their commas, before anything inside them breaks: one item to a line, or filled where the brackets are filled. The lines around it stay as they are, since the formatter never joins lines (§1), so a filled list is not filled again from its start.
@@ -472,7 +472,7 @@ while remaining > 0
 
 The head's expression is an operator, so it is carried on at its loosest operator, `and`, and `do` ends the carried-on line.
 
-A value that begins with its brackets keeps them on its `=`'s line wherever they open. With the limit at 50,
+A value that begins with its brackets on its `=`'s line stays there wherever they would open beneath it. With the limit at 50,
 
 ```
 let corners = [Point(0, 0), Point(width, 0), Point(width, height)]
@@ -704,7 +704,7 @@ A construct that fits on its line can still be too dense to read there. Each kin
 | A chain of two or more links, dot calls or `\|>` stages | up to 60 | each link on a line of its own (§9.4 rule 3) |
 | The arguments of a call or constructor, two or more | up to 60 | its brackets open (§9.4 rule 2) |
 | A record literal | up to 60 | its braces open (§9.4 rules 1 and 2) |
-| A record declaration | up to 60 | its braces open where they stand, one field to a line, its value kept on its `=`'s line (§9.4 rules 1 and 2) |
+| A record declaration | up to 60 | its braces open where they stand, one field to a line, its value kept on the line where it begins (§9.4 rules 1 and 2) |
 | A union declaration | up to 60 | its alternatives beneath its `=`, one to a line, each led by `|` (§15.3, §16) |
 | A lambda | up to 60 | its body beneath its `=>` (§9.4 rule 1) |
 | A match arm | up to 80 | its body beneath its `=>` (§9.4 rule 1) |
@@ -789,7 +789,7 @@ union Reason =
     | Other(text: String)
 ```
 
-A record declaration is spread as any value that begins with its brackets is (§9.4 rule 1): its braces open where they stand, one field to a line, and its value stays on its `=`'s line, so the closing brace stands at the declaration's column. With the limit at 100,
+A record declaration is spread as any value that begins with its brackets is (§9.4 rule 1): its braces open where they stand, one field to a line, and its value stays on the line where it begins, so where that is its `=`'s line the closing brace stands at the declaration's column. With the limit at 100,
 
 ```
 record Flags = {folded: Bool, multiLine: Bool, dotAll: Bool, extended: Bool}
