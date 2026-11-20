@@ -4380,14 +4380,16 @@ interface OrderTag {
   readonly from?: Resolved.HonorItem;
 }
 
-/** One node of the module's use graph (`#honorOrderReports`): an honor, or a term declaration. */
+/** One node of the module's use graph (`#reportHonorOrder`): an honor, or a term declaration. */
 interface OrderNode {
   readonly key: string;
-  readonly kind: "honor" | "function" | "door" | "other";
+  readonly kind: "honor" | "function" | "value" | "door" | "other";
   /** The instance's display, `Show<Ping>`, or the declaration's name. */
   readonly label: string;
   readonly honor?: Resolved.HonorItem;
   readonly span: Source.Span;
+  /** Where the top-level item holding it starts: its honor group's or `fun` block's head, or itself. */
+  readonly top: number;
 }
 
 /** A use of an instance above its honor, outside its knot, reported at the module's close. */
@@ -4399,7 +4401,6 @@ interface OrderViolation {
 }
 
 /** A member call's `->!` arrow waiting for its subject's instance (`#instanceWaits`, Effects §13.3). */
-
 interface InstanceWait {
   readonly colour: Variable;
   /** The colour it waits on (Effects §1): each colour of a spine arrow waits on its own. */
@@ -4423,15 +4424,6 @@ interface InstanceWait {
   readonly pinned: boolean;
 }
 
-/**
- * One monomorphic knot under check: the component's members, the member whose
- * body inference is currently inside it, and every reference that resolved to a
- * member from within it.
- *
- * `host` is the member the reference is *written in*, which is not the enclosing
- * `#declaringMember` — a reference may sit inside a nested lambda or a nested
- * `fun` block, and the dictionaries in scope there are still the host's.
- */
 /** The argument being handed while it meets its parameter (`Checker.#handedArgument`, #1240). */
 interface HandedArgument {
   readonly argument: Resolved.Expr;
@@ -4451,6 +4443,15 @@ interface MeetingArrows {
   readonly id: number;
 }
 
+/**
+ * One monomorphic knot under check: the component's members, the member whose
+ * body inference is currently inside it, and every reference that resolved to a
+ * member from within it.
+ *
+ * `host` is the member the reference is *written in*, which is not the enclosing
+ * `#declaringMember` — a reference may sit inside a nested lambda or a nested
+ * `fun` block, and the dictionaries in scope there are still the host's.
+ */
 interface Knot {
   readonly members: readonly KnotMember[];
   host: Resolved.SymbolId | undefined;
@@ -5734,6 +5735,18 @@ class Checker {
   readonly #orderSymbolNodes = new Map<Resolved.SymbolId, OrderNode>();
   /** Honors' nodes. */
   readonly #orderHonorNodes = new Map<Resolved.HonorItem, OrderNode>();
+  /** This module's unions and records, by `u`/`r` and id: the item's whole span, for the derivation fixit's move. */
+  readonly #declarationSpans = new Map<string, Source.Span>();
+  /**
+   * The derivation fixit's moves, by where the moved text starts: the earliest
+   * insertion point any report wants, and each report's own edits — its own
+   * `derives` text — rewritten to insert there at the module's close
+   * (`#settleDerivationMoves`).
+   */
+  readonly #derivationMoves = new Map<number, {
+    at: number;
+    readonly reports: { readonly list: Diagnostics.Edit[]; readonly edits: (at: number) => Diagnostics.Edit[] }[];
+  }>();
   /** The use graph: each node's uses, honors and term references alike. */
   readonly #orderEdges = new Map<string, Set<string>>();
   /** The uses refused, by where they stand and what they use: one report each. */
@@ -8512,6 +8525,8 @@ class Checker {
       DEFERRED_SPLITS.set(typed, (start, end) => this.#splitsAt(start, end));
     }
     if (this.#knotlessFuns.length > 0) KNOTLESS_FUNS.set(typed, [...this.#knotlessFuns]);
+    // Every use is reported: each derivation fixit's move is the earliest's.
+    this.#settleDerivationMoves();
     return typed;
   }
 
@@ -11549,7 +11564,7 @@ class Checker {
                 this.#orderNextTag = {
                   kind: "derived",
                   site: item.span,
-                  primary: item.derivesEntry ?? item.span,
+                  primary: item.derivesEntry ?? this.#deriveSpan(item),
                   from: item,
                 };
                 return {
@@ -33903,8 +33918,17 @@ class Checker {
       return this.#absorbsNullish(value) ? value : type;
     }
     if (type.kind !== "Variable" || type.instance === undefined) return type;
-    type.instance = this.#prune(type.instance);
-    return type.instance;
+    const next = type.instance;
+    const pruned = this.#prune(next);
+    // The shortcut skips `next`: a pin it carried stays on the chain
+    // (`#colourPin`), or a colour pinned after another was bound to it would
+    // be reported at its seat instead, by line order.
+    if (pruned !== next && next.kind === "Variable" && !this.#colourPins.has(type)) {
+      const pin = this.#colourPins.get(next);
+      if (pin !== undefined) this.#colourPins.set(type, pin);
+    }
+    type.instance = pruned;
+    return pruned;
   }
 
   /**
@@ -37808,6 +37832,13 @@ class Checker {
     }
 
     requirement.reported = true;
+    // The derivation fixit's edits, where the message carries it.
+    const made: { fix?: Diagnostics.Fix | undefined } = {};
+    const missing = (): string => {
+      const report = this.#missingInstanceMessage(requirement, type);
+      made.fix = report.fix;
+      return report.message;
+    };
     this.#reportRequirement(undefined, {
       severity: "error",
       message:
@@ -37823,10 +37854,10 @@ class Checker {
           ? `integer literal cannot have type \`${type.name}\``
           : type.kind === "Function"
           ? `functions have no \`${requirement.name}\` instance`
-          : this.#userNominalIterableFailure(requirement, type) ??
-            this.#missingInstanceMessage(requirement, type),
+          : this.#userNominalIterableFailure(requirement, type) ?? missing(),
       primary: requirement.span,
       ...this.#numberDefaultLabels(type),
+      ...(made.fix === undefined ? {} : { fixes: [made.fix] }),
     });
   }
 
@@ -37889,7 +37920,10 @@ class Checker {
    *
    * Anything outside that gate is byte-identical to what it printed before.
    */
-  #missingInstanceMessage(requirement: Requirement, type: Mono): string {
+  #missingInstanceMessage(
+    requirement: Requirement,
+    type: Mono,
+  ): { readonly message: string; readonly fix?: Diagnostics.Fix } {
     const rider = this.#towerFaceRider(requirement, type);
     const clause = this.#legalHomesClause(requirement, type);
     const fixit = this.#derivationFixit(requirement, type);
@@ -37897,14 +37931,17 @@ class Checker {
       ? `type \`${this.#display(type)}\` has no \`${requirement.name}\` instance`
       : `no \`${requirement.name}<${this.#display(type)}>\` instance is visible in this module`;
     if (fixit === undefined) {
-      return clause === undefined ? `${head}${rider}` : `${head}${clause}${rider}`;
+      return { message: clause === undefined ? `${head}${rider}` : `${head}${clause}${rider}` };
     }
     // `clause` is never `undefined` on the appending arm: the fixit's gate is the
     // ordinary branch's `subjectSeat`, which is strictly narrower than the
     // clause's own. The coalesce is the honest spelling of that rather than a
     // second claim about it — a `!` here would assert what the gate already
     // guarantees, in the one file where the guarantee could later move.
-    return fixit.replaces ? `${head}${fixit.text}` : `${head}${clause ?? ""}${fixit.text}`;
+    return {
+      message: fixit.replaces ? `${head}${fixit.text}` : `${head}${clause ?? ""}${fixit.text}`,
+      ...(fixit.fix === undefined ? {} : { fix: fixit.fix }),
+    };
   }
 
   /**
@@ -38100,7 +38137,7 @@ class Checker {
   #derivationFixit(
     requirement: Requirement,
     type: Mono,
-  ): { readonly replaces: boolean; readonly text: string } | undefined {
+  ): { readonly replaces: boolean; readonly text: string; readonly fix?: Diagnostics.Fix } | undefined {
     if (!DERIVABLE_IDENTITIES.has(requirement.identity)) return undefined;
     const here = this.#modulePath;
     if (here === undefined) return undefined;
@@ -38121,17 +38158,16 @@ class Checker {
     // (§4.8), so where the declaration stands below the use, the fixit moves
     // it above too — promising the place, not the components.
     const declared = declaration.span;
-    const move = Number(declared.fileId) === Number(requirement.span.fileId) &&
-        declared.start.offset > requirement.span.start.offset
-      ? ", and move the declaration above this use"
-      : "";
+    const below = Number(declared.fileId) === Number(requirement.span.fileId) &&
+      declared.start.offset > requirement.span.start.offset;
+    const move = below ? ", and move the declaration above this use" : "";
+    const added = carriesList
+      ? `add \`${spelling}\` to the \`derives\` list of \`${declaration.name}\``
+      : `add \`derives ${spelling}\` to the declaration of \`${declaration.name}\``;
+    const edits = this.#derivationEdits(declaration, spelling, below ? requirement.span : undefined);
+    const fix = edits === undefined ? {} : { fix: { message: added + move, edits } };
     if (requirement.identity !== preRegisteredConstraintIdentity("Hash")) {
-      return {
-        replaces: false,
-        text: (carriesList
-          ? `; add \`${spelling}\` to the \`derives\` list of \`${declaration.name}\``
-          : `; add \`derives ${spelling}\` to the declaration of \`${declaration.name}\``) + move,
-      };
+      return { replaces: false, text: `; ${added}${move}`, ...fix };
     }
     // The provenance channel is the instance record's own `derived` flag — the
     // same one the derive-site Eq-agreement check reads (Collections Part 2
@@ -38151,6 +38187,7 @@ class Checker {
     }
     const seat = this.#moduleName(home.path) ?? home.path;
     return {
+      ...fix,
       replaces: true,
       // The head states §4.5's law positively (#647, James's point 4): one voice
       // with the member-block refusal's own head, and a sentence that tells the
@@ -38162,6 +38199,106 @@ class Checker {
           : `\`derives ${spelling}\` on the declaration of \`${declaration.name}\` in module ` +
             `\`${seat}\``) + move,
     };
+  }
+
+  /**
+   * The derivation fixit's edits *(Constraints §8)*: `spelling` written into
+   * the declaration's `derives` clause, and, where the declaration stands
+   * below `use`, the declaration — its lines and the doc comment above them —
+   * moved to stand above the top-level declaration holding the use, so that
+   * its derived instances stand above it (§4.8). `undefined` where this
+   * compilation cannot measure the text, or the declaration's head is not
+   * where the clause can be written.
+   */
+  #derivationEdits(
+    declaration: Resolved.Union | Resolved.RecordDeclaration,
+    spelling: string,
+    use: Source.Span | undefined,
+  ): readonly Diagnostics.Edit[] | undefined {
+    const source = this.#sourceFile();
+    const span = this.#declarationSpans.get("constructors" in declaration ? `u${declaration.id}` : `r${declaration.id}`);
+    if (source === undefined || span === undefined) return undefined;
+    const { text, file } = source;
+    // The head runs to the declaration's first `=`: a `derives` clause is the
+    // head's last part, or is written there.
+    const equals = text.indexOf("=", span.start.offset);
+    if (equals < 0 || equals >= span.end.offset) return undefined;
+    const head = text.slice(span.start.offset, equals);
+    const names = (written: string): string[] =>
+      written.replace(/^\(|\)$/gu, "").split(",").map((name) => name.trim()).filter((name) => name !== "");
+    const clause = /\bderives\s+(\([^)]*\)|[^\s=]+)\s*$/u.exec(head);
+    const written = span.start.offset + head.trimEnd().length;
+    const headEdit = clause === null
+      ? { start: written, end: written, replacement: ` derives ${spelling}` }
+      : {
+        start: span.start.offset + clause.index,
+        end: written,
+        replacement: `derives (${[...new Set([...names(clause[1]!), ...names(spelling)])].join(", ")})`,
+      };
+    if (use === undefined) {
+      return [{ span: file.span(headEdit.start, headEdit.end), replacement: headEdit.replacement }];
+    }
+    const holder = this.#orderNodeAt(use);
+    if (holder === undefined || holder.span.end.offset > span.start.offset) return undefined;
+    const eol = /\r\n/u.test(text) ? "\r\n" : "\n";
+    // Whole lines, with a doc comment directly above, so that what moves takes
+    // its documentation along and leaves no line behind.
+    const lineStart = (offset: number): number => text.lastIndexOf("\n", offset - 1) + 1;
+    const lineText = (start: number): string => {
+      const end = text.indexOf("\n", start);
+      return text.slice(start, end < 0 ? text.length : end).trim();
+    };
+    const withDoc = (offset: number): number => {
+      const start = lineStart(offset);
+      if (start === 0 || !lineText(lineStart(start - 1)).endsWith("-}")) return start;
+      for (let line = lineStart(start - 1); ; line = lineStart(line - 1)) {
+        // A doc comment's opener, never a `{---` banner (Doc Comments §2.2).
+        if (/^\{--(?![-}])/u.test(lineText(line))) return line;
+        if (line === 0) return start;
+        if (lineText(lineStart(line - 1)).endsWith("-}")) return start;
+      }
+    };
+    const from = withDoc(span.start.offset);
+    const newline = text.indexOf("\n", span.end.offset - 1);
+    const to = newline < 0 ? text.length : newline + 1;
+    // Above the top-level item holding the use — an honor group or a `fun`
+    // block whole — and, with several uses, above the earliest
+    // (`#settleDerivationMoves`), so that every report carries one move.
+    const at = withDoc(holder.top);
+    if (at >= from) return undefined;
+    const moved = text.slice(from, headEdit.start) + headEdit.replacement + text.slice(headEdit.end, to);
+    // A blank line that set the declaration apart sets it apart where it
+    // goes, and one blank line leaves with it.
+    const separated = /\n[ \t]*\r?\n$/u.test(text.slice(0, from));
+    const after = /^[ \t]*\r?\n/u.exec(text.slice(to));
+    const removed = !separated ? { start: from, end: to }
+      : after !== null ? { start: from, end: to + after[0].length }
+      : { start: lineStart(from - 1), end: to };
+    const insertion = (moved.endsWith("\n") ? moved : `${moved}${eol}`) + (separated ? eol : "");
+    const removal: Diagnostics.Edit = { span: file.span(removed.start, removed.end), replacement: "" };
+    let move = this.#derivationMoves.get(from);
+    if (move === undefined) this.#derivationMoves.set(from, move = { at, reports: [] });
+    move.at = Math.min(move.at, at);
+    // Each report keeps its own `derives` text; only where it goes is shared.
+    const edits = (point: number): Diagnostics.Edit[] => [
+      { span: file.span(point, point), replacement: insertion },
+      removal,
+    ];
+    const list = edits(at);
+    move.reports.push({ list, edits });
+    return list;
+  }
+
+  /**
+   * Each derivation fixit's move, settled once every use is reported: every
+   * report on one declaration moves it above the earliest of them, each with
+   * its own `derives` text, so following any one leaves no use above it.
+   */
+  #settleDerivationMoves(): void {
+    for (const move of this.#derivationMoves.values()) {
+      for (const { list, edits } of move.reports) list.splice(0, list.length, ...edits(move.at));
+    }
+    this.#derivationMoves.clear();
   }
 
   /**
@@ -41268,7 +41405,7 @@ class Checker {
     const colour = this.#prune(wait.colour);
     if (colour.kind === "Variable") {
       this.#onAxis(wait.axis, () => this.#settleWaiting(colour, answer, wait.span));
-      this.#waitingColours.delete(colour);
+      if (colour !== wait.colour) this.#waitingColours.delete(colour);
     }
     this.#waitingColours.delete(wait.colour);
   }
@@ -41434,21 +41571,27 @@ class Checker {
           label: this.#honorLabel(item),
           honor: item,
           span: item.span,
+          top: (item.group?.span ?? item.span).start.offset,
         };
         nodes.push(node);
         this.#orderHonorNodes.set(item, node);
       } else if (item.kind === "Let" || item.kind === "Fun") {
         const door = item.kind === "Let" && item.widens !== undefined;
+        // A `let` whose value is no lambda is a value, evaluated where it stands.
+        const value = item.kind === "Let" && !door && item.value.kind !== "Lambda";
         const node: OrderNode = {
           key: `t${index}`,
-          kind: door ? "door" : "function",
+          kind: door ? "door" : value ? "value" : "function",
           label: item.binding.name,
           span: item.span,
+          top: (item.kind === "Fun" && item.block !== undefined ? item.block.span : item.span).start.offset,
         };
         nodes.push(node);
         this.#orderSymbolNodes.set(item.binding.symbol, node);
       } else if (item.kind !== "Import" && item.kind !== "ExternImport") {
-        nodes.push({ key: `o${index}`, kind: "other", label: "", span: item.span });
+        nodes.push({ key: `o${index}`, kind: "other", label: "", span: item.span, top: item.span.start.offset });
+        if (item.kind === "Union") this.#declarationSpans.set(`u${item.union}`, item.span);
+        if (item.kind === "RecordDeclaration") this.#declarationSpans.set(`r${item.record}`, item.span);
       }
     }
     // In source order, for `#orderNodeAt`'s search: elaborated items (a
@@ -41515,12 +41658,27 @@ class Checker {
   readonly #typeText = (annotation: Resolved.TypeAnnotation): string | undefined =>
     this.#sourceSlice(annotation.span);
 
-  /** Where an honor's head stands: from its first token to its subject, the extending honor's head of §8. */
+  /** Where an honor's head stands: from its first token to the `>` closing its subject, the extending honor's head of §8. */
   #honorHeadSpan(item: Resolved.HonorItem): Source.Span {
     if (item.derivesEntry !== undefined) return item.derivesEntry;
     const subject = item.subject.span;
     if (subject.end.offset > item.span.end.offset || subject.start.offset < item.span.start.offset) return item.span;
-    return { ...item.span, end: subject.end };
+    // The head's closing `>`, past a trailing comma (Lexer & Layout §7).
+    const rest = this.#sourceSlice({ ...subject, start: subject.end, end: item.span.end });
+    const closing = rest === undefined ? null : /^\s*(?:,\s*)?>/u.exec(rest);
+    if (closing === null) return { ...item.span, end: subject.end };
+    const source = this.#sourceFile();
+    const end = subject.end.offset + closing[0].length;
+    return { ...item.span, end: source?.file.positionAt(end) ?? { ...subject.end, offset: end } };
+  }
+
+  /** Where `honor C<T> = derive` writes `derive`, its RHS: §8's above-honor row stands there. */
+  #deriveSpan(item: Resolved.HonorItem): Source.Span {
+    const source = this.#sourceFile();
+    const text = this.#sourceSlice(item.span);
+    if (source === undefined || text === undefined || !/\bderive\s*$/u.test(text)) return item.span;
+    const end = item.span.start.offset + text.trimEnd().length;
+    return source.file.span(end - "derive".length, end);
   }
 
   /** The knot an honor stands in (§4.8): its group, or itself — a `derives` clause's instance's is its type's line. */
@@ -41560,10 +41718,6 @@ class Checker {
     return found;
   }
 
-  #orderNodeOfHonor(honor: Resolved.HonorItem): OrderNode | undefined {
-    return this.#orderHonorNodes.get(honor);
-  }
-
   #orderEdge(from: OrderNode | undefined, to: OrderNode | undefined): void {
     if (from === undefined || to === undefined || from.key === to.key) return;
     let edges = this.#orderEdges.get(from.key);
@@ -41600,8 +41754,8 @@ class Checker {
     if (this.#orderQuiet || !this.#orderHonorNodes.has(instance)) return;
     const tag = this.#orderTagOf(requirement);
     if (Number(tag.site.fileId) !== this.#fileId) return;
-    const from = tag.from !== undefined ? this.#orderNodeOfHonor(tag.from) : this.#orderNodeAt(tag.site);
-    this.#orderEdge(from, this.#orderNodeOfHonor(instance));
+    const from = tag.from !== undefined ? this.#orderHonorNodes.get(tag.from) : this.#orderNodeAt(tag.site);
+    this.#orderEdge(from, this.#orderHonorNodes.get(instance));
     this.#orderUse(tag.primary ?? tag.site, tag.site, instance, from, this.#display(this.#prune(requirement.type)));
   }
 
@@ -41617,10 +41771,10 @@ class Checker {
     instance: Resolved.HonorItem,
     from: OrderNode | undefined,
     type: string,
-  ): boolean {
+  ): void {
     const knot = this.#knotOf(instance);
-    if (site.start.offset >= knot.end.offset) return true;
-    if (knot.start.offset <= site.start.offset && site.end.offset <= knot.end.offset) return true;
+    if (site.start.offset >= knot.end.offset) return;
+    if (knot.start.offset <= site.start.offset && site.end.offset <= knot.end.offset) return;
     // A `derives` clause's instances share their type's span, so the
     // constraint tells them apart.
     const key = `${primary.start.offset}:${primary.end.offset} ${instance.constraintIdentity} ` +
@@ -41633,7 +41787,6 @@ class Checker {
         label: `${instance.constraint}<${type}>`,
       });
     }
-    return false;
   }
 
   /**
@@ -41659,7 +41812,7 @@ class Checker {
   #reportHonorOrder(): void {
     for (const violation of this.#orderViolations.values()) {
       const { instance, from, label } = violation;
-      const honorNode = this.#orderNodeOfHonor(instance);
+      const honorNode = this.#orderHonorNodes.get(instance);
       const opening = `\`${label}\` is used here, and its honor is declared below it; declarations are read top-down — `;
       let advice: string;
       const doorKeys = from?.kind === "door"
@@ -41673,10 +41826,15 @@ class Checker {
         advice = "a door cannot use the instance it supplies; let a function recurse by itself, and call it from the door";
       } else if (path !== undefined) {
         const nodes = path.map((key) => this.#orderNodes.find((node) => node.key === key)!);
-        const name = (node: OrderNode): string => node.kind === "honor" ? `\`${node.label}\`` : `\`${node.label}\``;
-        const chain = nodes.slice(1).map(name);
+        const chain = nodes.slice(1).map((node) => `\`${node.label}\``);
         const reach = `\`${nodes[0]!.label}\`'s honor uses ${chain.length === 1 ? `${chain[0]} too` : `${chain.slice(0, -1).join(", which uses ")}, which uses ${chain.at(-1)} too`}`;
-        if (nodes.some((node) => node.kind !== "honor")) {
+        // A value on the cycle wins over a function: no recursion of the
+        // function's own reaches a value's evaluation.
+        const value = nodes.find((node) => node.kind === "value");
+        if (value !== undefined) {
+          advice = `${reach} — \`${value.label}\` is a value, evaluated where it is declared, ` +
+            "so no line order breaks this cycle";
+        } else if (nodes.some((node) => node.kind !== "honor")) {
           advice = `${reach} — let the function recurse by itself, and call it from the honor`;
         } else {
           const honors = [...new Set(nodes.map((node) => node.honor!))]
