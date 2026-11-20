@@ -403,7 +403,17 @@ or refuse, so the test reads neither; nor does it read the notes.
   begins a line of its own (F3). The opening bracket has a line to join,
   and the closing bracket has none: at the end of the last item's line it
   would leave that item no trailing comma (H8), and nothing would show
-  where the value ends. A value that begins otherwise, such as
+  where the value ends. Three things begin a line with nothing before
+  them to join: an arm's pattern; a statement of a block, unless it is
+  the whole of a value or branch after `=`, `:=`, `=>`, `then` or `else`;
+  and an item that begins a line of its own between open brackets, unless
+  it is their only item and is itself a vector, a record or a tuple,
+  which opens and closes with them (Canonical Layout §9.4 rule 2). Where
+  one of them begins with an opening bracket, that bracket begins its
+  line and may stand alone there: one item to a line outranks keeping an
+  opening bracket off a line of its own (Canonical Layout §5.1–§5.2,
+  §9.4).
+  A value that begins otherwise, such as
   `Map.fromVector([`, has more than a bracket on its first line, and runs
   on beneath its `=` as H5 says (H5's example); so does a value whose
   first brackets open and close on one line, such as `(a + b)` carried on
@@ -411,7 +421,7 @@ or refuse, so the test reads neither; nor does it read the notes.
   value itself, but leaves a value the author began beneath its `=` there,
   since it never joins lines, so that value's brackets may open beneath
   it; house text makes the move by hand, as it does H5's. (Canonical
-  Layout §5.2, §9.4, §13, §14)
+  Layout §5.1–§5.2, §9.4, §13, §14)
 
   ```
   let reservation = {
