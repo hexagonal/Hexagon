@@ -4383,11 +4383,13 @@ interface OrderTag {
 /** One node of the module's use graph (`#reportHonorOrder`): an honor, or a term declaration. */
 interface OrderNode {
   readonly key: string;
-  readonly kind: "honor" | "function" | "constant" | "door" | "other";
+  readonly kind: "honor" | "function" | "value" | "door" | "other";
   /** The instance's display, `Show<Ping>`, or the declaration's name. */
   readonly label: string;
   readonly honor?: Resolved.HonorItem;
   readonly span: Source.Span;
+  /** Where the top-level item holding it starts: its honor group's or `fun` block's head, or itself. */
+  readonly top: number;
 }
 
 /** A use of an instance above its honor, outside its knot, reported at the module's close. */
@@ -5735,6 +5737,16 @@ class Checker {
   readonly #orderHonorNodes = new Map<Resolved.HonorItem, OrderNode>();
   /** This module's unions and records, by `u`/`r` and id: the item's whole span, for the derivation fixit's move. */
   readonly #declarationSpans = new Map<string, Source.Span>();
+  /**
+   * The derivation fixit's moves, by where the moved text starts: the earliest
+   * insertion point any report wants, and each report's edit list, rewritten to
+   * it at the module's close (`#settleDerivationMoves`).
+   */
+  readonly #derivationMoves = new Map<number, {
+    at: number;
+    readonly lists: Diagnostics.Edit[][];
+    readonly edits: (at: number) => Diagnostics.Edit[];
+  }>();
   /** The use graph: each node's uses, honors and term references alike. */
   readonly #orderEdges = new Map<string, Set<string>>();
   /** The uses refused, by where they stand and what they use: one report each. */
@@ -8513,6 +8525,8 @@ class Checker {
       DEFERRED_SPLITS.set(typed, (start, end) => this.#splitsAt(start, end));
     }
     if (this.#knotlessFuns.length > 0) KNOTLESS_FUNS.set(typed, [...this.#knotlessFuns]);
+    // Every use is reported: each derivation fixit's move is the earliest's.
+    this.#settleDerivationMoves();
     return typed;
   }
 
@@ -38226,6 +38240,7 @@ class Checker {
     }
     const holder = this.#orderNodeAt(use);
     if (holder === undefined || holder.span.end.offset > span.start.offset) return undefined;
+    const eol = /\r\n/u.test(text) ? "\r\n" : "\n";
     // Whole lines, with a doc comment directly above, so that what moves takes
     // its documentation along and leaves no line behind.
     const lineStart = (offset: number): number => text.lastIndexOf("\n", offset - 1) + 1;
@@ -38237,7 +38252,8 @@ class Checker {
       const start = lineStart(offset);
       if (start === 0 || !lineText(lineStart(start - 1)).endsWith("-}")) return start;
       for (let line = lineStart(start - 1); ; line = lineStart(line - 1)) {
-        if (lineText(line).startsWith("{--")) return line;
+        // A doc comment's opener, never a `{---` banner (Doc Comments §2.2).
+        if (/^\{--(?![-}])/u.test(lineText(line))) return line;
         if (line === 0) return start;
         if (lineText(lineStart(line - 1)).endsWith("-}")) return start;
       }
@@ -38245,7 +38261,10 @@ class Checker {
     const from = withDoc(span.start.offset);
     const newline = text.indexOf("\n", span.end.offset - 1);
     const to = newline < 0 ? text.length : newline + 1;
-    const at = withDoc(holder.span.start.offset);
+    // Above the top-level item holding the use — an honor group or a `fun`
+    // block whole — and, with several uses, above the earliest
+    // (`#settleDerivationMoves`), so that every report carries one move.
+    const at = withDoc(holder.top);
     if (at >= from) return undefined;
     const moved = text.slice(from, headEdit.start) + headEdit.replacement + text.slice(headEdit.end, to);
     // A blank line that set the declaration apart sets it apart where it
@@ -38255,13 +38274,32 @@ class Checker {
     const removed = !separated ? { start: from, end: to }
       : after !== null ? { start: from, end: to + after[0].length }
       : { start: lineStart(from - 1), end: to };
-    return [
-      {
-        span: file.span(at, at),
-        replacement: (moved.endsWith("\n") ? moved : `${moved}\n`) + (separated ? "\n" : ""),
-      },
-      { span: file.span(removed.start, removed.end), replacement: "" },
-    ];
+    const insertion = (moved.endsWith("\n") ? moved : `${moved}${eol}`) + (separated ? eol : "");
+    const removal: Diagnostics.Edit = { span: file.span(removed.start, removed.end), replacement: "" };
+    let move = this.#derivationMoves.get(from);
+    if (move === undefined) {
+      this.#derivationMoves.set(from, move = { at, lists: [], edits: (to) => [
+        { span: file.span(to, to), replacement: insertion },
+        removal,
+      ] });
+    }
+    move.at = Math.min(move.at, at);
+    const edits = move.edits(at);
+    move.lists.push(edits);
+    return edits;
+  }
+
+  /**
+   * Each derivation fixit's move, settled once every use is reported: every
+   * report on one declaration moves it above the earliest of them, so the
+   * reports carry one set of edits and following any one leaves none behind.
+   */
+  #settleDerivationMoves(): void {
+    for (const move of this.#derivationMoves.values()) {
+      const edits = move.edits(move.at);
+      for (const list of move.lists) list.splice(0, list.length, ...edits);
+    }
+    this.#derivationMoves.clear();
   }
 
   /**
@@ -41534,23 +41572,25 @@ class Checker {
           label: this.#honorLabel(item),
           honor: item,
           span: item.span,
+          top: (item.group?.span ?? item.span).start.offset,
         };
         nodes.push(node);
         this.#orderHonorNodes.set(item, node);
       } else if (item.kind === "Let" || item.kind === "Fun") {
         const door = item.kind === "Let" && item.widens !== undefined;
-        // A `let` whose value is no lambda is a constant, evaluated where it stands.
-        const constant = item.kind === "Let" && !door && item.value.kind !== "Lambda";
+        // A `let` whose value is no lambda is a value, evaluated where it stands.
+        const value = item.kind === "Let" && !door && item.value.kind !== "Lambda";
         const node: OrderNode = {
           key: `t${index}`,
-          kind: door ? "door" : constant ? "constant" : "function",
+          kind: door ? "door" : value ? "value" : "function",
           label: item.binding.name,
           span: item.span,
+          top: (item.kind === "Fun" && item.block !== undefined ? item.block.span : item.span).start.offset,
         };
         nodes.push(node);
         this.#orderSymbolNodes.set(item.binding.symbol, node);
       } else if (item.kind !== "Import" && item.kind !== "ExternImport") {
-        nodes.push({ key: `o${index}`, kind: "other", label: "", span: item.span });
+        nodes.push({ key: `o${index}`, kind: "other", label: "", span: item.span, top: item.span.start.offset });
         if (item.kind === "Union") this.#declarationSpans.set(`u${item.union}`, item.span);
         if (item.kind === "RecordDeclaration") this.#declarationSpans.set(`r${item.record}`, item.span);
       }
@@ -41789,10 +41829,12 @@ class Checker {
         const nodes = path.map((key) => this.#orderNodes.find((node) => node.key === key)!);
         const chain = nodes.slice(1).map((node) => `\`${node.label}\``);
         const reach = `\`${nodes[0]!.label}\`'s honor uses ${chain.length === 1 ? `${chain[0]} too` : `${chain.slice(0, -1).join(", which uses ")}, which uses ${chain.at(-1)} too`}`;
-        const constant = nodes.find((node) => node.kind === "constant");
-        if (constant !== undefined) {
-          advice = `${reach} — \`${constant.label}\` is a constant, evaluated where it is declared, ` +
-            "so it cannot use an instance whose honor uses it";
+        // A value on the cycle wins over a function: no recursion of the
+        // function's own reaches a value's evaluation.
+        const value = nodes.find((node) => node.kind === "value");
+        if (value !== undefined) {
+          advice = `${reach} — \`${value.label}\` is a value, evaluated where it is declared, ` +
+            "so no line order breaks this cycle";
         } else if (nodes.some((node) => node.kind !== "honor")) {
           advice = `${reach} — let the function recurse by itself, and call it from the honor`;
         } else {

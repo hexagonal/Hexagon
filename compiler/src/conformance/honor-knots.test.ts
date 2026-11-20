@@ -167,13 +167,13 @@ describe("the honor group (§4.8)", () => {
     ]);
   });
 
-  test("a cycle through a constant names the constant: it is evaluated where it is declared", () => {
+  test("a cycle through a value names the value: it is evaluated where it is declared", () => {
     const constant = (body: string) => projectDiagnostics(MAIN + P + 'let origin: String = "${P({x = 1})}"\n' + body);
-    const advice = "`origin` is a constant, evaluated where it is declared, so it cannot use an instance whose honor uses it";
+    const advice = "`origin` is a value, evaluated where it is declared, so no line order breaks this cycle";
     expect(constant("honor Show<P> =\n    show(p) = origin\n")).toEqual([
       opening("Show<P>") + "`Show<P>`'s honor uses `origin` too — " + advice,
     ]);
-    // Through a function, the constant is still what cannot move.
+    // Through a function too, the value's advice wins.
     expect(constant("let describe(p: P): String = origin\nhonor Show<P> =\n    show(p) = describe(p)\n")).toEqual([
       opening("Show<P>") + "`Show<P>`'s honor uses `describe`, which uses `origin` too — " + advice,
     ]);
@@ -345,6 +345,25 @@ describe("derived instances (§4.8)", () => {
     expect(compileFiles([["/main.hex", fixed(component)]]).diagnostics).toEqual([]);
     expect(fixed(MAIN + "export record T = {n: Int}\nexport let same(t: T): Bool = t == t\n"))
       .toBe(MAIN + "export record T derives Eq = {n: Int}\nexport let same(t: T): Bool = t == t\n");
+    // A use inside a `fun` block or an honor group: above the block or group whole.
+    const block = MAIN + "fun\n    a(t: T): Bool = t == t\n    b(t: T): Bool = a(t)\nrecord T = {n: Int}\n";
+    expect(fixed(block)).toBe(MAIN + "record T derives Eq = {n: Int}\nfun\n    a(t: T): Bool = t == t\n    b(t: T): Bool = a(t)\n");
+    expect(compileFiles([["/main.hex", fixed(block)]]).diagnostics).toEqual([]);
+    const group = MAIN + "honor\n    Show<P> =\n        show(p) = if p == p then \"a\" else \"b\"\n    Show<Q> =\n" +
+      "        show(q) = \"q\"\nrecord P = {x: Int}\nrecord Q = {n: Int}\n";
+    expect(fixed(group).startsWith(MAIN + "record P derives Eq = {x: Int}\nhonor\n")).toBe(true);
+    expect(compileFiles([["/main.hex", fixed(group)]]).diagnostics).toEqual([]);
+    // Several uses: every report moves the declaration above the earliest, with one set of edits.
+    const two = MAIN + "let a(t: T): Bool = t == t\nlet b(t: T): Bool = t == t\nrecord T = {n: Int}\n";
+    const reports = compileFiles([["/main.hex", two]]).diagnostics;
+    expect(reports).toHaveLength(2);
+    expect(reports[1]!.fixes).toEqual(reports[0]!.fixes);
+    expect(fixed(two)).toBe(MAIN + "record T derives Eq = {n: Int}\nlet a(t: T): Bool = t == t\nlet b(t: T): Bool = t == t\n");
+    // A file's own line ending; a `{---` banner is no doc comment, and stays.
+    const crlf = (MAIN + "let same(t: T): Bool = t == t\n\nrecord T = {n: Int}\n").replace(/\n/gu, "\r\n");
+    expect(fixed(crlf)).toBe((MAIN + "record T derives Eq = {n: Int}\n\nlet same(t: T): Bool = t == t\n").replace(/\n/gu, "\r\n"));
+    expect(fixed(MAIN + "let same(t: T): Bool = t == t\n{---------- banner -}\nrecord T = {n: Int}\n"))
+      .toBe(MAIN + "record T derives Eq = {n: Int}\nlet same(t: T): Bool = t == t\n{---------- banner -}\n");
   });
 
   test("the derivation fixit moves a declaration standing below the use above it", () => {
