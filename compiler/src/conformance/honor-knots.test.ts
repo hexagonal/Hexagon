@@ -167,6 +167,18 @@ describe("the honor group (§4.8)", () => {
     ]);
   });
 
+  test("a cycle through a constant names the constant: it is evaluated where it is declared", () => {
+    const constant = (body: string) => projectDiagnostics(MAIN + P + 'let origin: String = "${P({x = 1})}"\n' + body);
+    const advice = "`origin` is a constant, evaluated where it is declared, so it cannot use an instance whose honor uses it";
+    expect(constant("honor Show<P> =\n    show(p) = origin\n")).toEqual([
+      opening("Show<P>") + "`Show<P>`'s honor uses `origin` too — " + advice,
+    ]);
+    // Through a function, the constant is still what cannot move.
+    expect(constant("let describe(p: P): String = origin\nhonor Show<P> =\n    show(p) = describe(p)\n")).toEqual([
+      opening("Show<P>") + "`Show<P>`'s honor uses `describe`, which uses `origin` too — " + advice,
+    ]);
+  });
+
   test("each item declares its own binders", async () => {
     const exports = await runMain(MAIN +
       "union Tree2(a) = Tip(item: a) | Branch(kids: Forest(a))\n" +
@@ -220,6 +232,14 @@ describe("an honor group's own rows (§8)", () => {
       "an honor group holds honors only — let the function recurse by itself, and call it from the honor",
     ]);
     expect(projectDiagnostics(group("    let n: Int = 1\n"))).toEqual(["an honor group holds honors only"]);
+  });
+
+  test("an item written with the keyword is told once to drop it, and read as the item", async () => {
+    const keyword = "an honor group's items are honors written without the keyword — write this item without `honor`";
+    expect(projectDiagnostics(MAIN + P + "honor\n    honor Show<P> =\n        show(p) = \"P\"\n")).toEqual([keyword]);
+    expect(projectDiagnostics(MAIN + P + "honor\n    honor Show<P> = derive\n")).toEqual([keyword]);
+    expect(projectDiagnostics(MAIN + P + "honor\n    Eq<P> = derive\n    honor Show<P> =\n        show(p) = \"P\"\n" +
+      "let s(p: P): String = p.show()\n")).toEqual([keyword]);
   });
 
   test("a `widens` door is no item: it stands above the honor, outside the group", () => {
@@ -296,6 +316,35 @@ describe("derived instances (§4.8)", () => {
       "honor\n    Show<Ping> = derive\n    Show<Pong> = derive\n" +
       "export let shown: String = Ping({next = Some(Pong({back = None}))}).show()\n");
     expect(exports["shown"]).toBe("{next = Some({back = None})}");
+  });
+
+  test("the derivation fixit's edits move a declaration standing below the use above it", () => {
+    const fixed = (source: string): string => {
+      const [diagnostic] = compileFiles([["/main.hex", source]]).diagnostics;
+      const edits = [...diagnostic!.fixes![0]!.edits].sort((left, right) => right.span.start.offset - left.span.start.offset);
+      return edits.reduce(
+        (text, { span, replacement }) => text.slice(0, span.start.offset) + replacement + text.slice(span.end.offset),
+        source,
+      );
+    };
+    // The declaration, its doc comment and its blank line move together, and
+    // what the edits leave compiles clean.
+    const records = MAIN + "export let same(t: T): Bool = t == t\n\n{-- A thing. -}\n" +
+      "export record T derives Show = {n: Int}\n\nexport let x: Int = 1\n";
+    expect(fixed(records)).toBe(MAIN + "{-- A thing. -}\nexport record T derives (Show, Eq) = {n: Int}\n\n" +
+      "export let same(t: T): Bool = t == t\n\nexport let x: Int = 1\n");
+    expect(compileFiles([["/main.hex", fixed(records)]]).diagnostics).toEqual([]);
+    const unions = MAIN + "{-- Ordered. -}\nexport let less(a: T, b: T): Bool = a < b\n\n" +
+      "export union T =\n    | A\n    | B(Int)\n";
+    expect(fixed(unions)).toBe(MAIN + "export union T derives (Eq, Ord) =\n    | A\n    | B(Int)\n\n" +
+      "{-- Ordered. -}\nexport let less(a: T, b: T): Bool = a < b\n");
+    expect(compileFiles([["/main.hex", fixed(unions)]]).diagnostics).toEqual([]);
+    // A derived component below, and a declaration already above: the clause alone.
+    const component = MAIN + "record Box derives Show = {value: Thing}\nrecord Thing = {n: Int}\n";
+    expect(fixed(component)).toBe(MAIN + "record Thing derives Show = {n: Int}\nrecord Box derives Show = {value: Thing}\n");
+    expect(compileFiles([["/main.hex", fixed(component)]]).diagnostics).toEqual([]);
+    expect(fixed(MAIN + "export record T = {n: Int}\nexport let same(t: T): Bool = t == t\n"))
+      .toBe(MAIN + "export record T derives Eq = {n: Int}\nexport let same(t: T): Bool = t == t\n");
   });
 
   test("the derivation fixit moves a declaration standing below the use above it", () => {
@@ -621,5 +670,81 @@ describe("the knot's colours (Effects §13.3, §3.4)", () => {
       expect(colours(run(`            let g = ${merge}\n            g!(B({ m = 1 }))\n`, below)))
         .toEqual([wants(".run"), wants("run")]);
     }
+  });
+});
+
+describe("where §8's honor-order reports stand", () => {
+  /** Each report with the text under its primary span and under each label. */
+  const located = (source: string) =>
+    compileFiles([["/main.hex", source]]).diagnostics.map(({ message, primary, labels }) => ({
+      message,
+      at: source.slice(primary.start.offset, primary.end.offset),
+      labels: (labels ?? []).map(({ span }) => source.slice(span.start.offset, span.end.offset)),
+    }));
+  const atUse = (at: string, honor = "honor Show<P>") => ({ at, labels: [honor] });
+  const spans = (source: string) => located(source).map(({ at, labels }) => ({ at, labels }));
+
+  test("a member call at its member name, in every spelling; interpolation; evidence at the generic call", () => {
+    expect(spans(MAIN + P +
+      "let a(p: P): String = p.show()\n" +
+      "let b(p: P): String = Show.show(p)\n" +
+      "let c(p: P): String = show(p)\n" +
+      'let d(p: P): String = "${p}"\n' +
+      "fun describe<x: Show>(v: x): String = v.show()\n" +
+      "let e(p: P): String = describe(p)\n" + SHOW_P)).toEqual([
+      atUse("show"),
+      atUse("Show.show"),
+      atUse("show"),
+      atUse("${p}"),
+      atUse("describe"),
+    ]);
+  });
+
+  test("an operator at the operation, a `for` head at what it iterates", () => {
+    expect(spans(MAIN + P + "let same(p: P): Bool = p == p\n" + EQ_P)).toEqual([atUse("p == p", "honor Eq<P>")]);
+    expect(spans(MAIN + "record Bag = { items: Vector(Int) }\n" +
+      "let total(b: Bag): Int =\n    var sum = 0\n    for n in b do\n        sum := sum + n\n    sum\n" +
+      "honor Iterable<Bag> =\n    type Item = Int\n    toSeq(b) = b.items.toSeq()\n"))
+      .toEqual([atUse("b", "honor Iterable<Bag>")]);
+  });
+
+  test("an extending honor at its whole head, its closing `>` included", () => {
+    const ord = "honor Ord<P> =\n    compare(a, b) = a.x.compare(b.x)\n";
+    expect(spans(MAIN + P + ord + EQ_P)).toEqual([atUse("honor Ord<P>", "honor Eq<P>")]);
+    expect(spans(MAIN + "record Box(a) = {v: a}\n" +
+      "honor<a: Ord> Ord<Box(a)> =\n    compare(x, y) = x.v.compare(y.v)\n" +
+      "honor<a: Eq> Eq<Box(a)> =\n    equals(x, y) = x.v == y.v\n"))
+      .toEqual([atUse("honor<a: Ord> Ord<Box(a)>", "honor<a: Eq> Eq<Box(a)>")]);
+  });
+
+  test("a derived instance's component at its `derives` entry or its `derive`", () => {
+    const source = MAIN + "record Box derives Show = {value: Thing}\nrecord Thing derives Show = {n: Int}\n";
+    expect(spans(source)).toEqual([{ at: "Show", labels: ["Show"] }]);
+    const [report] = compileFiles([["/main.hex", source]]).diagnostics;
+    // The entry of `Box`'s clause, and `Thing`'s entry as the related location.
+    expect(report!.primary.start.offset).toBe(source.indexOf("Show"));
+    expect(report!.labels![0]!.span.start.offset).toBe(source.lastIndexOf("Show"));
+    expect(spans(MAIN + "record Box = {value: Thing}\nhonor Show<Box> = derive\n" +
+      "record Thing = {n: Int}\nhonor Show<Thing> = derive\n"))
+      .toEqual([atUse("derive", "honor Show<Thing>")]);
+  });
+
+  test("a group's advice stands at the use, the cycle's other honor related", () => {
+    expect(spans(MAIN + P + "let describe(p: P): String = p.show()\n" + "honor Show<P> =\n    show(p) = describe(p)\n"))
+      .toEqual([atUse("show")]);
+  });
+
+  test("a narrowing in a body the knot holds stands at the pin, as a lone body's does, in either line order", () => {
+    const B = "record B = { m: Int }\nunion T = Leaf | Node(T)\nrecord Box = { g: (B) -> Int }\n" +
+      "constraint R<a> =\n    wrap(s: a, f: (B) ->! Int) ->! Box\nhonor R<T> =\n    wrap(t, f) = match t with\n" +
+      "        Leaf => Box({ g = (b) => 0 })\n";
+    const held = "            let x = if True then f else (b: B) => k.wrap((c: B) => 1).g(b)\n";
+    const lone = located(MAIN + B + "        Node(k) => Box({ g = f })\n");
+    const before = located(MAIN + B + "        Node(k) =>\n            let y = Box({ g = f })\n" + held + "            y\n");
+    const after = located(MAIN + B + "        Node(k) =>\n" + held + "            Box({ g = f })\n");
+    for (const reports of [lone, before, after]) {
+      expect(reports.map(({ at }) => at)).toEqual(["Box({ g = f })"]);
+    }
+    expect(after[0]!.message).toBe(lone[0]!.message);
   });
 });

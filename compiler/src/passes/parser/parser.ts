@@ -385,15 +385,17 @@ interface ExternClassRows {
   readonly members: readonly Parsed.ExternFunDeclaration[];
 }
 
-/** Doc Comments §5: the head binds no name, so it documents nothing (#700). */
 /** Constraints §4.8's honor-group refusals (§8's rows, #1227). */
 const HONOR_GROUP_HOLDS_HONORS = "an honor group holds honors only";
 const EMPTY_HONOR_GROUP = "an honor group needs at least one honor";
+const HONOR_GROUP_ITEM_KEYWORD =
+  "an honor group's items are honors written without the keyword — write this item without `honor`";
 const HONOR_GROUP_HEAD_DOC =
   "documentation attaches to an honor group's instances, not to the group — move " +
   "it above the instance it describes, or make it an ordinary comment " +
   "(`{- ... -}`)";
 
+/** Doc Comments §5: the head binds no name, so it documents nothing (#700). */
 const FUN_BLOCK_HEAD_DOC =
   "documentation attaches to a `fun` block's members, not to the block — move " +
   "it above the member it describes, or make it an ordinary comment " +
@@ -3522,8 +3524,12 @@ class Parser {
         this.#reportUnattachedCatch();
         continue;
       }
-      if (this.#at("Less") || this.#at("UpperName")) {
-        const honor = this.#parseHonor(true);
+      if (this.#at("Less") || this.#at("UpperName") || (this.#at("Honor") && !this.#atHonorGroupHead())) {
+        // An item written with its keyword is still an honor: refused once,
+        // and read as the item it would be without it.
+        const keyword = this.#at("Honor");
+        if (keyword) this.#errorAt(this.#current().span, HONOR_GROUP_ITEM_KEYWORD);
+        const honor = this.#parseHonor(!keyword);
         this.#documentItem(start, honor);
         honors.push(honor);
         items.push(honor);
