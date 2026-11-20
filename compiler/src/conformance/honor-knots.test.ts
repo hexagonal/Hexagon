@@ -359,6 +359,27 @@ describe("derived instances (§4.8)", () => {
     expect(reports).toHaveLength(2);
     expect(reports[1]!.fixes).toEqual(reports[0]!.fixes);
     expect(fixed(two)).toBe(MAIN + "record T derives Eq = {n: Int}\nlet a(t: T): Bool = t == t\nlet b(t: T): Bool = t == t\n");
+    // Uses needing different constraints of one declaration: each report keeps
+    // its own `derives` text, moved above the earliest use, and following it
+    // alone answers that report.
+    const eq = "let a(x: T): Bool = x == x\n";
+    const ord = "let b(x: T, y: T): Bool = x < y\n";
+    for (const lets of [eq + ord, ord + eq]) {
+      const source = MAIN + lets + "record T = {n: Int}\n";
+      const mixed = compileFiles([["/main.hex", source]]).diagnostics;
+      expect(mixed).toHaveLength(2);
+      for (const report of mixed) {
+        const spelled = /add `derives ([^`]+)`/u.exec(report.message)![1]!;
+        const edits = [...report.fixes![0]!.edits].sort((left, right) => right.span.start.offset - left.span.start.offset);
+        const after = edits.reduce(
+          (text, { span, replacement }) => text.slice(0, span.start.offset) + replacement + text.slice(span.end.offset),
+          source,
+        );
+        expect(after.startsWith(`${MAIN}record T derives ${spelled} = {n: Int}\n`)).toBe(true);
+        expect(compileFiles([["/main.hex", after]]).diagnostics.map(({ message }) => message))
+          .not.toContain(report.message);
+      }
+    }
     // A file's own line ending; a `{---` banner is no doc comment, and stays.
     const crlf = (MAIN + "let same(t: T): Bool = t == t\n\nrecord T = {n: Int}\n").replace(/\n/gu, "\r\n");
     expect(fixed(crlf)).toBe((MAIN + "record T derives Eq = {n: Int}\n\nlet same(t: T): Bool = t == t\n").replace(/\n/gu, "\r\n"));

@@ -5739,13 +5739,13 @@ class Checker {
   readonly #declarationSpans = new Map<string, Source.Span>();
   /**
    * The derivation fixit's moves, by where the moved text starts: the earliest
-   * insertion point any report wants, and each report's edit list, rewritten to
-   * it at the module's close (`#settleDerivationMoves`).
+   * insertion point any report wants, and each report's own edits — its own
+   * `derives` text — rewritten to insert there at the module's close
+   * (`#settleDerivationMoves`).
    */
   readonly #derivationMoves = new Map<number, {
     at: number;
-    readonly lists: Diagnostics.Edit[][];
-    readonly edits: (at: number) => Diagnostics.Edit[];
+    readonly reports: { readonly list: Diagnostics.Edit[]; readonly edits: (at: number) => Diagnostics.Edit[] }[];
   }>();
   /** The use graph: each node's uses, honors and term references alike. */
   readonly #orderEdges = new Map<string, Set<string>>();
@@ -38277,27 +38277,26 @@ class Checker {
     const insertion = (moved.endsWith("\n") ? moved : `${moved}${eol}`) + (separated ? eol : "");
     const removal: Diagnostics.Edit = { span: file.span(removed.start, removed.end), replacement: "" };
     let move = this.#derivationMoves.get(from);
-    if (move === undefined) {
-      this.#derivationMoves.set(from, move = { at, lists: [], edits: (to) => [
-        { span: file.span(to, to), replacement: insertion },
-        removal,
-      ] });
-    }
+    if (move === undefined) this.#derivationMoves.set(from, move = { at, reports: [] });
     move.at = Math.min(move.at, at);
-    const edits = move.edits(at);
-    move.lists.push(edits);
-    return edits;
+    // Each report keeps its own `derives` text; only where it goes is shared.
+    const edits = (point: number): Diagnostics.Edit[] => [
+      { span: file.span(point, point), replacement: insertion },
+      removal,
+    ];
+    const list = edits(at);
+    move.reports.push({ list, edits });
+    return list;
   }
 
   /**
    * Each derivation fixit's move, settled once every use is reported: every
-   * report on one declaration moves it above the earliest of them, so the
-   * reports carry one set of edits and following any one leaves none behind.
+   * report on one declaration moves it above the earliest of them, each with
+   * its own `derives` text, so following any one leaves no use above it.
    */
   #settleDerivationMoves(): void {
     for (const move of this.#derivationMoves.values()) {
-      const edits = move.edits(move.at);
-      for (const list of move.lists) list.splice(0, list.length, ...edits);
+      for (const { list, edits } of move.reports) list.splice(0, list.length, ...edits(move.at));
     }
     this.#derivationMoves.clear();
   }
