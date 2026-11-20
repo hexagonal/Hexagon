@@ -403,7 +403,11 @@ or refuse, so the test reads neither; nor does it read the notes.
   begins a line of its own (F3). The opening bracket has a line to join,
   and the closing bracket has none: at the end of the last item's line it
   would leave that item no trailing comma (H8), and nothing would show
-  where the value ends. A value that begins otherwise, such as
+  where the value ends. An item of a list or of a block, and an arm's
+  pattern, has no line that introduces it, so it begins a line of its
+  own, its opening bracket with it, and that bracket may stand alone
+  there: one item to a line comes first (Canonical Layout §5.2, §9.4).
+  A value that begins otherwise, such as
   `Map.fromVector([`, has more than a bracket on its first line, and runs
   on beneath its `=` as H5 says (H5's example); so does a value whose
   first brackets open and close on one line, such as `(a + b)` carried on
