@@ -256,3 +256,125 @@ test("a field and a companion operation at a tower-spelled dot: the collision al
   expect(projectDiagnostics(baz + "let probe: BigInt = z1.add(z2).gcd(z3)\n")).toEqual([collision]);
   expect(projectDiagnostics(baz + "let probe: BigInt = (z1.add(z2): Baz).gcd(z3)\n")).toEqual([collision]);
 });
+
+/**
+ * A companion this call site cannot reach in any spelling is still a claimant
+ * — the candidate set does not depend on order (§4.4) — but it is named as
+ * fact, and no call is offered for it (§6: every spelling the refusal names is
+ * one the next compile accepts). The field's rewrite is the offer, applied and
+ * run.
+ */
+describe("a companion with no spelling at the call site", () => {
+  const RECORD = "export record Box = {size: Int, grow: (Int) -> Int}\n" +
+    "export let mk(): Box = Box({size = 1, grow = (n) => n + 1})\n";
+  const unwritable = (fact: string, field = `\`(${SUBJECT}.grow)(…)\` for the field`) =>
+    `\`grow\` after a dot is ambiguous at \`Box\`: a field \`grow\`, a companion operation \`grow\`, ${fact}; ` +
+    `write ${field}`;
+
+  test("declared below the call: named as fact, the field offered", async () => {
+    const below = "export let grow(b: Box, n: Int): Int = 1000 + n\n";
+    expect(projectDiagnostics(MAIN + RECORD + "export let r: Int = mk().grow(5)\n" + below))
+      .toEqual([unwritable("declared below this call")]);
+    const exports = await runProject([["/main.hex", MAIN + RECORD + "export let r: Int = (mk().grow)(5)\n" + below]]);
+    expect(exports.r).toBe(6);
+  });
+
+  test("a non-callable field, with a member of another name honored: the bare access offered", async () => {
+    const program = (line: string) => MAIN + "export constraint Grows<c> =\n    grow(x: c) -> Int\n\n" +
+      "export record Box = {size: Int}\nhonor Grows<Box> =\n    grow(b) = 1000\n" + line +
+      "export let size(b: Box): Int = 7\n";
+    expect(projectDiagnostics(program("export let r: Int = Box({size = 1}).size()\n"))).toEqual([
+      "`size` after a dot is ambiguous at `Box`: a field `size`, a companion operation `size`, " +
+        `declared below this call; write \`${SUBJECT}.size\` to access the field`,
+    ]);
+    const exports = await runProject([["/main.hex", program("export let r: Int = Box({size = 1}).size\n")]]);
+    expect(exports.r).toBe(1);
+  });
+
+  test("the `let` whose own right-hand side holds the call: named as fact, the field offered", async () => {
+    expect(projectDiagnostics(MAIN + RECORD + "export let grow(b: Box, n: Int): Int = b.grow(n)\n"))
+      .toEqual([unwritable("which this `let` is defining")]);
+    const exports = await runProject([["/main.hex", MAIN + RECORD +
+      "export let grow(b: Box, n: Int): Int = (b.grow)(n)\nexport let r: Int = grow(mk(), 5)\n"]]);
+    expect(exports.r).toBe(6);
+  });
+
+  test("the `widens` door whose own right-hand side holds the call: named as fact, the field offered", async () => {
+    const program = (call: string) => [
+      ["/lib.hex", "module Lib\n\nexport constraint R<a> =\n    tag(s: a, n: Int) -> String\n"],
+      ["/main.hex", MAIN + "import Lib\n\nexport record P = {name: String, tag: (Int) -> String}\n" +
+        `widens Lib.tag(s: P, n: BigInt): String = if n == 0n then s.name else ${call}\n` +
+        "honor Lib.R<P> =\n    tag = widened\n" +
+        'export let r: String = Lib.tag(P({name = "n", tag = (k) => "field"}), 1)\n'],
+    ] as const;
+    expect(messages(program("s.tag(0)"))).toEqual([
+      "`tag` after a dot is ambiguous at `P`: a field `tag`, a companion operation `tag`, " +
+        `which this \`widens\` door is defining; write \`(${SUBJECT}.tag)(…)\` for the field`,
+    ]);
+    const exports = await runProject(program("(s.tag)(0)"));
+    expect(exports.r).toBe("field");
+  });
+
+  test("inside the caller's own `fun` block the spelling by name is legal, and is offered", async () => {
+    const program = (call: string) => MAIN + RECORD +
+      `export fun grow(b: Box, n: Int): Int = if n > 100 then n else ${call}\nexport let r: Int = grow(mk(), 5)\n`;
+    expect(projectDiagnostics(program("b.grow(n)"))).toEqual([
+      `\`grow\` after a dot is ambiguous at \`Box\`: a field \`grow\`, a companion operation \`grow\`; ` +
+        `write \`grow(…)\` for the companion operation, or \`(${SUBJECT}.grow)(…)\` for the field`,
+    ]);
+    const exports = await runProject([["/main.hex", program("grow(b, n * 10)")]]);
+    expect(exports.r).toBe(500);
+    const field = await runProject([["/main.hex", program("(b.grow)(n)")]]);
+    expect(field.r).toBe(6);
+  });
+
+  test("from another file the whole exported surface is reached: the companion is offered", () => {
+    expect(messages([
+      ["/lib.hex", "module Lib\n\n" + RECORD + "export let probe: Int = 0\nexport let grow(b: Box, n: Int): Int = 1000 + n\n"],
+      ["/main.hex", MAIN + "import Lib\n\nexport let r: Int = Lib.mk().grow(5)\n"],
+    ])).toEqual([callable("Lib.grow", "`Lib.grow(…)`")]);
+  });
+});
+
+/**
+ * The field's rewrite is a call of the stored function, and keeps the written
+ * call's mark: `s.next!()` is `(s.next)!()`, never `(s.next)()`, which the
+ * effect check refuses.
+ */
+test("a marked dot call: the field's rewrite carries the mark", async () => {
+  const program = (line: string) => MAIN + "export record St = {next: () ->! Int}\n" +
+    "export let next(s: St): Int = 1\n" + line +
+    "export let main(): Int = go!(St({next = () => 41}))\n";
+  expect(projectDiagnostics(program("export let go(s: St): Int = s.next!()\n"))).toEqual([
+    "`next` after a dot is ambiguous at `St`: a field `next`, a companion operation `next`; " +
+      `write \`next(…)\` for the companion operation, or \`(${SUBJECT}.next)!(…)\` for the field`,
+  ]);
+  const exports = await runProject([["/main.hex", program("export let go(s: St): Int = (s.next)!()\n")]]);
+  expect((exports.main as () => unknown)()).toBe(41);
+});
+
+/**
+ * A companion binding refused for a member's spelling is no claimant to §9
+ * row 16's scope either: dispatch and the rung refusal count claimants in one
+ * place, so the field alone answers and the row's ascription is offered.
+ */
+test("a refused companion binding at a tower-spelled dot: the field alone, and row 16", () => {
+  const baz = MAIN + "export constraint G<c> =\n    gcd(x: c) -> Int\n\n" +
+    "export record Baz = {n: Int, gcd: (Baz) -> BigInt}\n" +
+    "export let gcd(left: Baz, right: Baz): BigInt = 5n\n" +
+    "honor Num<Baz> =\n" +
+    "    add(left, right) = Baz({n = left.n + right.n, gcd = left.gcd})\n" +
+    "    multiply(left, right) = Baz({n = left.n * right.n, gcd = left.gcd})\n" +
+    "    fromNat(value) = Baz({n = Int.fromNat(value), gcd = other => 0n})\n" +
+    "let z1: Baz = Baz({n = 4, gcd = other => 1n})\n" +
+    "let z2: Baz = Baz({n = 6, gcd = other => 1n})\n" +
+    "let z3: Baz = Baz({n = 8, gcd = other => 1n})\n";
+  const rebinding = "`gcd` is already bound (line 4); Hexagon does not allow rebinding — choose a different name";
+  expect(projectDiagnostics(baz + "let probe: BigInt = z1.add(z2).gcd(z3)\n")).toEqual([
+    rebinding,
+    "`gcd` is a member of `Integral` and `BigInt` honors `Integral`, so the `BigInt` here reached the receiver " +
+      "`z1.add(z2)`; `z1` is a `Baz` and cannot enter `BigInt`, so the addition could not run at `BigInt`; " +
+      "to keep `z1.add(z2)` at `Baz`, ascribe it — `(z1.add(z2): Baz)` — or bind it first",
+  ]);
+  expect(projectDiagnostics(baz + "let probe: BigInt = (z1.add(z2): Baz).gcd(z3)\n")).toEqual([rebinding]);
+});

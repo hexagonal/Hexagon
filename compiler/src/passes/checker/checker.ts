@@ -4054,6 +4054,13 @@ type ClaimantSpelling =
   | { readonly kind: "spelled"; readonly text: string; readonly route?: string }
   | { readonly kind: "fact"; readonly module: string; readonly reason: "unexported" | "unimportable" };
 
+/** How a dot refusal names a companion this call site has no spelling of (Method Syntax §4.4, §6). */
+const UNWRITABLE_COMPANION: Readonly<Record<"below" | "defining" | "door", string>> = {
+  below: "declared below this call",
+  defining: "which this `let` is defining",
+  door: "which this `widens` door is defining",
+};
+
 interface MemberCandidate {
   /** The constraint's declared name — also the qualified home a fixit spells. */
   readonly constraint: string;
@@ -9759,7 +9766,7 @@ class Checker {
       actual = this.#prune(receiver);
       claimants = this.#dotClaimants(actual, name, callee, expression.arguments);
     }
-    const { field, operation, scheme, unreachable, claimed, members } = claimants;
+    const { field, operation, scheme, unreachable, claimed, members, companionClaims, rivals, unwritable } = claimants;
     const recordHasField = field !== undefined;
     const operationHome = operation === undefined ? undefined : this.#operationHomes.get(operation.id);
     if (operationHome !== undefined && this.#forbiddenProviderPaths.has(operationHome.path)) {
@@ -9777,16 +9784,23 @@ class Checker {
     // outside its home), and the operation only where it is exported (§4.2's
     // "exported only, uniformly", the home module included).
     const local = operationHome !== undefined && operationHome.path === this.#modulePath;
-    // A companion binding this module already refused for wearing a member's
-    // spelling is no claimant: its own report is the cause, and the dot
-    // would name the same spelling twice (one report per cause).
-    const refused = operation !== undefined && local && this.#memberSpellingRefusals().has(operation.id);
-    const companionClaims = operation !== undefined && !refused;
-    if ((recordHasField ? 1 : 0) + (companionClaims ? 1 : 0) + members.length > 1) {
+    // A companion binding this module refused for wearing a member's
+    // spelling is no claimant, and is not counted (`#dotClaimants`).
+    if (rivals > 1) {
       this.#dotCallArguments(expression, level);
       return this.#unsupported(
         callee.field.span,
-        this.#dotAmbiguity(actual, name, field, companionClaims ? operation : undefined, operationHome, local, members),
+        this.#dotAmbiguity(
+          actual,
+          name,
+          field,
+          companionClaims ? operation : undefined,
+          operationHome,
+          local,
+          members,
+          unwritable,
+          writtenCallMark(expression),
+        ),
       );
     }
     if (members.length > 0) {
@@ -9880,6 +9894,16 @@ class Checker {
     readonly scheme: Scheme | undefined;
     /** §4.4's reason this call site cannot reach the export (rows 12–13). */
     readonly unreachable: string | undefined;
+    /** Whether the operation is a claimant: not a binding this module refused for a member's spelling. */
+    readonly companionClaims: boolean;
+    /** How many claimants answer the dot — field, companion operation, members; §6 refuses more than one. */
+    readonly rivals: number;
+    /**
+     * Why this call site has no spelling of the operation at all (§6's fact
+     * claimant): declared below it, or the `let` (or `widens` door) whose own
+     * right-hand side holds it.
+     */
+    readonly unwritable: "below" | "defining" | "door" | undefined;
     /** Every honored member of the name, before the carves — §9 row 4 quotes it. */
     readonly claimed: readonly MemberCandidate[];
     /** The members that remain a claimant: subject-first, `widens` carved, ownership added. */
@@ -9924,22 +9948,46 @@ class Checker {
     const owned = claimed.length > 0
       ? undefined
       : this.#ownedTowerMember(actual, name);
+    const scheme = operation === undefined ? undefined : this.#schemes.get(operation.id);
+    // A candidate that exists but this call site may not reach is never
+    // reported as a missing operation — that claim would be false (§4.4,
+    // §9 rows 12–13).
+    const unreachable = operation === undefined
+      ? undefined
+      : this.#dotCallReachability(operation, callee, argumentExpressions, actual);
+    const members = operation?.widens === true
+      ? []
+      : owned === undefined
+      ? claimed.filter(({ subjectFirst }) => subjectFirst)
+      : [owned];
+    // A companion binding this module already refused for wearing a member's
+    // spelling is no claimant: its own report is the cause, and the dot
+    // would name the same spelling twice (one report per cause).
+    const home = operation === undefined ? undefined : this.#operationHomes.get(operation.id);
+    const local = home !== undefined && home.path === this.#modulePath;
+    const companionClaims = operation !== undefined &&
+      !(local && this.#memberSpellingRefusals().has(operation.id));
     return {
       field,
       operation,
-      scheme: operation === undefined ? undefined : this.#schemes.get(operation.id),
-      // A candidate that exists but this call site may not reach is never
-      // reported as a missing operation — that claim would be false (§4.4,
-      // §9 rows 12–13).
-      unreachable: operation === undefined
+      scheme,
+      unreachable,
+      companionClaims,
+      rivals: (field === undefined ? 0 : 1) + (companionClaims ? 1 : 0) + members.length,
+      unwritable: operation === undefined
         ? undefined
-        : this.#dotCallReachability(operation, callee, argumentExpressions, actual),
+        : unreachable !== undefined
+        // Unreachable is declared below the call, or in the caller's own
+        // `fun` block — the one seat where the spelling by name is legal
+        // (§4.4), so there the companion keeps its offer.
+        ? this.#funGroups.some((group) => group.has(operation.id)) ? undefined : "below"
+        // A scheme still missing past the reachability test is the operation
+        // whose own right-hand side this call sits in (`#dispatchDotCall`).
+        : scheme === undefined
+        ? this.#orderDoorSymbols.has(operation.id) ? "door" : "defining"
+        : undefined,
       claimed,
-      members: operation?.widens === true
-        ? []
-        : owned === undefined
-        ? claimed.filter(({ subjectFirst }) => subjectFirst)
-        : [owned],
+      members,
     };
   }
 
@@ -9971,10 +10019,8 @@ class Checker {
     callee: Resolved.AccessExpr,
     argumentExpressions: readonly Resolved.Expr[],
   ): boolean {
-    const { field, operation, scheme, unreachable, members } = this
+    const { field, operation, scheme, unreachable, members, rivals } = this
       .#dotClaimants(actual, name, callee, argumentExpressions);
-    const rivals = (field === undefined ? 0 : 1) +
-      (operation === undefined ? 0 : 1) + members.length;
     // More than one claimant is §6's refusal, its own report (#292).
     if (rivals > 1) return false;
     if (members.length > 0) return members[0]!.identity !== identity;
@@ -10396,28 +10442,41 @@ class Checker {
     operationHome: ProgramOperation | undefined,
     local: boolean,
     members: readonly MemberCandidate[],
+    unwritable: "below" | "defining" | "door" | undefined,
+    mark: string,
   ): string {
     const minted = new Set<string>();
     const memberSpellings = members.map((member) => this.#memberSpelling(member, minted));
-    const companion = operation === undefined ? undefined : this.#claimantSpelling(operation.id, name, {
-      local,
-      path: operationHome?.path,
-      fallback: companionHeadName(actual) ?? this.#display(actual),
-    }, minted);
+    // A companion this call site cannot reach in any spelling — declared below
+    // it, or the very binding whose right-hand side holds it — is still a
+    // claimant (§4.4: the candidate set does not depend on order), named as
+    // fact with no spelling offered for it (§6).
+    const companion = operation === undefined || unwritable !== undefined
+      ? undefined
+      : this.#claimantSpelling(operation.id, name, {
+        local,
+        path: operationHome?.path,
+        fallback: companionHeadName(actual) ?? this.#display(actual),
+      }, minted);
     const claimants = [
       ...(field === undefined ? [] : [`a field \`${name}\``]),
-      ...(companion === undefined
+      ...(operation === undefined
         ? []
+        : companion === undefined
+        ? [`a companion operation \`${name}\`, ${UNWRITABLE_COMPANION[unwritable!]}`]
         : [companion.kind === "spelled"
           ? `a companion operation \`${companion.text}\``
           : `a companion operation \`${name}\`${this.#claimantFact(companion)}`]),
       ...members.map((member, index) => this.#memberClaimant(member, memberSpellings[index]!)),
     ];
     const companionCall = companion === undefined ? undefined : this.#offeredCall(companion);
+    // The field is called with the written call's own mark: the mark belongs
+    // to the call of the stored function, which is the call the field's
+    // rewrite keeps (`s.next!()` is `(s.next)!()`).
     const fieldRewrite = field === undefined
       ? undefined
       : this.#prune(field).kind === "Function"
-      ? `\`(…​.${name})(…)\` for the field`
+      ? `\`(…​.${name})${mark}(…)\` for the field`
       : `\`…​.${name}\` to access the field`;
     return `\`${name}\` after a dot is ambiguous at \`${this.#display(actual)}\`: ` +
       this.#ambiguityClaimants(claimants, memberSpellings, [
@@ -47973,6 +48032,12 @@ function markParts(mark: Resolved.CallMark | undefined): Record<Axis, boolean> {
 /** The mark with these parts, as source text. */
 function markSpelling(parts: Readonly<Record<Axis, boolean>>): string {
   return parts.world ? parts.fail ? "!" : "~" : parts.fail ? "^" : "";
+}
+
+/** A call's written mark as source text: `!`, `~`, `^`, or a reading's `?` or `~?`; `""` for none. */
+function writtenCallMark(call: Resolved.CallExpr): string {
+  const parts = markParts(call.mark);
+  return call.reading === true && parts.fail ? (parts.world ? "~?" : "?") : markSpelling(parts);
 }
 
 /** The mark with these parts, in a report's words. */
