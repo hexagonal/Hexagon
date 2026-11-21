@@ -655,7 +655,7 @@ describe("every claimant of a dot refusal is named, with a spelling or as fact (
       "export record Box derives (Eq, Ord) = {max: Int}\n" +
       "export let r: Box = Box({max = 1}).max(Box({max = 2}))\n"]])).toEqual([
       "`max` after a dot is ambiguous at `Box`: a field `max`, `Ord`'s member `max`; write " +
-        "`import Ord as Ord_1`, then `Ord_1.max(…)`, or `(…​.max)` for the field",
+        "`import Ord as Ord_1`, then `Ord_1.max(…)`, or `…​.max` to access the field",
     ]);
     const exports = await runProject([LIB, ["/main.hex", MAIN + "import Lib as Ord\nimport Ord as Ord_1\n\n" +
       "export record Box derives (Eq, Ord) = {max: Int}\n" +

@@ -9770,46 +9770,30 @@ class Checker {
         `\`${name}\` ${dataSeatRefusal(provider)}`,
       );
     }
+    // Method Syntax §6: any two of {a visible field, an exported companion
+    // operation, an honored member} claiming the fused form is one refusal,
+    // naming every claimant with its spelling (#292). The field is in `field`
+    // only where it is visible here (§4.3: an `opaque` type's fields are not,
+    // outside its home), and the operation only where it is exported (§4.2's
+    // "exported only, uniformly", the home module included).
+    const local = operationHome !== undefined && operationHome.path === this.#modulePath;
+    // A companion binding this module already refused for wearing a member's
+    // spelling is no claimant: its own report is the cause, and the dot
+    // would name the same spelling twice (one report per cause).
+    const refused = operation !== undefined && local && this.#memberSpellingRefusals().has(operation.id);
+    const companionClaims = operation !== undefined && !refused;
+    if ((recordHasField ? 1 : 0) + (companionClaims ? 1 : 0) + members.length > 1) {
+      this.#dotCallArguments(expression, level);
+      return this.#unsupported(
+        callee.field.span,
+        this.#dotAmbiguity(actual, name, field, companionClaims ? operation : undefined, operationHome, local, members),
+      );
+    }
     if (members.length > 0) {
-      const minted = new Set<string>();
-      const memberSpellings = members.map((member) => this.#memberSpelling(member, minted));
-      const local = operationHome !== undefined && operationHome.path === this.#modulePath;
-      // A companion binding this module already refused for wearing a member's
-      // spelling is no claimant: its own report is the cause, and the dot
-      // would name the same spelling twice (one report per cause).
-      const refused = operation !== undefined && local && this.#memberSpellingRefusals().has(operation.id);
-      const companion = operation === undefined || refused ? undefined : this.#claimantSpelling(operation.id, name, {
-        local,
-        path: operationHome?.path,
-        fallback: companionHeadName(actual) ?? this.#display(actual),
-      }, minted);
-      const claimants = [
-        ...(recordHasField ? [`a field \`${name}\``] : []),
-        ...(companion === undefined
-          ? []
-          : [companion.kind === "spelled"
-            ? `a companion operation \`${companion.text}\``
-            : `a companion operation \`${name}\`${this.#claimantFact(companion)}`]),
-        ...members.map((member, index) => this.#memberClaimant(member, memberSpellings[index]!)),
-      ];
-      if (claimants.length > 1) {
-        this.#dotCallArguments(expression, level);
-        const companionCall = companion === undefined ? undefined : this.#offeredCall(companion);
-        return this.#unsupported(
-          callee.field.span,
-          `\`${name}\` after a dot is ambiguous at \`${this.#display(actual)}\`: ` +
-            this.#ambiguityClaimants(claimants, memberSpellings, [
-              ...(companionCall === undefined ? [] : [`${companionCall} for the companion operation`]),
-              ...(recordHasField ? [`\`(…​.${name})\` for the field`] : []),
-            ]),
-        );
-      }
       this.#settleDeferredReceiver(callee.receiver, receiver);
       return this.#elaborateMemberCall(expression, callee, receiver, members[0]!, level, expected);
     }
-    // A visible field still wins the fused form outright, exactly as it did
-    // before members joined the candidate set. §6 makes field-versus-companion a
-    // hard error too; that half is its own issue and nothing here changes it.
+    // A visible field the sole claimant is a field call, as the structural row.
     if (recordHasField) return undefined;
     // A candidate whose scheme is still missing, having passed the
     // reachability test, is the operation whose own right-hand side this
@@ -9989,11 +9973,11 @@ class Checker {
   ): boolean {
     const { field, operation, scheme, unreachable, members } = this
       .#dotClaimants(actual, name, callee, argumentExpressions);
-    if (members.length > 0) {
-      const rivals = (field === undefined ? 0 : 1) +
-        (operation === undefined ? 0 : 1) + members.length;
-      return rivals === 1 && members[0]!.identity !== identity;
-    }
+    const rivals = (field === undefined ? 0 : 1) +
+      (operation === undefined ? 0 : 1) + members.length;
+    // More than one claimant is §6's refusal, its own report (#292).
+    if (rivals > 1) return false;
+    if (members.length > 0) return members[0]!.identity !== identity;
     if (field !== undefined) {
       const type = this.#prune(field);
       return type.kind === "Function" &&
@@ -10394,6 +10378,52 @@ class Checker {
   #memberClaimant(member: MemberCandidate, spelling: ClaimantSpelling): string {
     return `\`${member.constraint}\`'s member \`${member.member}\`` +
       this.#claimantFact(spelling, member.constraint);
+  }
+
+  /**
+   * Method Syntax §6's refusal at a nominal receiver, for any two or more of
+   * {a visible field, a companion operation, honored members}: every claimant
+   * with its spelling (`#claimantSpelling`), then the rewrites. The field's
+   * rewrite is conditional on its type (§6, §9 row 1): a function-typed field
+   * is called as `(…​.name)(…)`; any other is pointed at its bare access, since
+   * calling it is no fix.
+   */
+  #dotAmbiguity(
+    actual: Mono,
+    name: string,
+    field: Mono | undefined,
+    operation: Resolved.Symbol | undefined,
+    operationHome: ProgramOperation | undefined,
+    local: boolean,
+    members: readonly MemberCandidate[],
+  ): string {
+    const minted = new Set<string>();
+    const memberSpellings = members.map((member) => this.#memberSpelling(member, minted));
+    const companion = operation === undefined ? undefined : this.#claimantSpelling(operation.id, name, {
+      local,
+      path: operationHome?.path,
+      fallback: companionHeadName(actual) ?? this.#display(actual),
+    }, minted);
+    const claimants = [
+      ...(field === undefined ? [] : [`a field \`${name}\``]),
+      ...(companion === undefined
+        ? []
+        : [companion.kind === "spelled"
+          ? `a companion operation \`${companion.text}\``
+          : `a companion operation \`${name}\`${this.#claimantFact(companion)}`]),
+      ...members.map((member, index) => this.#memberClaimant(member, memberSpellings[index]!)),
+    ];
+    const companionCall = companion === undefined ? undefined : this.#offeredCall(companion);
+    const fieldRewrite = field === undefined
+      ? undefined
+      : this.#prune(field).kind === "Function"
+      ? `\`(…​.${name})(…)\` for the field`
+      : `\`…​.${name}\` to access the field`;
+    return `\`${name}\` after a dot is ambiguous at \`${this.#display(actual)}\`: ` +
+      this.#ambiguityClaimants(claimants, memberSpellings, [
+        ...(companionCall === undefined ? [] : [`${companionCall} for the companion operation`]),
+        ...(fieldRewrite === undefined ? [] : [fieldRewrite]),
+      ]);
   }
 
   /**

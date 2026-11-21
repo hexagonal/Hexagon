@@ -665,7 +665,7 @@ describe("duplicate claimants refuse, and never rank (§6, §9 row 6)", () => {
       "",
     ].join("\n"))).toEqual([
       "`show` after a dot is ambiguous at `Label`: a field `show`, `Show`'s " +
-      "member `show`; write `Show.show(…)`, or `(…​.show)` for the field",
+      "member `show`; write `Show.show(…)`, or `…​.show` to access the field",
     ]);
   });
 });
