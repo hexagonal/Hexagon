@@ -45,11 +45,10 @@ function elements(value: unknown): unknown[] {
  * Behaviour, not diagnostics, is what the headline case can be pinned by: before
  * the fix it compiled with zero diagnostics. Those tests execute.
  *
- * Two neighbouring rules are deliberately **not** exercised here, because the
- * fix does not touch them. §6's field/companion collision is still not a hard
- * error — a visible field wins and dispatch is never attempted — and dot call
- * still does not reach the compiler-**core** `Vector`/`Map`/`Set` inventories,
- * which arrives when `stdlib/Vector.hex` joins the prelude. What a built-in
+ * One neighbouring rule is deliberately **not** exercised here, because the
+ * fix does not touch it: dot call still does not reach the compiler-**core**
+ * `Vector`/`Map`/`Set` inventories, which arrives when `stdlib/Vector.hex` joins
+ * the prelude. What a built-in
  * receiver *does* reach is a companion module addressable under its own name
  * (§4.1, Collections Part 3 §7), pinned below because the Playground already
  * depends on it.
@@ -344,21 +343,21 @@ describe("what the fix leaves exactly as it was", () => {
   });
 
   /**
-   * A visible record field still wins the call form outright and companion
-   * dispatch is never attempted — today's behaviour, byte for byte. §6 makes this
-   * shape a hard error at the use site; enforcing it is a separate issue, and
-   * nothing here should be read as pinning the collision *rule*.
+   * A visible record field and a companion operation of the same name both
+   * claim the call form, and §6 refuses it at the use site, naming both with a
+   * spelling for each (#292) — the field no longer wins silently.
+   * `field-companion-collision.test.ts` pins the rule's spellings in full.
    */
-  test("a visible field still wins over a companion operation of the same name", async () => {
-    const main = await runProject([[
+  test("a visible field and a companion operation of the same name collide", () => {
+    expect(diagnostics([[
       "/main.hex",
       "module Main\n\n" + "export record Ruler = {size: (Int) -> Int}\n" +
       "export fun size(r: Ruler): Int = 99\n" +
       "export fun run(r: Ruler): Int = r.size(4)\n",
-    ]]);
-
-    const run = main["run"] as (r: { size: (n: number) => number }) => number;
-    expect(run({ size: (n) => n + 1 })).toBe(5);
+    ]])).toEqual([
+      "`size` after a dot is ambiguous at `Ruler`: a field `size`, a companion operation `size`; " +
+      "write `size(…)` for the companion operation, or `(…\u200b.size)(…)` for the field",
+    ]);
   });
 
   /**
