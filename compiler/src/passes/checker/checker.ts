@@ -10367,12 +10367,18 @@ class Checker {
    * An offered spelling as a refusal prints it: the call, with the subject seat
    * reading `…` — the offer names a spelling, not a call — and its import
    * first where it needs one. `undefined` for a claimant with no spelling.
+   *
+   * `mark` is the effect mark written on the refused dot call, copied onto
+   * every offer whatever mark each claimant needs (Rust's E0034 precedent,
+   * which copies a written `?` onto each candidate): the offer rewrites the
+   * call the programmer wrote, and a claimant that takes another mark is told
+   * so by the ordinary mark report once picked. `""` where none was written.
    */
-  #offeredCall(spelling: ClaimantSpelling): string | undefined {
+  #offeredCall(spelling: ClaimantSpelling, mark: string): string | undefined {
     if (spelling.kind === "fact") return undefined;
     return spelling.route === undefined
-      ? `\`${spelling.text}(…)\``
-      : `\`${spelling.route}\`, then \`${spelling.text}(…)\``;
+      ? `\`${spelling.text}${mark}(…)\``
+      : `\`${spelling.route}\`, then \`${spelling.text}${mark}(…)\``;
   }
 
   /** The fact a claimant with no spelling is named by, after its description. */
@@ -10469,17 +10475,18 @@ class Checker {
           : `a companion operation \`${name}\`${this.#claimantFact(companion)}`]),
       ...members.map((member, index) => this.#memberClaimant(member, memberSpellings[index]!)),
     ];
-    const companionCall = companion === undefined ? undefined : this.#offeredCall(companion);
-    // The field is called with the written call's own mark: the mark belongs
-    // to the call of the stored function, which is the call the field's
-    // rewrite keeps (`s.next!()` is `(s.next)!()`).
+    // Every offered call copies the written call's mark (`#offeredCall`): the
+    // field's rewrite keeps the call of the stored function (`s.next!()` is
+    // `(s.next)!()`), and the companion's and members' rewrites keep the
+    // written call too. A non-callable field's access is no call and takes none.
+    const companionCall = companion === undefined ? undefined : this.#offeredCall(companion, mark);
     const fieldRewrite = field === undefined
       ? undefined
       : this.#prune(field).kind === "Function"
       ? `\`(…​.${name})${mark}(…)\` for the field`
       : `\`…​.${name}\` to access the field`;
     return `\`${name}\` after a dot is ambiguous at \`${this.#display(actual)}\`: ` +
-      this.#ambiguityClaimants(claimants, memberSpellings, [
+      this.#ambiguityClaimants(claimants, memberSpellings, mark, [
         ...(companionCall === undefined ? [] : [`${companionCall} for the companion operation`]),
         ...(fieldRewrite === undefined ? [] : [fieldRewrite]),
       ]);
@@ -10490,13 +10497,15 @@ class Checker {
    * the members' offered spellings first, then the `others` (companion,
    * field). A claimant named as fact offers none (Method Syntax §6); where no
    * claimant has a spelling, the refusal says so rather than offering nothing.
+   * The members' offers carry `mark`, the refused call's written mark.
    */
   #ambiguityClaimants(
     claimants: readonly string[],
     memberSpellings: readonly ClaimantSpelling[],
+    mark: string,
     others: readonly string[],
   ): string {
-    const offered = memberSpellings.flatMap((spelling) => this.#offeredCall(spelling) ?? []);
+    const offered = memberSpellings.flatMap((spelling) => this.#offeredCall(spelling, mark) ?? []);
     const rewrites = [...(offered.length === 0 ? [] : [offered.join(" or ")]), ...others];
     return claimants.join(", ") + (rewrites.length === 0
       ? "; none of them has a spelling this module can write"
@@ -10537,7 +10546,7 @@ class Checker {
     const call = spelling === undefined || spelling.kind === "fact"
       ? undefined
       : spelling.route === undefined
-      ? `call it as ${this.#offeredCall(spelling)}`
+      ? `call it as ${this.#offeredCall(spelling, "")}`
       : this.#callInstruction(spelling);
     return `\`${display}\` has no field \`${name}\`, its companion exports no ` +
       `operation \`${name}\`, and no constraint whose instance at \`${display}\` is ` +
@@ -10575,6 +10584,7 @@ class Checker {
           this.#ambiguityClaimants(
             members.map((member, index) => this.#memberClaimant(member, spellings[index]!)),
             spellings,
+            writtenCallMark(expression),
             [],
           ),
       );

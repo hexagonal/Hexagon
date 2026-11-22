@@ -409,6 +409,14 @@ describe("the dot refusal names only writable spellings (Method Syntax §6, #107
       .toEqual([ambiguous("`import Lib`, then `Lib.trim(…)`")]);
   });
 
+  test("a marked call: the import-first offer and the companion's both copy the written mark", () => {
+    expect(messages([LIB, MID, ["/main.hex", MAIN + "import Mid\n\nlet t = \"ab\".trim^()\n"]])).toEqual([
+      "`trim` after a dot is ambiguous at `String`: a companion operation `String.trim`, " +
+        "`Sized`'s member `trim`; write `import Lib`, then `Lib.trim^(…)`, or `String.trim^(…)` for the " +
+        "companion operation",
+    ]);
+  });
+
   test("every spelling offered compiles, and means its claimant", async () => {
     const exports = await runProject([LIB, MID, ["/main.hex", MAIN + "import Mid\nimport Lib\nimport Lib as L\n\n" +
       "export let member: String = Lib.trim(\"ab\")\n" +

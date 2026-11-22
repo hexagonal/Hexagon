@@ -522,6 +522,36 @@ describe("duplicate claimants refuse, and never rank (§6, §9 row 6)", () => {
     ]);
   });
 
+  /**
+   * Each offered member call copies the mark written on the refused call,
+   * whatever mark each member needs (the E0034 precedent): both members are
+   * pure here, and `~` is still copied onto both.
+   */
+  test("a marked call at a head-known receiver: every member offer copies the mark", () => {
+    expect(diagnostics([
+      ["/loud.hex", "module Loud\n\nexport constraint Loud<a> =\n    volume(value: a) -> Int\n"],
+      ["/soft.hex", "module Soft\n\nexport constraint Soft<a> =\n    volume(value: a) -> Int\n"],
+      ["/main.hex", "module Main\n\n" + [
+        "import Loud",
+        "import Soft",
+        "",
+        "export record Gauge = {needle: Int}",
+        "",
+        "honor Loud.Loud<Gauge> =",
+        "    volume(gauge) = gauge.needle",
+        "",
+        "honor Soft.Soft<Gauge> =",
+        "    volume(gauge) = 0 - gauge.needle",
+        "",
+        "let reading = Gauge({needle = 3}).volume~()",
+        "",
+      ].join("\n")],
+    ])).toEqual([
+      "`volume` after a dot is ambiguous at `Gauge`: `Loud`'s member `volume`, " +
+      "`Soft`'s member `volume`; write `Loud.volume~(…)` or `Soft.volume~(…)`",
+    ]);
+  });
+
   test("a binder carrying two same-spelled members refuses on the declared variable", () => {
     expect(diagnostics([
       ["/near.hex", "module Near\n\n" + [
@@ -544,6 +574,18 @@ describe("duplicate claimants refuse, and never rank (§6, §9 row 6)", () => {
     ])).toEqual([
       "`reach` after a dot is ambiguous on `a`: `Near`'s member `reach`, `Far`'s " +
       "member `reach`; write `Near.reach(…)` or `Far.reach(…)`",
+    ]);
+  });
+
+  test("a marked call on a declared variable: every member offer copies the mark", () => {
+    expect(diagnostics([
+      ["/near.hex", "module Near\n\nexport constraint Near<a> =\n    reach(value: a) -> Int\n"],
+      ["/far.hex", "module Far\n\nexport constraint Far<a> =\n    reach(value: a) -> Int\n"],
+      ["/main.hex", "module Main\n\nimport Near\nimport Far\n\n" +
+        "let span<a: (Near.Near, Far.Far)>(value: a) = value.reach?()\n"],
+    ])).toEqual([
+      "`reach` after a dot is ambiguous on `a`: `Near`'s member `reach`, `Far`'s " +
+      "member `reach`; write `Near.reach?(…)` or `Far.reach?(…)`",
     ]);
   });
 
