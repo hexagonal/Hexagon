@@ -17,7 +17,7 @@ Written for a future implementation session against the existing `hexc` architec
 
 - **`Eq<Float>.equals` is SameValueZero**: `NaN` equals `NaN`; `+0` equals `-0`; everything else as IEEE/`===`.
 - **`Ord<Float>.compare` is the total order consistent with that `Eq`**: IEEE ordering on all non-`NaN` values; `compare(+0, -0) = Equal`; all `NaN`s equal to each other; `NaN` sorts **after `+Infinity`** (greatest).
-- `Eq<Int>` and `Ord<Int>` are unaffected: under the f64-integer-invariant, `NaN`, `-0`-as-distinct, and infinities are never `Int` values, so bare `===` and native `<` remain exactly correct.
+- `Eq<Int>` and `Ord<Int>` are unaffected: under the f64-integer-invariant, `NaN`, `-0`-as-distinct, and infinities are never `Int` values, so bare `===` and native `<` remain exactly correct *(#1277: an `Int` may hold `-0`, Primitive Types §2.2, which the invariant does not exclude; `===` and `<` treat it as `0`, so it is never distinct inside `Int` and the conclusion stands)*.
 
 ### 1.2 Rationale (record this, not "JS says so")
 

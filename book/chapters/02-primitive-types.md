@@ -153,6 +153,10 @@ The choice of type determines which arithmetic the program performs.
 JavaScript boundary. The distinction lets Hexagon reject fractional values where whole
 numbers are required and give arithmetic the appropriate semantics. The generated
 TypeScript type cannot preserve that distinction; both appear as `number`.
+Sharing `number` also lets JavaScript's negative zero into an `Int`, from arithmetic
+such as `0 * -1`. If `n` holds it, `n == 0` is `True` and `n` displays as `0`, but
+`1.0 / n` gives negative infinity; write `1.0 / (n + 0.0)` to get the usual positive
+infinity.
 
 When you deliberately want a whole-number `Int`, use a named rounding operation:
 

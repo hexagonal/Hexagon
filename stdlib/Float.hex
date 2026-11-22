@@ -183,8 +183,8 @@ export let roundsToInt(value: Float): Bool =
 
 -- The crossing stays last: until the safe-integer predicate succeeds, the
 -- rounded value remains a `Float` and no invalid value inhabits `Int`. Zero is
--- normalized separately because `Number.isSafeInteger(-0)` is true, while the
--- integer world has one canonical zero.
+-- normalized separately because `Number.isSafeInteger(-0)` is true, and these
+-- exits promise canonical zero, which `Int` does not (Primitive Types §2.2).
 let checkedRoundedInt(message: String, value: Float): Int =
     if value == 0 then
         nativeToIntUnchecked(0)
