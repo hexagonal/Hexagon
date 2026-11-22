@@ -347,10 +347,57 @@ test("a marked dot call: the field's rewrite carries the mark", async () => {
     "export let main(): Int = go!(St({next = () => 41}))\n";
   expect(projectDiagnostics(program("export let go(s: St): Int = s.next!()\n"))).toEqual([
     "`next` after a dot is ambiguous at `St`: a field `next`, a companion operation `next`; " +
-      `write \`next(…)\` for the companion operation, or \`(${SUBJECT}.next)!(…)\` for the field`,
+      `write \`next!(…)\` for the companion operation, or \`(${SUBJECT}.next)!(…)\` for the field`,
   ]);
   const exports = await runProject([["/main.hex", program("export let go(s: St): Int = (s.next)!()\n")]]);
   expect((exports.main as () => unknown)()).toBe(41);
+});
+
+/**
+ * The written mark is copied onto every offered call, whatever mark each
+ * claimant needs (the owner's ruling, after Rust's E0034, which copies a
+ * written `?` onto each candidate): the offers rewrite the call the programmer
+ * wrote. A claimant that takes another mark is told so by the ordinary mark
+ * report once picked. The non-callable field's access is no call, and no mark
+ * rides on it.
+ */
+describe("a marked dot call: every offered call copies the written mark", () => {
+  const LIB = ["/lib.hex", "module Lib\n\n" +
+    "export record Box = {size: Int, grow: (Int) -> Int}\n" +
+    "export let grow(b: Box, n: Int): Int = 1000 + n\n" +
+    "export let size(b: Box): Int = 7\n" +
+    "export let mk(): Box = Box({size = 1, grow = (n) => n + 1})\n"] as const;
+  const LOUD = ["/loud.hex", "module Loud\n\nimport Lib\n\n" +
+    "export constraint Loud<a> =\n    grow(value: a, n: Int) -> Int\n\n" +
+    "honor Loud<Lib.Box> =\n    grow(b, n) = n\n"] as const;
+  const call = (line: string) => messages([LIB, LOUD, ["/main.hex", MAIN + "import Lib\nimport Loud\n\n" + line]]);
+  const three = (mark: string) =>
+    "`grow` after a dot is ambiguous at `Box`: a field `grow`, a companion operation `Lib.grow`, " +
+    `\`Loud\`'s member \`grow\`; write \`Loud.grow${mark}(…)\`, or \`Lib.grow${mark}(…)\` for the companion ` +
+    `operation, or \`(${SUBJECT}.grow)${mark}(…)\` for the field`;
+
+  test.each(["!", "~", "^", "?", "~?"])("`%s`: the member, the companion and the field all carry it", (mark) => {
+    expect(call(`let r = Lib.mk().grow${mark}(5)\n`)).toEqual([three(mark)]);
+  });
+
+  test("an unmarked call's offers carry no mark", () => {
+    expect(call("let r = Lib.mk().grow(5)\n")).toEqual([three("")]);
+  });
+
+  test("a mark wrong for every claimant is still copied: every claimant here is pure", () => {
+    expect(call("let r = Lib.mk().grow!(5)\n")).toEqual([
+      "`grow` after a dot is ambiguous at `Box`: a field `grow`, a companion operation `Lib.grow`, " +
+        "`Loud`'s member `grow`; write `Loud.grow!(…)`, or `Lib.grow!(…)` for the companion operation, " +
+        `or \`(${SUBJECT}.grow)!(…)\` for the field`,
+    ]);
+  });
+
+  test("the non-callable field's access takes no mark; the companion's call does", () => {
+    expect(call("let r = Lib.mk().size~?()\n")).toEqual([
+      "`size` after a dot is ambiguous at `Box`: a field `size`, a companion operation `Lib.size`; " +
+        `write \`Lib.size~?(…)\` for the companion operation, or \`${SUBJECT}.size\` to access the field`,
+    ]);
+  });
 });
 
 /**
