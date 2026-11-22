@@ -110,7 +110,7 @@ n == 0 -- True
 
 **Why accepted:** it is §2.1's position, silent and contract-documented, for §2.1's reason: it keeps plain JS operators, and so readable JS, at the most common expressions in the language. The colleagues are §2.1's too: Elm and Gleam on JavaScript keep `Int` a JS number with plain operators and an identity `Int`-to-`Float` conversion (elm/core's `Kernel/Basics.js`; gleam-lang/stdlib's `identity`).
 
-**Local rewrite:** a programmer who needs a positive zero after widening adds `0.0` at `Float`, as the last line above does: `-0.0 + 0.0` is `0.0`. Before an `Int` reaches JavaScript that must not see `-0`, `n + 0` does the same at `Int`, since §2.1 emits it as written.
+**Local rewrite:** a programmer who needs a positive zero after widening adds `0.0` at `Float`, as the last line above does: `-0.0 + 0.0` is `0.0`.
 
 **Rejected: normalising at the operations** (`0 - x` for negation, `x * y + 0`, `+ 0` after `quot` and `rem` and in `JsValue.toInt`). It gives up §2.1's plain JS operators at the most common expressions to hide a value nothing inside `Int` can see. The languages that have one zero this way get it free from the int32 `| 0` that §2.1 rejected.
 
