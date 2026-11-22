@@ -95,6 +95,29 @@ continues to return `None` instead and does not throw it.
 
 **Bitwise operations:** `Int` honors `Bitwise` (`bitwise.md`). `band`, `bor`, `bxor`, `bnot`, and the named shifts compute the true integer answer on the `number` representation, the answer `BigInt` gives for the same value — never the int32 projection JavaScript's operators apply. JavaScript's 32-bit view is two named lossy conversions, `Int.toInt32` (`x | 0`) and `Int.toUint32` (`x >>> 0`) (`bitwise.md` §4.3).
 
+### 2.2 Negative zero (decided)
+
+**An `Int` may hold JavaScript's `-0`, an accepted quirk (#1277).** One canonical zero is a promise about the results of §3's rounding exits, not an invariant of the type. `-0` arises from negating a zero (`-z`), from zero times a negative in either order, from `quot` (`0.quot(-1)`, `(-1).quot(5)`), `rem` (`(-5).rem(5)`), `mod` (`(-5).mod(5)`) and `div` (`0.div(-1)`), and from `JsValue.toInt` of `-0.0`, and it can arrive from JavaScript at a trusted `Int` position, since `Number.isSafeInteger` accepts it (FFI Part 1 §4.1); it can then pass through `abs`, `+`, `-`, `min`, `max`, `pow` and `gcd`, and `Nat.fromInt` accepts it, so a `Nat` can hold it too. The rounding exits (§3), `Int.parse` (`"-0"` reads as zero), `BigInt.toInt`, the bitwise operations and the shifts never produce it.
+
+**`==`, `<`, `compare`, `show`, interpolation, `hash`, and `Set` and `Map` membership all treat the zeros as one.** `Hash`'s `same` alone separates them, which is its job (Collections Part 2 §2.5). Otherwise it shows only where the value leaves `Int`: widened to `Float`, because the widening emits the bare value, so `1.0 / n` is `-Float.infinity`; and handed to JavaScript, where `Object.is(n, -0)` is `true`. So `n == m` can be `True` while `1.0 / n` and `1.0 / m` differ.
+
+```hexagon
+let n = 0 * -1 -- an Int holding -0
+n == 0 -- True
+1.0 / n -- -Float.infinity: the widening keeps the sign
+1.0 / (n + 0.0) -- Float.infinity
+```
+
+**Why accepted:** it is §2.1's position, silent and contract-documented, for §2.1's reason: it keeps plain JS operators, and so readable JS, at the most common expressions in the language. The colleague languages are §2.1's: Elm and Gleam on JavaScript keep `Int` a JS number with plain operators and an identity `Int`-to-`Float` conversion (elm/core's `Kernel/Basics.js`; gleam-lang/stdlib's `identity`).
+
+**Local rewrite:** a programmer who needs a positive zero after widening adds `0.0` at `Float`, as the last line above does: `-0.0 + 0.0` is `0.0`.
+
+**Rejected: normalising at the operations** (`0 - x` for negation, `x * y + 0`, `+ 0` after `quot` and `rem` and in `JsValue.toInt`). It gives up §2.1's plain JS operators at the most common expressions to hide a value nothing inside `Int` can see. The languages that have one zero this way get it free from the int32 `| 0` that §2.1 rejected.
+
+**Rejected: normalising at the widening** (`n + 0` where an `Int` becomes a `Float`). No colleague does it, and JavaScript that receives an `Int` still sees `-0`.
+
+Both rejections are decided (#1277); do not re-litigate without new information.
+
 ---
 
 ## 3. Float
@@ -141,9 +164,11 @@ rejects `NaN`, both infinities, and finite results outside
 `IntRangeFault("Float.<operation>: result does not fit in Int")`.
 `IntRangeFault` is declared by `stdlib/Int.hex`: the failed range belongs to the
 target type, just as `FloatRangeFault` belongs here and is thrown by doors in
-other companions. Every successful zero result is canonical `Int` zero; the
-sign bit of a floating negative zero never crosses into `Int` and cannot
-reappear if that result later widens to `Float`.
+other companions. Every successful zero result is canonical `Int` zero: the
+sign bit of a floating negative zero does not cross into `Int` through these
+exits, so it cannot reappear when their result widens to `Float`. One zero is a
+promise of these exits' results, not an invariant of `Int`, which other
+operations can leave holding `-0` (§2.2).
 
 These are explicit reinterpretations of the stored binary64 value, not implicit
 numeric conversions and not a deferred `Float.toInt`: the latter would, if it
@@ -406,6 +431,7 @@ Unchanged and still worth its ink here: **`Unit`'s `undefined` must not be confu
 | `Float.floor`/`ceil`/`trunc`/`round`/`roundAway` return `Int`; `round` uses ties to even, `roundAway` ties away from zero; unsafe results throw target-owned `IntRangeFault`; zero is canonical | this doc §3; #919, #974 |
 | The five share one edge: they throw exactly for `NaN`, the infinities and magnitudes past 2^53 − 1, and `Float.roundsToInt` tests it (range, not wholeness); no `Option` sibling and no rounding within `Float` | this doc §3; #1160 |
 | Int overflow: silent past ±2^53, plain-JS operators; checked stdlib variants; `--checked-int` reserved; int32/`\|0` rejected | this doc §2.1 |
+| `Int` may hold `-0`, an accepted quirk: invisible to `Eq`, `Ord`, `Show` and `hash`, shown after widening to `Float` and to JavaScript; one canonical zero is the rounding exits' promise, not the type's; normalising at the operations or at the widening rejected | this doc §2.2, §3; #1277 |
 | `Ord String` = codepoint lexicographic, permanent regardless of grapheme indexing; collation is stdlib, never Ord | this doc §5 |
 | Types uppercase-start; type variables non-uppercase-start (`a b c` by convention) | this doc §1; Lexer §3 |
 | Constraint inventories refreshed for `Pow`/`Concat`/`Hash`/`Integral`; owning specs govern instance sets; enumeration retained deliberately | this doc §11 (#137); Operators §6.3, §7; Collections Part 2 §2.5; Integral §3 |
