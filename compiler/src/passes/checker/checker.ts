@@ -14469,14 +14469,27 @@ class Checker {
           this.#receiverRoot = enclosingRoot;
           this.#forwardedReceiver = enclosingReceiver;
           this.#noteDotSite(expression.callee, receiver);
-          // A receiver that already refused under the face takes the call with
-          // it, whether it said so by marking itself — a forwarding form's part
-          // disagreement — or by typing as `Error`: dispatching on what the
-          // refusal left behind reports again.
+          // A receiver that already refused takes the call with it, whether it
+          // said so by marking itself — a forwarding form's part disagreement —
+          // or by typing as `Error`: dispatching on what the refusal left
+          // behind reports again. Nothing is known of the member the dot names
+          // on a receiver in error, so the call is in error too (#1631): it
+          // owes no mark, and its seat has nothing to compare. Handed to the
+          // ordinary application path it would read the member as a fresh
+          // function, pure and unable to fail, so a written mark drew "this
+          // call cannot fail", and a reading's `Option(a)` met its seat.
           if (
             this.#refusedReceivers.has(expression.callee.receiver) ||
-            (face !== undefined && this.#prune(receiver).kind === "Error")
+            this.#prune(receiver).kind === "Error"
           ) {
+            // A callee the ordinary application path would have elaborated
+            // still lowers as the member read it is written as.
+            if (
+              face === undefined && !this.#refusedReceivers.has(expression.callee.receiver) &&
+              this.#prune(receiver).kind === "Error"
+            ) {
+              this.#recordAccesses.set(expression.callee, expression.callee.field.text);
+            }
             this.#dotCallArguments(expression, level);
             // The abandonment has to carry, or it suppresses one level only.
             // This call is itself a receiver — `(n * 1.5).multiply(price)
@@ -15069,6 +15082,17 @@ class Checker {
           type = ERROR;
           break;
         }
+        // A field of a receiver already in error is in error too (#1631): its
+        // report was the receiver's, and nothing is known of the field. A
+        // fresh variable here would be a value of some type, and a call of it
+        // a pure call unable to fail, which a written mark contradicts.
+        // It still lowers as the member read it is written as, as it did when
+        // the field was a fresh variable.
+        if (inferredReceiver.kind === "Error") {
+          type = ERROR;
+          this.#recordAccesses.set(expression, expression.field.text);
+          break;
+        }
         const receiver = inferredReceiver.kind === "Record"
           ? this.#normalizeRecord(inferredReceiver)
           : inferredReceiver;
@@ -15174,12 +15198,10 @@ class Checker {
           break;
         }
         if (receiver.kind !== "Tuple") {
-          type = receiver.kind === "Error"
-            ? ERROR
-            : this.#unsupported(
-                expression.receiver.span,
-                `\`${this.#display(receiver)}\` is not a tuple`,
-              );
+          type = this.#unsupported(
+            expression.receiver.span,
+            `\`${this.#display(receiver)}\` is not a tuple`,
+          );
           break;
         }
         if (position > receiver.elements.length) {
