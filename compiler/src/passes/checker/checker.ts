@@ -15086,8 +15086,8 @@ class Checker {
         // report was the receiver's, and nothing is known of the field. A
         // fresh variable here would be a value of some type, and a call of it
         // a pure call unable to fail, which a written mark contradicts.
-        // It still lowers as the member read it is written as, as it did when
-        // the field was a fresh variable.
+        // It is recorded as the member read it is written as, tuple items
+        // included, so a host that lowers a module in error sees that read.
         if (inferredReceiver.kind === "Error") {
           type = ERROR;
           this.#recordAccesses.set(expression, expression.field.text);
