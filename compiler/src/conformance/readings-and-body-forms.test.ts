@@ -419,3 +419,82 @@ describe("Effects §3.1: a reading of a refused call reports once", () => {
     ]);
   });
 });
+
+/**
+ * A dot call on a receiver already in error is in error itself (#1631): the
+ * receiver's report is the one report. Nothing is known of the member the dot
+ * names, so the call owes no mark and its seat has nothing to compare. The
+ * member used to be read as a fresh function, pure and unable to fail, so a
+ * written mark drew "this call cannot fail" and a reading's `Option(a)` met a
+ * seat written `Int`; a receiver refused at a dot was refused a second time.
+ */
+describe("Effects §3.5: a dot call on a receiver in error reports once", () => {
+  const unknown = "unknown name `nosuch`";
+
+  test.each(["", "!", "~", "^", "?", "~?"])("`nosuch.bar%s(1)`, in a seat written `Int` and an unwritten one", (mark) => {
+    expect(reports(`let r(): Int = nosuch.bar${mark}(1)\nlet s() = nosuch.bar${mark}(1)\n`)).toEqual([
+      ["nosuch", unknown],
+      ["nosuch", unknown],
+    ]);
+  });
+
+  test.each(["", "!", "?", "~?"])("other receivers in error, marked `%s`", (mark) => {
+    expect(reports(
+      `let a(): Int = (nosuch.bar)${mark}(1)\n` +
+      `let b(): Int = nosuch().bar${mark}(1)\n` +
+      `let c(): Int = nosuch.a.b${mark}(1)\n` +
+      `let d(): Int = 1 |> nosuch.bar${mark}()\n`,
+    )).toEqual([
+      ["nosuch", unknown],
+      ["nosuch", unknown],
+      ["nosuch", unknown],
+      ["nosuch", unknown],
+    ]);
+  });
+
+  test("a field read on a receiver in error", () => {
+    expect(reports("let r(): Int = nosuch.bar\nlet s() = nosuch.item1\n")).toEqual([
+      ["nosuch", unknown],
+      ["nosuch", unknown],
+    ]);
+  });
+
+  test.each(["", "?", "!"])("a dot call refused at its receiver's dot, marked `%s`, is refused once", (mark) => {
+    expect(reports(
+      `record P = {n: Int}\nlet r(p: P): Int = p.zz().bar${mark}(1)\nlet u(v): Int = v.at(0).bar${mark}(1)\n`,
+    )).toEqual([
+      ["zz", "`P` has no field `zz`, its companion exports no operation `zz`, and no constraint whose instance " +
+        "at `P` is visible in this module has a subject-first member `zz`; call an available subject-first " +
+        "function explicitly"],
+      ["at", "the program's text does not decide `v`'s type here, so `.at(…)` cannot tell whose `at` it is — " +
+        "write `v`'s type, or call the operation by its module (`Module.at(v, …)`); a record's field is called " +
+        "as `(v.at)(…)`"],
+    ]);
+  });
+
+  test.each(["", "?", "~?"])("an ambiguous dot call as the receiver, marked `%s`", (mark) => {
+    const lib = "module Lib\n\nexport record Box = {size: Int}\nexport let size(b: Box): Int = 7\n";
+    expect(compileFiles([
+      ["/lib.hex", lib],
+      ["/main.hex", `module Main\n\nimport Lib\n\nlet w(b: Lib.Box): Int = b.size().bar${mark}(1)\n`],
+    ]).diagnostics.map(({ message }) => message)).toEqual([
+      "`size` after a dot is ambiguous at `Box`: a field `size`, a companion operation `Lib.size`; " +
+        "write `Lib.size(…)` for the companion operation, or `…​.size` to access the field",
+    ]);
+  });
+
+  test("an error of its own in an argument still reports, and the arguments are still checked", () => {
+    expect(reports(
+      "let r(): Int = nosuch.bar?(other)\nlet s() = nosuch.bar!(other)\nlet t(): Int = nosuch.bar?(x => x + \"s\")\n",
+    )).toEqual([
+      ["nosuch", unknown],
+      ["other", "unknown name `other`"],
+      ["nosuch", unknown],
+      ["other", "unknown name `other`"],
+      ["nosuch", unknown],
+      ["x + \"s\"", "no `Num<String>` instance is visible in this module; its only legal homes are the module " +
+        "declaring `Num` and `String`'s prelude companion module, both outside project source, so this pair's " +
+        "honored set is closed — change the type, or go through the operations those homes export"],
+    ]);
+  });
+});
