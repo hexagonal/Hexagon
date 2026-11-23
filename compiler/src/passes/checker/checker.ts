@@ -12919,6 +12919,14 @@ class Checker {
       this.#unifyExpected(inner, value, expression, expression.span);
       value = inner;
     }
+    // A call already refused, and so in error, is read in error too (#1628):
+    // its refusal is the one report, and whatever it was meant to call is
+    // unknown, so its seat has nothing to compare. `Option(<error>)` would be
+    // a structure, not the error, and its seat would report it a second time.
+    if (this.#prune(value).kind === "Error") {
+      this.#expressionTypes.set(expression, ERROR);
+      return ERROR;
+    }
     const type: Mono = { kind: "Union", union: this.#optionUnion, name: "Option", arguments: [value] };
     this.#expressionTypes.set(expression, type);
     return type;

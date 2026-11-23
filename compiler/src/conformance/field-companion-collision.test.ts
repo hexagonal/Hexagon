@@ -425,3 +425,56 @@ test("a refused companion binding at a tower-spelled dot: the field alone, and r
   ]);
   expect(projectDiagnostics(baz + "let probe: BigInt = (z1.add(z2): Baz).gcd(z3)\n")).toEqual([rebinding]);
 });
+
+/**
+ * A refused dot call written as a reading (#1628): the refusal is the one
+ * report. The reading of the refused call is in error, as the call is, so a
+ * seat written `Int` or `BigInt` has nothing to compare; it used to report
+ * "found Option(<error>)" beside the ambiguity.
+ */
+describe("a refused dot call as a reading, in a seat whose type is written", () => {
+  const LIB = ["/lib.hex", "module Lib\n\n" +
+    "export record Box = {size: Int, grow: (Int) -> Int}\n" +
+    "export let grow(b: Box, n: Int): Int = 1000 + n\n" +
+    "export let size(b: Box): Int = 7\n" +
+    "export let mk(): Box = Box({size = 1, grow = (n) => n + 1})\n"] as const;
+  const call = (body: string) =>
+    messages([LIB, ["/main.hex", MAIN + "import Lib\n\nlet w(b: Lib.Box) =\n" + body + "    0\n"]]);
+  const size = (mark: string) =>
+    "`size` after a dot is ambiguous at `Box`: a field `size`, a companion operation `Lib.size`; " +
+    `write \`Lib.size${mark}(…)\` for the companion operation, or \`${SUBJECT}.size\` to access the field`;
+
+  test.each([
+    ["?", "Int"],
+    ["~?", "Int"],
+    ["?", "Option(Int)"],
+    ["~?", "Option(Int)"],
+  ])("`%s` at `%s`: the ambiguity alone", (mark, seat) => {
+    expect(call(`    let x: ${seat} = b.size${mark}()\n`)).toEqual([size(mark)]);
+  });
+
+  test("the unmarked call at `Int` was already one report", () => {
+    expect(call("    let x: Int = b.size()\n")).toEqual([size("")]);
+  });
+
+  test("at a tower receiver kept at its type by an ascription", () => {
+    const baz = "module Lib\n\n" +
+      "export record Baz = {n: Int, gcd: (Baz) -> BigInt}\n" +
+      "export let gcd(left: Baz, right: Baz): BigInt = 5n\n" +
+      "honor Num<Baz> =\n" +
+      "    add(left, right) = Baz({n = left.n + right.n, gcd = left.gcd})\n" +
+      "    multiply(left, right) = Baz({n = left.n * right.n, gcd = left.gcd})\n" +
+      "    fromNat(value) = Baz({n = Int.fromNat(value), gcd = other => 0n})\n";
+    const main = MAIN + "import Lib\n\n" +
+      "let z1: Lib.Baz = Lib.Baz({n = 4, gcd = other => 1n})\n" +
+      "let z2: Lib.Baz = Lib.Baz({n = 6, gcd = other => 1n})\n" +
+      "let z3: Lib.Baz = Lib.Baz({n = 8, gcd = other => 1n})\n";
+    const gcd = (mark: string) =>
+      "`gcd` after a dot is ambiguous at `Baz`: a field `gcd`, a companion operation `Lib.gcd`; " +
+      `write \`Lib.gcd${mark}(…)\` for the companion operation, or \`(${SUBJECT}.gcd)${mark}(…)\` for the field`;
+    for (const mark of ["", "?", "~?"]) {
+      expect(messages([["/lib.hex", baz], ["/main.hex", main +
+        `let probe: BigInt = (z1.add(z2): Lib.Baz).gcd${mark}(z3)\n`]])).toEqual([gcd(mark)]);
+    }
+  });
+});
