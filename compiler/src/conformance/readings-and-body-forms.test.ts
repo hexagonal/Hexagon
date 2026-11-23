@@ -368,3 +368,54 @@ describe("Effects §7: a lazy `Seq` position names where a mark sees a failure",
     )).toEqual([]);
   });
 });
+
+/**
+ * A reading of a call already refused is in error itself (#1628): the refusal
+ * is the one report, and the seat's written type has nothing to compare. The
+ * reading used to be `Option(<error>)`, a structure rather than the error, so a
+ * seat written `Int` reported "found Option(<error>)" beside the refusal.
+ */
+describe("Effects §3.1: a reading of a refused call reports once", () => {
+  const undecided =
+    "the program's text does not decide `v`'s type here, so `.at(…)` cannot tell whose `at` it is — write `v`'s " +
+    "type, or call the operation by its module (`Module.at(v, …)`); a record's field is called as `(v.at)(…)`";
+
+  test.each([
+    ["an unknown name", "let r(): Int = nosuch?()\n", "nosuch", "unknown name `nosuch`"],
+    ["an unknown name, `~?`", "let r(): Int = nosuch~?()\n", "nosuch", "unknown name `nosuch`"],
+    ["an unknown name in a pipe stage", "let r(): Int = \"s\" |> nosuch?()\n", "nosuch", "unknown name `nosuch`"],
+    ["a wrong argument count", "let r(): Int = parse?(\"1\", 2)\n", "parse?(\"1\", 2)",
+      "function expects 1 arguments, got 2"],
+    ["a wrong argument count, `~?`", "let r(): Unit = save~?(\"x\", 2)\n", "save~?(\"x\", 2)",
+      "function expects 1 arguments, got 2"],
+    ["an undecided subject's dot call", "let r(v): Int = v.at?(0)\n", "at", undecided],
+    ["an undecided subject's dot call, `~?`", "let r(v): Int = v.at~?(0)\n", "at", undecided],
+    ["a dot call no claimant answers", "record P = {n: Int}\nlet r(p: P): Int = p.nosuch?()\n", "nosuch",
+      "`P` has no field `nosuch`, its companion exports no operation `nosuch`, and no constraint whose instance " +
+      "at `P` is visible in this module has a subject-first member `nosuch`; call an available subject-first " +
+      "function explicitly"],
+  ])("%s, in a seat written `Int`", (_, source, at, message) => {
+    expect(reports(source)).toEqual([[at, message]]);
+  });
+
+  test("a seat written `Option(…)` and an unwritten one were already quiet", () => {
+    expect(reports("let r(): Option(Int) = nosuch?()\nlet s() = nosuch?()\n")).toEqual([
+      ["nosuch", "unknown name `nosuch`"],
+      ["nosuch", "unknown name `nosuch`"],
+    ]);
+  });
+
+  test("a call that succeeds still owes its seat the `Option` it reads", () => {
+    expect(reports("let r(): Int = parse?(\"1\")\nlet s(): Unit = save~?(\"x\")\n")).toEqual([
+      ["Int", "type mismatch: expected Int, found Option(Int)"],
+      ["Unit", "type mismatch: expected Unit, found Option(Unit)"],
+    ]);
+  });
+
+  test("a wrong argument is no refused call: its result is known, and the seat's mismatch is its own", () => {
+    expect(reports("let r(): Int = parse?(1)\n")).toEqual([
+      ["Int", "type mismatch: expected Int, found Option(Int)"],
+      ["1", "integer literal cannot have type `String`"],
+    ]);
+  });
+});
