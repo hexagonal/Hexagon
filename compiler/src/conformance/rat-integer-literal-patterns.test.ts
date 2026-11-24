@@ -11,7 +11,7 @@
 
 import { describe, expect, test } from "vitest";
 
-import { compileMain, projectDiagnostics, runMain } from "../support/test-project.js";
+import { compileMain, projectDiagnostics, runMain, runProject } from "../support/test-project.js";
 
 const main = (body: string): string => "module Main\n\n" + body;
 
@@ -261,5 +261,137 @@ describe("#1638 the other permitted types are unchanged", () => {
       `let f(x: ${type}): String =\n    match x with\n        1 => "one"\n        _ => "other"\n` +
         `export let out: String = ${calls}\n`,
     )).toBe("oneother");
+  });
+});
+
+describe("#1638 more seats and spellings at `Rat`", () => {
+  test.each([
+    [
+      "a `catch` arm over an exception's `Rat` payload",
+      "exception Failed(Rat)\n" +
+        "let f(r: Rat): String =\n    try\n        throw^(Failed(r))\n    catch\n" +
+        "        Failed(1) => \"one\"\n        _ => \"other\"\n" +
+        "export let out: String = f(1//1) ++ f(1//2)\n",
+      "oneother",
+    ],
+    [
+      "a user's declared pattern over `Rat`s",
+      "pattern pair(left: Rat, right: Rat): (Rat, Rat)\n    view(p) = p\n" +
+        "let f(p: (Rat, Rat)): String =\n    match p with\n        (1, 2)pair => \"yes\"\n        _ => \"no\"\n" +
+        "export let out: String = f((1//1, 2//1)) ++ f((1//1, 1//2))\n",
+      "yesno",
+    ],
+    [
+      "a nominal record's field and a union's payload",
+      "record Box = {r: Rat}\nunion Shape = Ratio(Rat) | Nothing\n" +
+        "let f(b: Box, s: Shape): String =\n" +
+        "    let x =\n        match b with\n            Box({r = 1}) => \"b1\"\n            _ => \"b?\"\n" +
+        "    let y =\n        match s with\n            Ratio(2) => \"s2\"\n            _ => \"s?\"\n" +
+        "    x ++ y\n" +
+        "export let out: String = f(Box({r = 1//1}), Ratio(2//1)) ++ f(Box({r = 1//2}), Nothing)\n",
+      "b1s2b?s?",
+    ],
+    [
+      "a typed pattern at a written position",
+      atRat("        (1: Rat) => \"one\"\n        _ => \"other\"\n") +
+        "export let out: String = f(1//1) ++ f(1//2)\n",
+      "oneother",
+    ],
+    [
+      "a typed pattern at an inferred position",
+      "let f(o) =\n    match o with\n        Some((1: Rat)) => \"one\"\n        _ => \"other\"\n" +
+        "export let out: String = f(Some(1//1)) ++ f(Some(1//2))\n",
+      "oneother",
+    ],
+    [
+      "a match function",
+      "let f: (Rat) -> String = match\n    1 => \"one\"\n    _ => \"other\"\n" +
+        "export let out: String = f(1//1) ++ f(1//2)\n",
+      "oneother",
+    ],
+    [
+      "the safe-integer boundary",
+      atRat("        9007199254740991 => \"max\"\n        -9007199254740991 => \"min\"\n        _ => \"other\"\n") +
+        "export let out: String = f(9007199254740991n//1) ++ f(-9007199254740991n//1) ++ f(1//1)\n",
+      "maxminother",
+    ],
+    [
+      "zero and a negative, against every spelling of their value",
+      atRat("        0 => \"z\"\n        -3 => \"m\"\n        _ => \"o\"\n") +
+        "export let out: String = f(0//1) ++ f(0//5) ++ f((-6)//2) ++ f(3//(-1)) ++ f(3//1)\n",
+      "zzmmo",
+    ],
+    [
+      "a type alias of `Rat`",
+      "type Q = Rat\n" +
+        "let f(r: Q): String =\n    match r with\n        1 => \"one\"\n        _ => \"other\"\n" +
+        "export let out: String = f(1//1) ++ f(1//2)\n",
+      "oneother",
+    ],
+    [
+      "`Rat` imported under an alias",
+      "import Rat as R\n" +
+        "let f(r: R.Rat): String =\n    match r with\n        1 => \"one\"\n        _ => \"other\"\n" +
+        "export let out: String = f(R.create(2, 2)) ++ f(1//2)\n",
+      "oneother",
+    ],
+  ])("%s", async (_, body, answer) => {
+    expect(await run(body)).toBe(answer);
+  });
+
+  /** A module that hands out `Rat`s and never matches them. */
+  const LIB: readonly [string, string] = [
+    "/lib.hex",
+    "module Lib\n\nexport let whole: Rat = 4//4\nexport let part: Rat = 1//4\n",
+  ];
+
+  test("across modules, in a module that never names `Rat`", async () => {
+    const exports = await runProject([LIB, [
+      "/main.hex",
+      "module Main\n\nimport Lib\n\n" +
+        "let f(r: Bool): String =\n    match (if r then Lib.whole else Lib.part) with\n" +
+        "        1 => \"one\"\n        _ => \"other\"\n" +
+        "export let out: String = f(True) ++ f(False)\n",
+    ]]);
+    expect(exports.out).toBe("oneother");
+  });
+
+  test("across modules, in a module with its own `record Rat`", async () => {
+    const exports = await runProject([LIB, [
+      "/main.hex",
+      "module Main\n\nimport Lib\n\nrecord Rat = {n: Int}\n\n" +
+        "export let out: String =\n    match Lib.whole with\n        1 => \"one\"\n        _ => \"other\"\n",
+    ]]);
+    expect(exports.out).toBe("one");
+  });
+
+  test.each([
+    ["`0` then `-0`", "        0 => \"zero\"\n        -0 => \"again\"\n        _ => \"other\"\n", DUPLICATE],
+    ["`n//1` then `1`", "        n//1 => \"whole\"\n        1 => \"one\"\n        _ => \"other\"\n", DUPLICATE],
+  ])("%s: the second is unreachable", (_, arms, message) => {
+    expect(projectDiagnostics(main(atRat(arms)))).toEqual([message]);
+  });
+
+  test("`1` then `n//1` is reachable", async () => {
+    expect(await run(
+      atRat("        1 => \"one\"\n        n//1 => \"whole ${n}\"\n        _ => \"other\"\n") +
+        "export let out: String = f(1//1) ++ \",\" ++ f(5//1) ++ \",\" ++ f(1//2)\n",
+    )).toBe("one,whole 5,other");
+  });
+
+  test("a guarded `1` leaves `1//1` below it reachable", async () => {
+    expect(await run(
+      atRat("        1 when False => \"never\"\n        1//1 => \"one\"\n        _ => \"other\"\n") +
+        "export let out: String = f(1//1)\n",
+    )).toBe("one");
+  });
+
+  test("an irrefutable seat gives one report, naming the fraction it can miss", () => {
+    expect(projectDiagnostics(main(
+      "export fun f(xs: Vector(Rat)): Int =\n    for 1 in xs do\n        ignore(1)\n    1\n",
+    ))).toEqual(["this pattern can fail: `_//_`; use `match`"]);
+    expect(projectDiagnostics(main(
+      "export fun f(o: (Rat, Int)): Int =\n    let (1, k) = o\n    k\n",
+    ))).toEqual(["this pattern can fail: `(_//_, _)`; use `match`"]);
   });
 });
