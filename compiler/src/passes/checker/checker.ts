@@ -46638,20 +46638,23 @@ class Checker {
     if (pattern.kind === "Integer") {
       // §2.5's literal at its position's type: the `Num` evidence is what builds
       // it there, and it rides into the typed tree beside the type itself (see
-      // `#integerPatterns`). No `Eq` evidence travels — the restriction leaves only
-      // the four primitives, whose equality §8 has the compiler compute.
+      // `#integerPatterns`). `Eq` evidence travels only at `Dec`: the restriction
+      // leaves the four primitives, whose equality §8 has the compiler compute, and
+      // `Dec`, whose equality is its `Eq` instance's. The type is read pruned,
+      // because a position can be settled as `Dec` after the literal was read.
       const resolved = this.#integerPatterns.get(pattern);
+      const type = resolved === undefined ? ERROR : this.#prune(resolved.type);
       return {
         kind: "Integer",
         decimal: pattern.decimal,
         ...(pattern.written === undefined ? {} : { written: pattern.written }),
         ...(pattern.bigint === true ? { bigint: true as const } : {}),
-        type: this.#publicType(resolved?.type ?? ERROR),
+        type: this.#publicType(type),
         ...(resolved?.num === undefined
           ? {}
           : { requirement: this.#publicRequirement(resolved.num) }),
-        ...(resolved?.eq === undefined || resolved.type.kind !== "NominalRecord" ||
-            resolved.type.record !== this.#decRecord
+        ...(resolved?.eq === undefined || type.kind !== "NominalRecord" ||
+            type.record !== this.#decRecord
           ? {}
           : { equalityRequirement: this.#publicRequirement(resolved.eq) }),
         span: pattern.span,
