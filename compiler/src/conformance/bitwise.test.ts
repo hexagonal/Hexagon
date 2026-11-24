@@ -486,19 +486,27 @@ describe("non-decimal literals (§8)", () => {
     expect(main.declarations?.text).toContain("export type Mode = 0x1 | 0b10 | -0x4 | 0x0;");
   });
 
+  /** A user's number honoring `Num` and `Eq`, where a literal pattern is refused. */
+  const tally = "module Main\n\n" +
+    "export record Tally derives Eq = {count: Int}\n" +
+    "honor Num<Tally> =\n" +
+    "    add(l, r) = Tally({count = l.count + r.count})\n" +
+    "    multiply(l, r) = Tally({count = l.count * r.count})\n" +
+    "    fromNat(n) = Tally({count = Int.fromNat(n)})\n\n";
+
   test("a refused literal pattern is quoted, and its guard written, in the source base (#1038)", () => {
-    const [message] = projectDiagnostics("module Main\n\nimport Rat\n\n" +
-      "export fun f(ratio: Rat.Rat): String =\n" +
-      "    match ratio with\n" +
+    const [message] = projectDiagnostics(tally +
+      "export fun f(count: Tally): String =\n" +
+      "    match count with\n" +
       "        0xFF => \"mask\"\n" +
       "        _ => \"other\"\n");
-    expect(message).toContain("`0xFF` is not a pattern at `Rat`");
+    expect(message).toContain("`0xFF` is not a pattern at `Tally`");
     expect(message).toContain("x when x == 0xFF");
   });
 
   test("nested guards, duplicate arms, and literal reports quote the source base (#1038)", () => {
-    const [nested] = projectDiagnostics("module Main\n\nimport Rat\n\n" +
-      "export fun f(p: (Rat.Rat, Int)): String =\n" +
+    const [nested] = projectDiagnostics(tally +
+      "export fun f(p: (Tally, Int)): String =\n" +
       "    match p with\n" +
       "        (0xFF, 0x1) => \"mask\"\n" +
       "        _ => \"other\"\n");

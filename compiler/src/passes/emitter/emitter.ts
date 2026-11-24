@@ -8409,8 +8409,9 @@ class JavaScriptEmitter {
         // Pattern Matching §2.5/§8: the test is what `scrutinee == lit` emits at
         // the literal's resolved primitive — the SameValueZero shape at `Float`,
         // `===` at `Int`, `Nat`, and `BigInt`, which the restriction leaves as the only
-        // cases. A type outside them never reaches here: the checker refused the
-        // literal, and this module carries that report.
+        // cases. `Dec` carries its `Eq` evidence, and a literal at `Rat` arrives as
+        // the fraction pattern it means. A type outside them never reaches here:
+        // the checker refused the literal, and this module carries that report.
         const literal = this.#emitExpr(pattern.literal, 0, evidenceNames);
         const type = pattern.literal.type;
         if (pattern.equalityEvidence !== undefined) {
