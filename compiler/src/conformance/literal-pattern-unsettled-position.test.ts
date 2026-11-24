@@ -228,3 +228,122 @@ describe("#1637 controls", () => {
     ]);
   });
 });
+
+describe("#1637 the default waits for a binding that generalizes", () => {
+  test("an expansive local binding is settled by its use", async () => {
+    expect(await run(
+      "let ident(v) = v\nlet outer(z: Dec): String =\n    let g = ident((o) =>\n        match o with\n" +
+        "            Some(1) => \"one\"\n            _ => \"other\")\n    g(Some(z))\n" +
+        "export let out: String = outer(1d) ++ outer(2.5d)\n",
+    )).toBe("oneother");
+  });
+
+  test("an expansive top-level match function is settled by its use", async () => {
+    expect(await run(
+      "let ident(v) = v\nlet g = ident(match\n    Some(1) => \"one\"\n    _ => \"other\")\n" +
+        "export let out: String = g(Some(1d)) ++ g(Some(2.5d))\n",
+    )).toBe("oneother");
+  });
+
+  test("an expansive binding nothing settles is an `Int` at the end, tested with `===`", async () => {
+    const body = "let ident(v) = v\nlet g = ident(match\n    Some(1) => \"one\"\n    _ => \"other\")\n" +
+      "export let out: String = \"x\"\n";
+    const project = compileMain(main(body));
+    expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
+    const text = project.modules.find((module) => module.source.path === "/main.hex")!.javascript.text;
+    expect(text).toContain("__match.value === 1)");
+    expect(text).not.toContain("fromNat");
+    expect(await run(body)).toBe("x");
+  });
+
+  test.each([
+    [
+      "a settling arm after the literal arm",
+      "let f(o) =\n    match o with\n        Some(1) => \"one\"\n        Some(2.5d) => \"twohalf\"\n" +
+        "        _ => \"other\"\nexport let out: String = f(Some(1d)) ++ f(Some(2.5d)) ++ f(Some(3d))\n",
+      "onetwohalfother",
+    ],
+    [
+      "a settling arm before the literal arm",
+      "let f(o) =\n    match o with\n        Some(2.5d) => \"twohalf\"\n        Some(1) => \"one\"\n" +
+        "        _ => \"other\"\nexport let out: String = f(Some(1d)) ++ f(Some(2.5d)) ++ f(Some(3d))\n",
+      "onetwohalfother",
+    ],
+    [
+      "a settling line after the match",
+      "let f(o) =\n    let r = match o with\n        Some(1) => \"one\"\n        _ => \"other\"\n" +
+        "    let known: Option(Dec) = o\n    r\nexport let out: String = f(Some(1d)) ++ f(Some(2.5d))\n",
+      "oneother",
+    ],
+    [
+      "`fun`s that are not one knot, called at `Int`",
+      "fun callee(o) =\n    match o with\n" + ONE +
+        "fun caller(z: Int) = callee(Some(z))\nexport let out: String = caller(1) ++ caller(2)\n",
+      "oneother",
+    ],
+    [
+      // The `Nat` widens into the `Int` the position became.
+      "a `Nat` caller of a positive literal",
+      "let f(o) =\n    match o with\n" + ONE +
+        "let n: Nat = 1\nlet m: Nat = 2\nexport let out: String = f(Some(n)) ++ f(Some(m))\n",
+      "oneother",
+    ],
+    [
+      "a `Nat` caller of a negative literal",
+      "let f(o) =\n    match o with\n        Some(-1) => \"minus\"\n        _ => \"other\"\n" +
+        "let n: Nat = 1\nexport let out: String = f(Some(n))\n",
+      "other",
+    ],
+  ])("%s", async (_shape, body, out) => {
+    expect(await run(body)).toBe(out);
+  });
+
+  test("`fun`s that are not one knot: the callee's position is an `Int` for the caller", () => {
+    expect(reports(
+      "fun callee(o) =\n    match o with\n" + ONE +
+        "fun caller(z: Dec) = callee(Some(z))\nexport let out: String = caller(1d)\n",
+    )).toEqual([MISMATCH, inPart("o", "write `o: Option(Dec)`")]);
+  });
+});
+
+describe("#1637 the label advises what compiles", () => {
+  const TALLY = "record Tally derives Eq = {count: Int}\nhonor Num<Tally> =\n" +
+    "    add(l, r) = Tally({count = l.count + r.count})\n" +
+    "    multiply(l, r) = Tally({count = l.count * r.count})\n" +
+    "    fromNat(n) = Tally({count = Int.fromNat(n)})\n";
+
+  test("at a type no literal pattern may stand at, the label advises the guard", () => {
+    expect(reports(TALLY + SPECIMEN + "export let out: String = f(Some(Tally({count = 1})))\n")).toEqual([
+      "type mismatch: expected Int, found Tally",
+      inPart("o", "a pattern cannot test a `Tally` with a number; bind a name and test it in a guard"),
+    ]);
+  });
+
+  test("the guard it advises compiles and answers", async () => {
+    expect(await run(
+      TALLY + "let f(o) =\n    match o with\n        Some(y) when y == 1 => \"one\"\n        _ => \"other\"\n" +
+        "export let out: String = f(Some(Tally({count = 1}))) ++ f(Some(Tally({count = 2})))\n",
+    )).toBe("oneother");
+  });
+});
+
+describe("#1637 a pattern already refused has one report", () => {
+  test.each([
+    [
+      "a `for` pattern",
+      "let f(xs) =\n    var s = 0\n    for (1, y) in xs do\n        s := s + y\n    s\n" +
+        "export let out: Int = f([(1.5, 2)])\n",
+    ],
+    [
+      "a `for` pattern whose position also divides",
+      "let f(xs) =\n    var s = 0.0\n    for (1, y) in xs do\n        s := s + y / y\n    s\n" +
+        "export let out: Float = f([(1.5, 2.0)])\n",
+    ],
+    [
+      "a `let` pattern whose position also divides",
+      "let f(x) =\n    let (1, y) = (x, x / x)\n    y\nexport let out: Float = f(1.0)\n",
+    ],
+  ])("%s", (_shape, body) => {
+    expect(projectDiagnostics(main(body))).toEqual(["this pattern can fail: `(_, _)`; use `match`"]);
+  });
+});

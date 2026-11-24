@@ -4279,7 +4279,7 @@ interface NumberDefault {
   /** The type of what was made there, which holds the `Int`. */
   readonly held: Mono;
   /** The label, given the spelling of the type to write there, where one is known. */
-  readonly say: (written: string | undefined) => string;
+  readonly say: (written: string | undefined, wanted?: Mono) => string;
 }
 
 /** One member of a `fun` block's strongly-connected component (Functions §7.4). */
@@ -17294,10 +17294,7 @@ class Checker {
      */
     guardUnavailable: boolean,
   ): void {
-    if (type.kind === "Constructor" && PERMITTED_LITERAL_PRIMITIVES.has(type.name)) {
-      return;
-    }
-    if (type.kind === "NominalRecord" && type.record === this.#decRecord) return;
+    if (this.#permitsLiteralPattern(type)) return;
     // §2.5's two phases, **in order**, which §12's row states unconditionally: "the
     // constraint fails before the restriction is reached". The refusal below is for
     // "a resolution to a type honoring `Num` and `Eq` outside them … the constraints
@@ -17333,6 +17330,17 @@ class Checker {
       primary: pattern.span,
     });
     this.#brokenPatterns.add(pattern);
+  }
+
+  /**
+   * §2.5's permitted literal subjects: the four primitives, whose equality the
+   * compiler computes, and canonical `Dec`, which tests through its `Eq`. The
+   * one list both the restriction and a default's label read
+   * (`#patternDefaultOrigin`), so a type admitted here is admitted at both.
+   */
+  #permitsLiteralPattern(type: Mono): boolean {
+    return (type.kind === "Constructor" && PERMITTED_LITERAL_PRIMITIVES.has(type.name)) ||
+      (type.kind === "NominalRecord" && type.record === this.#decRecord);
   }
 
   /**
@@ -17391,6 +17399,7 @@ class Checker {
       // not make `Int`: its value is the caller's, and a type the caller chooses
       // is not one whose equality the compiler computes.
       if (actual.kind === "Variable" && actual.rigidName === undefined && this.#quantified.has(actual.id)) {
+        if (this.#brokenPatterns.has(pattern)) continue;
         this.#refuseCallersLiteral(pattern, root, inOrAlternative || !armGuardSeat || armHasGuard);
         continue;
       }
@@ -20295,6 +20304,16 @@ class Checker {
         this.#matchFunctionFixit(),
       primary: pattern.span,
     });
+    // One report per mistake: a literal beneath this pattern neither makes its
+    // position `Int` nor is refused again at the end of the module
+    // (`#defaultPatternPositions`, `#checkPendingLiteralRestrictions`).
+    for (const { pattern: literal } of this.#pendingLiteralRestrictions) {
+      if (
+        literal.span.fileId === pattern.span.fileId &&
+        literal.span.start.offset >= pattern.span.start.offset &&
+        literal.span.end.offset <= pattern.span.end.offset
+      ) this.#brokenPatterns.add(literal);
+    }
   }
 
   /**
@@ -39250,7 +39269,10 @@ class Checker {
         this.#refuseOrDefault(variable, variable.requirements[0]!.span);
       }
     }
-    this.#defaultPatternPositions(type, level);
+    // Only where the binding will quantify: an expansive binding, or a value
+    // whose own type is not a function, quantifies no constrained variable,
+    // and a pattern's position is constrained, so a later line settles it.
+    if (allow && this.#prune(evaluated ?? type).kind === "Function") this.#defaultPatternPositions(type, level);
     variables = this.#collectVariables(type).filter(
       (variable) => variable.level > level,
     );
@@ -39418,7 +39440,9 @@ class Checker {
     const tested = new Map<number, Resolved.IntegerPattern>();
     for (const { pattern, type: position } of this.#pendingLiteralRestrictions) {
       const actual = this.#prune(position);
-      if (actual.kind === "Variable" && !tested.has(actual.id)) tested.set(actual.id, pattern);
+      if (actual.kind !== "Variable" || tested.has(actual.id)) continue;
+      // A literal beneath a pattern already refused has had its one report.
+      if (!this.#brokenPatterns.has(pattern)) tested.set(actual.id, pattern);
     }
     if (tested.size === 0) return;
     for (const variable of this.#collectVariables(type)) {
@@ -39440,13 +39464,25 @@ class Checker {
   #patternDefaultOrigin(variable: Variable, pattern: Resolved.IntegerPattern): NumberDefault {
     const seat = this.#parameterSeats.find(({ type }) => this.#occurs(variable, type));
     const reason = "a pattern tests it with a number nothing had decided";
+    // The type to write is advised only where a literal pattern may stand at
+    // the caller's type (`#permitsLiteralPattern`); elsewhere writing it is
+    // refused in turn, and the guard is what compiles.
+    const advise = (written: string | undefined, wanted: Mono | undefined, write: (type: string) => string): string =>
+      wanted !== undefined && !this.#permitsLiteralPattern(wanted)
+        ? `a pattern cannot test a \`${this.#display(wanted)}\` with a number; bind a name and test it in a guard`
+        : written === undefined
+        ? "write its type here"
+        : write(written);
+    const bound = (wanted: Mono | undefined): string =>
+      wanted !== undefined && !this.#permitsLiteralPattern(wanted)
+        ? advise(undefined, wanted, () => "")
+        : "write the function's type where it is bound";
     if (seat === undefined) {
       return {
         span: pattern.span,
         held: variable,
-        say: () =>
-          `the number this pattern tests became an \`Int\` here: nothing had decided its type — ` +
-          "write the function's type where it is bound",
+        say: (_written, wanted) =>
+          `the number this pattern tests became an \`Int\` here: nothing had decided its type — ${bound(wanted)}`,
       };
     }
     const { lambda, parameter, type } = seat;
@@ -39457,25 +39493,23 @@ class Checker {
         ? {
           span: keywordSpan(lambda.span),
           held: type,
-          say: () =>
-            `this match function's parameter became an \`Int\` here: ${reason} — ` +
-            "write the function's type where it is bound",
+          say: (_written, wanted) => `this match function's parameter became an \`Int\` here: ${reason} — ${bound(wanted)}`,
         }
         : {
           span: parameter.span,
           held: type,
-          say: (written) =>
+          say: (written, wanted) =>
             `a number in \`${spelled}\` became an \`Int\` here: ${reason} — ` +
-            (written === undefined ? "write its type here" : `write \`(${spelled}: ${written})\``),
+            advise(written, wanted, (type) => `write \`(${spelled}: ${type})\``),
         };
     }
     const whole = this.#prune(type) === variable;
     return {
       span: parameter.span,
       held: type,
-      say: (written) =>
+      say: (written, wanted) =>
         `${whole ? `\`${parameter.name}\`` : `a number in \`${parameter.name}\``} became an \`Int\` here: ` +
-        `${reason} — ${written === undefined ? "write its type here" : `write \`${parameter.name}: ${written}\``}`,
+        `${reason} — ${advise(written, wanted, (type) => `write \`${parameter.name}: ${type}\``)}`,
     };
   }
 
@@ -41024,7 +41058,7 @@ class Checker {
       // cannot spell leaves the place named without one.
       labels.push({
         span: origin.span,
-        message: origin.say(this.#spellingAtSite(this.#replacing(origin.held, defaulted, wanted))),
+        message: origin.say(this.#spellingAtSite(this.#replacing(origin.held, defaulted, wanted)), wanted),
       });
     }
     return labels.length > 0 ? { labels } : {};

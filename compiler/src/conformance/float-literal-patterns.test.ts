@@ -674,11 +674,12 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
         "let (0, b) = p\n",
     ))).toEqual(["this pattern can fail: `(_, _)`; use `match`"]);
     // And a lambda parameter's literal is typed through `Num` rather than pinned to
-    // `Int` where it is read; no line settles it, so it is an `Int` where `f`
-    // generalizes (#1637), and the signature has no constraint to declare.
+    // `Int`, which is what the generalized signature reads back.
     expect(projectDiagnostics(main("export let f = (0) => 1\n"))).toEqual([
       "exported function `f` requires a complete signature; add type for " +
       "parameter `_` and a return type",
+      "exported function `f` must declare every constraint in its signature; " +
+      "write `<a: (Eq, Num)>`",
       "this pattern can fail: `_`; use `match` — for a match function, write " +
       "`match` with arms",
     ]);
