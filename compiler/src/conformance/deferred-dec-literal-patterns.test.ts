@@ -110,8 +110,8 @@ describe("#1158 controls", () => {
       "onetwohalfother",
     ],
     [
-      // No line settles this position, so `f` generalizes over it. The answer is
-      // right at `Int`; the shape's other callers are #1637.
+      // No line settles this position, so it is an `Int` where `f` generalizes
+      // (#1637), and a `Dec` call is a mismatch at the call.
       "a position no line settles answers right at `Int`",
       "let f(x) =\n    match Some(x) with\n" + ONE + "export let out: String = f(1) ++ f(2)\n",
       "oneother",
