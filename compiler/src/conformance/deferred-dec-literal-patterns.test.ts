@@ -145,12 +145,11 @@ describe("#1158 controls", () => {
     expect(text).not.toContain("__Eq_");
   });
 
-  test("a deferred `Rat` position is still refused", () => {
-    expect(projectDiagnostics(main(
-      deferred("Some(x)", ONE, "    let known: Rat = x\n") + "export let out: String = f(1//1)\n",
-    ))).toEqual([
-      "`1` is not a pattern at `Rat`; bind a name and test it in a guard: `Some(y) when y == 1`",
-    ]);
+  test("a deferred `Rat` position tests the fraction over one", async () => {
+    expect(await run(
+      deferred("Some(x)", ONE, "    let known: Rat = x\n") +
+        "export let out: String = f(1//1) ++ f(2//2) ++ f(1//2)\n",
+    )).toBe("oneoneother");
   });
 
   test("a `Dec` arm equal to an earlier integer arm is still unreachable", () => {

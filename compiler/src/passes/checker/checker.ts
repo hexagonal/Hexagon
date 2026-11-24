@@ -6455,6 +6455,13 @@ class Checker {
   /** The canonical prelude `Dec` record, used by monomorphic `d` literals. */
   #decRecord: Resolved.RecordId | undefined;
   /**
+   * The canonical prelude `Rat` record, where a bare integer literal pattern is
+   * the fraction over one (Pattern Matching §2.5, §2.10).
+   */
+  #ratRecord: Resolved.RecordId | undefined;
+  /** Each bare integer literal at `Rat`, as the fraction pattern `k//1` it means. */
+  readonly #ratLiteralFractions = new WeakMap<Resolved.IntegerPattern, Resolved.DeclaredPattern>();
+  /**
    * The prelude `Stream` record, read off the same occlusion-proof channel as
    * `#seqRecord` above and for one question only: FFI Part 1 §5.4 item 1's
    * container enumeration is `Vector`, `Map`, `Set`, `Seq`, `Stream` — "exactly
@@ -6612,7 +6619,7 @@ class Checker {
    * that position". Replacing one alternative's literal with a fresh binder gives
    * `Some(y | 1)`, and §2.6's same-bindings rule refuses it — the other
    * alternatives bind nothing of the name — so the refusal stops at "`0` is not a
-   * pattern at `Rat`" there and offers nothing. A disjunctive rewrite
+   * pattern at `Money`" there and offers nothing. A disjunctive rewrite
    * (`Some(y) when y == 0 or y == 1`) would be one report for several literals,
    * which this seat has no way to say.
    */
@@ -7640,6 +7647,7 @@ class Checker {
     );
     this.#seqRecord = module.preludeRecords.get("Seq");
     this.#decRecord = module.preludeRecords.get("Dec");
+    this.#ratRecord = module.preludeRecords.get("Rat");
     this.#streamRecord = module.preludeRecords.get("Stream");
     this.#jsValueFromSymbol = preludeExportSymbol(
       module.items.filter((item) => item.kind === "Import"),
@@ -16893,13 +16901,14 @@ class Checker {
    *    `x == -1` both advise `<a: (Eq, Signed)>`.
    * 2. **The constraints hold but the resolved type is not a permitted
    *    literal subject.** `Int`, `Nat`, `BigInt`, `Float`, and the canonical
-   *    `Dec` record are the five; a resolution
-   *    to a `Num`-honoring type outside them — `Rat`, a user's `Money`, a declared
+   *    `Dec` and `Rat` records are the six; a resolution
+   *    to a `Num`-honoring type outside them — a user's `Money`, a declared
    *    variable under `<a: (Num, Eq)>` — is refused at the literal, naming the
    *    guard that does work. A failure to type, so §7.3's fourth tier reads the
    *    arm as `_`.
    * 3. **Both hold.** The literal is `fromNat` of its payload at that subject,
-   *    and the arm tests primitive equality or, for `Dec`, its `Eq` evidence (§8).
+   *    and the arm tests primitive equality, for `Dec` its `Eq` evidence (§8),
+   *    and for `Rat` the fraction over one (`#ratLiteralFraction`).
    *
    * The restriction is judged **on the resolved type**. A position already
    * resolved — concrete, or a declared variable, which is rigid by declaration —
@@ -17273,7 +17282,8 @@ class Checker {
    *
    * The four primitives have compiler-computed value and equality. Canonical
    * `Dec` is also admitted and carries its `Eq<Dec>` evidence into the emitted
-   * match. Everything else a literal could have resolved to is refused **with
+   * match, and canonical `Rat`, where the literal is the fraction over one and
+   * tests the canonical top and bottom. Everything else a literal could have resolved to is refused **with
    * the guard that works**, which
    * is the Rewrite Rule's obligation: at the top of an arm the guard binds the
    * scrutinee, and beneath it the enclosing pattern keeps its shape with a binder
@@ -17334,13 +17344,71 @@ class Checker {
 
   /**
    * §2.5's permitted literal subjects: the four primitives, whose equality the
-   * compiler computes, and canonical `Dec`, which tests through its `Eq`. The
-   * one list both the restriction and a default's label read
-   * (`#patternDefaultOrigin`), so a type admitted here is admitted at both.
+   * compiler computes; canonical `Dec`, which tests through its `Eq`; and
+   * canonical `Rat`, where the literal is the fraction over one and tests on the
+   * canonical top and bottom (`#ratLiteralFraction`). The one list both the
+   * restriction and a default's label read (`#patternDefaultOrigin`), so a type
+   * admitted here is admitted at both.
    */
   #permitsLiteralPattern(type: Mono): boolean {
     return (type.kind === "Constructor" && PERMITTED_LITERAL_PRIMITIVES.has(type.name)) ||
-      (type.kind === "NominalRecord" && type.record === this.#decRecord);
+      (type.kind === "NominalRecord" && type.record === this.#decRecord) ||
+      this.#isRat(type);
+  }
+
+  /** Whether a type is the canonical prelude `Rat`, by identity and never by name. */
+  #isRat(type: Mono): boolean {
+    const actual = this.#prune(type);
+    return actual.kind === "NominalRecord" && this.#ratRecord !== undefined &&
+      actual.record === this.#ratRecord;
+  }
+
+  /**
+   * A bare integer literal at a `Rat` position, as the fraction pattern it means:
+   * `k` is `k//1`, and `-k` is `-k//1` (Pattern Matching §2.5, §2.10). Both the
+   * coverage column and materialization read the literal through this node, so
+   * `1` and `1//1` are one case to the matrix and one test to the emitter — the
+   * canonical top against `kn` and the bottom against `1n`, which runs no
+   * dictionary. Built when asked rather than at inference, because a position can
+   * be settled as `Rat` after the literal was read; the one node per literal is
+   * kept, so every judgment sees the same pattern. Undefined where the position is
+   * not `Rat` or the prelude's fraction pattern is out of reach.
+   */
+  #ratLiteralFraction(pattern: Resolved.IntegerPattern): Resolved.DeclaredPattern | undefined {
+    if (pattern.bigint === true || this.#brokenPatterns.has(pattern)) return undefined;
+    const known = this.#ratLiteralFractions.get(pattern);
+    if (known !== undefined) return known;
+    const type = this.#integerPatterns.get(pattern)?.type;
+    if (type === undefined || !this.#isRat(type)) return undefined;
+    const path = this.#declaredPatternHomePath(type);
+    const home = path === undefined ? undefined : this.#patternHomes.get(path);
+    if (home?.fraction === undefined) return undefined;
+    // Named by its module, as the resolver's candidate for a written `//` is, so
+    // emission reaches it under the same import.
+    const reference: Resolved.PatternReference = { ...home.fraction, declaringModule: home.module };
+    const side = (decimal: string): Resolved.IntegerPattern => {
+      const component: Resolved.IntegerPattern = {
+        kind: "Integer",
+        decimal,
+        bigint: true,
+        span: pattern.span,
+      };
+      this.#integerPatterns.set(component, { type: primitive("BigInt") });
+      return component;
+    };
+    const fraction: Resolved.DeclaredPattern = {
+      kind: "Declared",
+      components: [side(pattern.decimal), side("1")],
+      name: "//",
+      candidates: [],
+      fraction: true,
+      nameSpan: pattern.span,
+      span: pattern.span,
+    };
+    this.#declaredPatternReferences.set(fraction, reference);
+    this.#declaredPatternComponents.set(fraction, [primitive("BigInt"), primitive("BigInt")]);
+    this.#ratLiteralFractions.set(pattern, fraction);
+    return fraction;
   }
 
   /**
@@ -17581,6 +17649,21 @@ class Checker {
   /** Reports one oversized bare pattern without changing the type of its position. */
   #reportOversizedIntegerPattern(pattern: Resolved.ErrorPattern, type: Mono): void {
     const atBigInt = type.kind === "Constructor" && type.name === "BigInt";
+    // At `Rat` the literal is the fraction over one, and its top is a `BigInt`:
+    // the spelling that works is that fraction with an `n` top.
+    if (this.#isRat(type)) {
+      const fraction = `${pattern.oversizedInteger}n//1`;
+      this.#diagnostics.add({
+        severity: "error",
+        message: `integer literal exceeds Int range; write \`${fraction}\` for a Rat`,
+        primary: pattern.span,
+        fixes: [{
+          message: "make this a fraction with a BigInt top",
+          edits: [{ span: pattern.span, replacement: fraction }],
+        }],
+      });
+      return;
+    }
     this.#diagnostics.add({
       severity: "error",
       message: atBigInt
@@ -19478,8 +19561,15 @@ class Checker {
    */
   #coverageColumn(
     type: Mono,
-    headPatterns: readonly Resolved.Pattern[],
+    written: readonly Resolved.Pattern[],
   ): CoverageColumn {
+    // At `Rat` a bare integer literal is the fraction over one, so the column
+    // reads it as that fraction pattern: `1` and `1//1` are one case, and a
+    // fraction with binders covers the literal.
+    const atRat = this.#isRat(type);
+    const lower = (pattern: Resolved.Pattern): Resolved.Pattern =>
+      atRat && pattern.kind === "Integer" ? this.#ratLiteralFraction(pattern) ?? pattern : pattern;
+    const headPatterns = atRat ? written.map(lower) : written;
     // `headPatterns` is exactly the set `split` will be asked about — both
     // callers pass the first column of the matrix they then split — so a column
     // with none of them broken needs neither the filter nor the wrapper, and
@@ -19494,7 +19584,7 @@ class Checker {
     );
     // §7.2's literal identity is **one law over every column**, not a clause of
     // the infinite domains': a literal pattern reaches a nominal record's column
-    // at `Rat`, and a union's wherever a union honors `Num`, and the matrix must
+    // at `Dec`, and a union's wherever a union honors `Num`, and the matrix must
     // equate two of them there by the same rule it uses at `Int`. Held here, at
     // the one seat every column passes through, because the alternative was each
     // domain's `split` sending a literal to `distinctHead` — a key on its *span*,
@@ -19508,8 +19598,9 @@ class Checker {
     return {
       ...(column.signature === undefined ? {} : { signature: column.signature }),
       ...(column.signatures === undefined ? {} : { signatures: column.signatures }),
-      split: (pattern) => {
-        if (broken && this.#brokenPatterns.has(pattern)) return undefined;
+      split: (source) => {
+        if (broken && this.#brokenPatterns.has(source)) return undefined;
+        const pattern = lower(source);
         if (
           pattern.kind === "Integer" || pattern.kind === "Dec" || pattern.kind === "Float" ||
           pattern.kind === "String"
@@ -46799,6 +46890,10 @@ class Checker {
       pattern.kind === "String"
     ) return pattern;
     if (pattern.kind === "Integer") {
+      // At `Rat` the literal is the fraction over one, and emits as that fraction
+      // pattern: a test of the canonical top and bottom.
+      const fraction = this.#ratLiteralFraction(pattern);
+      if (fraction !== undefined) return this.#materializePattern(fraction);
       // §2.5's literal at its position's type: the `Num` evidence is what builds
       // it there, and it rides into the typed tree beside the type itself (see
       // `#integerPatterns`). `Eq` evidence travels only at `Dec`: the restriction
@@ -48423,7 +48518,9 @@ function typeShape(
  * an integer literal that resolves anywhere else, a decimal literal stands only at
  * `Float`, and a string literal only at `String` — so "at a type outside those
  * primitives no literal pattern stands", and the matrix never equates what it
- * cannot evaluate. The separator-free spelling below is the defensive default for
+ * cannot evaluate. A literal at canonical `Rat` never reaches a key here: the
+ * column reads it as the fraction pattern `k//1` (`#ratLiteralFraction`), whose
+ * components are keyed at `BigInt`. The separator-free spelling below is the defensive default for
  * a literal the restriction refused; such a pattern is broken, and
  * `#coverageColumn` reads it as `_` before any key is asked for.
  */

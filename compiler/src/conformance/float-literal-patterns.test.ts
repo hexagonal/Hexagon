@@ -26,9 +26,10 @@ import {
  *   scrutinee gate.
  * - **The permitted-primitive restriction is checked on the resolved type.** An
  *   integer literal must resolve to `Int`, `Nat`, `BigInt` or `Float` — the four
- *   whose value *and* whose equality the compiler computes. A resolution to a
- *   `Num`-honoring type outside them (`Rat`, a declared variable under
- *   `<a: (Num, Eq)>`) is refused at the literal, naming the guard that works.
+ *   whose value *and* whose equality the compiler computes — and canonical `Dec`
+ *   and `Rat` besides. A resolution to a `Num`-honoring type outside them (a
+ *   user's `Tally`, a declared variable under `<a: (Num, Eq)>`) is refused at the
+ *   literal, naming the guard that works.
  * - **A literal's coverage identity is its value** at that primitive, never its
  *   spelling (§7.2).
  *
@@ -46,6 +47,20 @@ const emitted = (body: string): string => {
 };
 
 const DUPLICATE = "this literal case is unreachable; it is already handled above";
+
+/**
+ * A module opening with a user's number that honors `Num` and `Eq` — §2.5's "a
+ * user's `Money` honoring both" — where a literal resolves and is then refused by
+ * the restriction. `tallyText` is a use that settles a position as `Tally`.
+ */
+const TALLY =
+  "module Main\n\n" +
+  "export record Tally derives Eq = {count: Int}\n" +
+  "honor Num<Tally> =\n" +
+  "    add(l, r) = Tally({count = l.count + r.count})\n" +
+  "    multiply(l, r) = Tally({count = l.count * r.count})\n" +
+  "    fromNat(n) = Tally({count = Int.fromNat(n)})\n" +
+  "let tallyText(t: Tally): String = \"tally\"\n\n";
 
 /**
  * Every test here compiles whole projects, prelude included, so the file is slow by
@@ -217,32 +232,33 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
     }
   });
 
-  test("and nowhere else: the restriction refuses `Rat`, naming the guard", () => {
-    // §15 (k)'s `match ratio`. The constraints hold — `Rat` honors `Num` and `Eq`,
-    // and `ratio == 0` compiles — and the literal is still not a pattern, because
-    // the value at `Rat` is not one the compiler computes (§7.2, §8).
-    expect(projectDiagnostics("module Main\n\nimport Rat\n\n" +
-      "export fun f(ratio: Rat.Rat): String =\n" +
+  test("and nowhere else: the restriction refuses a user's number, naming the guard", () => {
+    // §15 (k)'s `match ratio`, at a user's number. The constraints hold — `Tally`
+    // honors `Num` and `Eq`, and `ratio == 0` compiles — and the literal is still
+    // not a pattern, because the value at `Tally` is not one the compiler computes
+    // (§7.2, §8).
+    expect(projectDiagnostics(TALLY +
+      "export fun f(ratio: Tally): String =\n" +
         "    match ratio with\n" +
         "        0 => \"zero\"\n" +
         "        _ => \"ok\"\n",
     )).toEqual([
-      "`0` is not a pattern at `Rat`; bind a name and test it in a guard: " +
+      "`0` is not a pattern at `Tally`; bind a name and test it in a guard: " +
       "`x when x == 0`",
     ]);
     // The constraints really do hold, which is what makes this the restriction's
     // report and not a constraint failure's.
-    expect(projectDiagnostics("module Main\n\nimport Rat\n\n" +
-      "export fun f(ratio: Rat.Rat): Bool = ratio == 0\n",
+    expect(projectDiagnostics(TALLY +
+      "export fun f(ratio: Tally): Bool = ratio == 0\n",
     )).toEqual([]);
     // And the refused arm is read as `_` (§7.3's fourth tier): with no catch-all
     // at all, the one report still stands alone.
-    expect(projectDiagnostics("module Main\n\nimport Rat\n\n" +
-      "export fun f(ratio: Rat.Rat): String =\n" +
+    expect(projectDiagnostics(TALLY +
+      "export fun f(ratio: Tally): String =\n" +
         "    match ratio with\n" +
         "        0 => \"zero\"\n",
     )).toEqual([
-      "`0` is not a pattern at `Rat`; bind a name and test it in a guard: " +
+      "`0` is not a pattern at `Tally`; bind a name and test it in a guard: " +
       "`x when x == 0`",
     ]);
   });
@@ -277,86 +293,86 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
     // root is for. `as` and `|` re-enter the walk at their own position, so they
     // used to re-take the root: `0 as z` printed `x when x == 0` and silently
     // dropped the binder the arm body reads.
-    const rat = (body: string): string => "module Main\n\nimport Rat\n\n" +
-      "fun use(r: Rat.Rat): String = \"used\"\n" + body;
-    expect(projectDiagnostics(rat(
-      "export fun f(r: Rat.Rat): String =\n" +
+    const tally = (body: string): string => TALLY +
+      "fun use(r: Tally): String = \"used\"\n" + body;
+    expect(projectDiagnostics(tally(
+      "export fun f(r: Tally): String =\n" +
         "    match r with\n" +
         "        0 as z => use(z)\n" +
         "        _ => \"ok\"\n",
     ))).toEqual([
-      "`0` is not a pattern at `Rat`; bind a name and test it in a guard: " +
+      "`0` is not a pattern at `Tally`; bind a name and test it in a guard: " +
       "`y as z when y == 0`",
     ]);
     // And the rewrite compiles, binder and all — which is the whole claim.
-    expect(projectDiagnostics(rat(
-      "export fun f(r: Rat.Rat): String =\n" +
+    expect(projectDiagnostics(tally(
+      "export fun f(r: Tally): String =\n" +
         "    match r with\n" +
         "        y as z when y == 0 => use(z)\n" +
         "        _ => \"ok\"\n",
     ))).toEqual([]);
     // Beneath the top the `as` travels with the rest of the shape.
-    expect(projectDiagnostics(rat(
-      "export fun f(o: Option(Rat.Rat)): String =\n" +
+    expect(projectDiagnostics(tally(
+      "export fun f(o: Option(Tally)): String =\n" +
         "    match o with\n" +
         "        Some(0 as z) => use(z)\n" +
         "        _ => \"ok\"\n",
     ))).toEqual([
-      "`0` is not a pattern at `Rat`; bind a name and test it in a guard: " +
+      "`0` is not a pattern at `Tally`; bind a name and test it in a guard: " +
       "`Some(y as z) when y == 0`",
     ]);
     // `as` is the loosest pattern operator (§2.7), so an `as` directly inside an
     // `as` needs parentheses: `y1 as y as z` is a chain the grammar has no form for,
     // and the unparenthesized rewrite drew four reports of its own.
-    expect(projectDiagnostics(rat(
-      "export fun f(r: Rat.Rat): String =\n" +
+    expect(projectDiagnostics(tally(
+      "export fun f(r: Tally): String =\n" +
         "    match r with\n" +
         "        (0 as y) as z => use(z)\n" +
         "        _ => \"ok\"\n",
     ))).toEqual([
-      "`0` is not a pattern at `Rat`; bind a name and test it in a guard: " +
+      "`0` is not a pattern at `Tally`; bind a name and test it in a guard: " +
       "`(y1 as y) as z when y1 == 0`",
     ]);
-    expect(projectDiagnostics(rat(
-      "export fun f(r: Rat.Rat): String =\n" +
+    expect(projectDiagnostics(tally(
+      "export fun f(r: Tally): String =\n" +
         "    match r with\n" +
         "        (y1 as y) as z when y1 == 0 => use(z)\n" +
         "        _ => \"ok\"\n",
     ))).toEqual([]);
     // One level down the enclosing form's brackets already separate them.
-    expect(projectDiagnostics(rat(
-      "export fun f(o: Option(Rat.Rat)): String =\n" +
+    expect(projectDiagnostics(tally(
+      "export fun f(o: Option(Tally)): String =\n" +
         "    match o with\n" +
         "        Some(0 as y) as z => use(y)\n" +
         "        _ => \"ok\"\n",
     ))).toEqual([
-      "`0` is not a pattern at `Rat`; bind a name and test it in a guard: " +
+      "`0` is not a pattern at `Tally`; bind a name and test it in a guard: " +
       "`Some(y1 as y) as z when y1 == 0`",
     ]);
     // Inside an or-alternative there is no single-literal rewrite: swapping one
     // alternative's literal for a fresh binder is what §2.6's same-bindings rule
     // refuses, so the sentence stops. One report per refused literal, still.
     for (const pattern of ["0 | 1", "Some(0 | 1)"]) {
-      const scrutinee = pattern.startsWith("Some") ? "Option(Rat.Rat)" : "Rat.Rat";
-      expect(projectDiagnostics(rat(
+      const scrutinee = pattern.startsWith("Some") ? "Option(Tally)" : "Tally";
+      expect(projectDiagnostics(tally(
         `export fun f(r: ${scrutinee}): String =\n` +
           "    match r with\n" +
           `        ${pattern} => "small"\n` +
           "        _ => \"ok\"\n",
       ))).toEqual([
-        "`0` is not a pattern at `Rat`",
-        "`1` is not a pattern at `Rat`",
+        "`0` is not a pattern at `Tally`",
+        "`1` is not a pattern at `Tally`",
       ]);
     }
     // The control: the rewrite the seat declined to offer is indeed refused.
-    expect(projectDiagnostics(rat(
-      "export fun f(o: Option(Rat.Rat)): String =\n" +
+    expect(projectDiagnostics(tally(
+      "export fun f(o: Option(Tally)): String =\n" +
         "    match o with\n" +
         "        Some(y | 1) when y == 0 => \"small\"\n" +
         "        _ => \"ok\"\n",
     ))).toEqual([
       "`y` must be bound in every alternative of an or-pattern",
-      "`1` is not a pattern at `Rat`",
+      "`1` is not a pattern at `Tally`",
     ]);
   });
 
@@ -767,13 +783,13 @@ describe("coverage identity is the value, not the spelling (§7.2)", BUDGET, () 
   test("there is no key outside the primitives: no literal pattern stands there", () => {
     // §7.2 as the restriction leaves it — "at a type outside those primitives no
     // literal pattern stands, so the matrix never equates what it cannot
-    // evaluate". Two `Rat` arms draw two refusals and no duplicate report: each
+    // evaluate". Two `Tally` arms draw two refusals and no duplicate report: each
     // failed to type, and a broken pattern is never keyed and never a shadower
     // (§7.3's fourth tier).
-    const refusal = "`0` is not a pattern at `Rat`; bind a name and test it in a " +
+    const refusal = "`0` is not a pattern at `Tally`; bind a name and test it in a " +
       "guard: `x when x == 0`";
-    expect(projectDiagnostics("module Main\n\nimport Rat\n\n" +
-      "export fun f(r: Rat.Rat): String =\n" +
+    expect(projectDiagnostics(TALLY +
+      "export fun f(r: Tally): String =\n" +
         "    match r with\n" +
         "        0 => \"zero\"\n" +
         "        0 => \"never\"\n" +
@@ -782,23 +798,23 @@ describe("coverage identity is the value, not the spelling (§7.2)", BUDGET, () 
   });
 
   test("the late restriction reaches §7.3 before coverage, like the eager one", () => {
-    const refusal = "`0` is not a pattern at `Rat`; bind a name and test it in a " +
+    const refusal = "`0` is not a pattern at `Tally`; bind a name and test it in a " +
       "guard: `Some(y) when y == 0`";
     const arms =
       "        Some(0) => \"first\"\n" +
       "        Some(0) => \"second\"\n" +
-      "        Some(r) => \"${Rat.toFloat(r)}\"\n" +
+      "        Some(r) => \"${tallyText(r)}\"\n" +
       "        _ => \"other\"\n";
     // Concrete at the first arm: both patterns are refused before the matrix.
     expect(projectDiagnostics(
-      "module Main\n\nimport Rat\n\n" +
-      "export fun eager(value: Option(Rat.Rat)): String =\n" +
+      TALLY +
+      "export fun eager(value: Option(Tally)): String =\n" +
       "    match value with\n" + arms,
     )).toEqual([refusal, refusal]);
     // Undetermined at both literal arms, then fixed by the sibling. The deferred
     // verdict is still the matrix's input, so neither refusal is a shadower.
     expect(projectDiagnostics(
-      "module Main\n\nimport Rat\n\n" +
+      TALLY +
       "export let late: String =\n" +
       "    match None with\n" + arms,
     )).toEqual([refusal, refusal]);
@@ -858,34 +874,34 @@ describe("coverage identity is the value, not the spelling (§7.2)", BUDGET, () 
   });
 
   test("deferred restrictions stay attached across eager and late matches", () => {
-    const refusal = "`0` is not a pattern at `Rat`; bind a name and test it in a " +
+    const refusal = "`0` is not a pattern at `Tally`; bind a name and test it in a " +
       "guard: `Some(y) when y == 0`";
     expect(projectDiagnostics(
-      "module Main\n\nimport Rat\n\n" +
-      "export fun eager(value: Option(Rat.Rat)): String =\n" +
+      TALLY +
+      "export fun eager(value: Option(Tally)): String =\n" +
       "    match value with\n" +
       "        Some(0) => \"zero\"\n" +
       "        _ => \"other\"\n" +
       "export let late: String =\n" +
       "    match None with\n" +
       "        Some(0) => \"zero\"\n" +
-      "        Some(r) => \"${Rat.toFloat(r)}\"\n" +
+      "        Some(r) => \"${tallyText(r)}\"\n" +
       "        _ => \"other\"\n",
     )).toEqual([refusal, refusal]);
   });
 
   test("a genuine catch-all still shadows a late-broken arm below it", () => {
-    const refusal = "`0` is not a pattern at `Rat`; bind a name and test it in a " +
+    const refusal = "`0` is not a pattern at `Tally`; bind a name and test it in a " +
       "guard: `Some(y) when y == 0`";
     expect(projectDiagnostics(
-      "module Main\n\nimport Rat\n\n" +
+      TALLY +
       "fun f(value): String =\n" +
       "    let first =\n" +
       "        match value with\n" +
       "            _ => \"all\"\n" +
       "            Some(0) => \"broken\"\n" +
       "    match value with\n" +
-      "        Some(r) => \"${Rat.toFloat(r)}\"\n" +
+      "        Some(r) => \"${tallyText(r)}\"\n" +
       "        _ => first\n" +
       "export let answer: String = f(None)\n",
     )).toEqual([
@@ -1175,20 +1191,20 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
     // the lexer refused — and printing `_` for it offered a rewrite that *compiles*
     // while deleting a test the reader wrote, and with it that test's own report.
     // Withheld instead, at both sentences.
-    const rat = (body: string): string => "module Main\n\nimport Rat\n\n" + body;
-    expect(projectDiagnostics(rat(
-      "export fun f(p: (Rat.Rat, Int)): String =\n" +
+    const tally = (body: string): string => TALLY + body;
+    expect(projectDiagnostics(tally(
+      "export fun f(p: (Tally, Int)): String =\n" +
         "    match p with\n" +
         "        (0, Nowhere.zilch) => \"z\"\n" +
         "        _ => \"ok\"\n",
-    ))).toEqual(["`0` is not a pattern at `Rat`", "no module alias `Nowhere`"]);
-    expect(projectDiagnostics(rat(
-      "export fun f(p: (Rat.Rat, Float)): String =\n" +
+    ))).toEqual(["`0` is not a pattern at `Tally`", "no module alias `Nowhere`"]);
+    expect(projectDiagnostics(tally(
+      "export fun f(p: (Tally, Float)): String =\n" +
         "    match p with\n" +
         "        (0, 1.0e309) => \"z\"\n" +
         "        _ => \"ok\"\n",
     ))).toEqual([
-      "`0` is not a pattern at `Rat`",
+      "`0` is not a pattern at `Tally`",
       "Float literal is too large; use `Float.infinity`",
     ]);
     // Two term spellings beside each other: each is the other's second broken node.
@@ -1205,15 +1221,15 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
     ]);
     // The controls, which are what make the rule `Error` nodes alone: a sibling
     // *literal* is printed as written, and a wildcard sibling is no obstacle.
-    expect(projectDiagnostics(rat(
-      "export fun f(p: (Rat.Rat, Rat.Rat)): String =\n" +
+    expect(projectDiagnostics(tally(
+      "export fun f(p: (Tally, Tally)): String =\n" +
         "    match p with\n" +
         "        (0, 1) => \"z\"\n" +
         "        _ => \"ok\"\n",
     ))).toEqual([
-      "`0` is not a pattern at `Rat`; bind a name and test it in a guard: " +
+      "`0` is not a pattern at `Tally`; bind a name and test it in a guard: " +
       "`(y, 1) when y == 0`",
-      "`1` is not a pattern at `Rat`; bind a name and test it in a guard: " +
+      "`1` is not a pattern at `Tally`; bind a name and test it in a guard: " +
       "`(0, y) when y == 1`",
     ]);
     expect(diagnostics([HELPER, [
@@ -1237,22 +1253,22 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
     // the existing guard was itself refused it took that report with it. Joining the
     // two is what §2.5 licenses and what this seat has no printer for, so the
     // rewrite is withheld — the one safe direction, the wrong rewrite compiling.
-    const rat = (body: string): string => "module Main\n\nimport Rat\n\n" + body;
-    const tuple = (arm: string): string => rat(
-      "export fun f(p: (Rat.Rat, Int)): String =\n" +
+    const tally = (body: string): string => TALLY + body;
+    const tuple = (arm: string): string => tally(
+      "export fun f(p: (Tally, Int)): String =\n" +
         "    match p with\n" +
         `        ${arm} => "z"\n` +
         "        _ => \"ok\"\n",
     );
     expect(projectDiagnostics(tuple("(0, k) when k > 5")))
-      .toEqual(["`0` is not a pattern at `Rat`"]);
+      .toEqual(["`0` is not a pattern at `Tally`"]);
     // At the top of an arm too: `x when x == 0` replaces a guard just as readily.
-    expect(projectDiagnostics(rat(
-      "export fun f(r: Rat.Rat, g: Bool): String =\n" +
+    expect(projectDiagnostics(tally(
+      "export fun f(r: Tally, g: Bool): String =\n" +
         "    match r with\n" +
         "        0 when g => \"z\"\n" +
         "        _ => \"ok\"\n",
-    ))).toEqual(["`0` is not a pattern at `Rat`"]);
+    ))).toEqual(["`0` is not a pattern at `Tally`"]);
     // And at the value sentence, which renders through the same path.
     expect(diagnostics([HELPER, [
       "/main.hex",
@@ -1265,11 +1281,11 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
     // The row that is round 3's finding reached through the guard: the replaced
     // guard was itself refused, so the rewrite deleted a report.
     expect(projectDiagnostics(tuple("(0, k) when k == Nowhere.zilch")))
-      .toEqual(["`0` is not a pattern at `Rat`", "no module alias `Nowhere`"]);
+      .toEqual(["`0` is not a pattern at `Tally`", "no module alias `Nowhere`"]);
     // The controls: the unguarded twins still offer their rewrites, and the flag is
     // the arm's own — a *later* guarded arm leaves an earlier one's offer standing.
     expect(projectDiagnostics(tuple("(0, k)"))).toEqual([
-      "`0` is not a pattern at `Rat`; bind a name and test it in a guard: " +
+      "`0` is not a pattern at `Tally`; bind a name and test it in a guard: " +
       "`(y, k) when y == 0`",
     ]);
     expect(diagnostics([HELPER, [
@@ -1283,48 +1299,48 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
       "`Helper.count` is a value, not a pattern; bind a name and test it in a " +
       "guard: `(y, k) when y == Helper.count`",
     ]);
-    expect(projectDiagnostics(rat(
-      "export fun f(p: (Rat.Rat, Int)): String =\n" +
+    expect(projectDiagnostics(tally(
+      "export fun f(p: (Tally, Int)): String =\n" +
         "    match p with\n" +
         "        (0, k) => \"z\"\n" +
         "        (1, k) when k > 5 => \"y\"\n" +
         "        _ => \"ok\"\n",
     ))).toEqual([
-      "`0` is not a pattern at `Rat`; bind a name and test it in a guard: " +
+      "`0` is not a pattern at `Tally`; bind a name and test it in a guard: " +
       "`(y, k) when y == 0`",
-      "`1` is not a pattern at `Rat`",
+      "`1` is not a pattern at `Tally`",
     ]);
     // And in the other order, which is what says the flag is restored rather than
     // latched: a guarded arm above leaves the unguarded arm below it its rewrite.
-    expect(projectDiagnostics(rat(
-      "export fun f(p: (Rat.Rat, Int)): String =\n" +
+    expect(projectDiagnostics(tally(
+      "export fun f(p: (Tally, Int)): String =\n" +
         "    match p with\n" +
         "        (1, k) when k > 5 => \"y\"\n" +
         "        (0, k) => \"z\"\n" +
         "        _ => \"ok\"\n",
     ))).toEqual([
-      "`1` is not a pattern at `Rat`",
-      "`0` is not a pattern at `Rat`; bind a name and test it in a guard: " +
+      "`1` is not a pattern at `Tally`",
+      "`0` is not a pattern at `Tally`; bind a name and test it in a guard: " +
       "`(y, k) when y == 0`",
     ]);
     // The **late** judgment takes the same three facts: a position undetermined when
     // the literal was checked is judged after inference, and the arm's guard is read
     // from the record rather than from the checker, which has moved on. The sibling
-    // arm is what resolves the position, to a `Rat` the restriction then refuses.
+    // arm is what resolves the position, to a `Tally` the restriction then refuses.
     const late = (arm: string, sibling: string): string =>
-      "module Main\n\nimport Rat\n\n" +
+      TALLY +
       "export fun f(g: Bool): String =\n" +
         "    match None with\n" +
         `        ${arm} => "z"\n` +
         `        ${sibling}\n` +
         "        _ => \"o\"\n";
-    expect(projectDiagnostics(late("Some(0)", "Some(y) => \"${Rat.toFloat(y)}\"")))
+    expect(projectDiagnostics(late("Some(0)", "Some(y) => \"${tallyText(y)}\"")))
       .toEqual([
-        "`0` is not a pattern at `Rat`; bind a name and test it in a guard: " +
+        "`0` is not a pattern at `Tally`; bind a name and test it in a guard: " +
         "`Some(y) when y == 0`",
       ]);
-    expect(projectDiagnostics(late("Some(0) when g", "Some(y) => \"${Rat.toFloat(y)}\"")))
-      .toEqual(["`0` is not a pattern at `Rat`"]);
+    expect(projectDiagnostics(late("Some(0) when g", "Some(y) => \"${tallyText(y)}\"")))
+      .toEqual(["`0` is not a pattern at `Tally`"]);
   });
 
   test("the late judgment takes §2.5's two phases in order too", () => {
@@ -1546,13 +1562,13 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
     }
     // The **restriction's** rewrite is the same guard and takes the same rule: a
     // `for..in` head and a parameter draw the refusal bare.
-    const refusal = "`0` is not a pattern at `Rat`";
-    expect(projectDiagnostics("module Main\n\nimport Rat\n\n" +
-      "export fun f(v: Vector(Rat.Rat)): Int =\n" +
+    const refusal = "`0` is not a pattern at `Tally`";
+    expect(projectDiagnostics(TALLY +
+      "export fun f(v: Vector(Tally)): Int =\n" +
         "    for 0 in v do\n        ignore(1)\n    1\n",
     )).toEqual([refusal]);
-    expect(projectDiagnostics("module Main\n\nimport Rat\n\n" +
-      "export fun f(0: Rat.Rat): Int = 1\n",
+    expect(projectDiagnostics(TALLY +
+      "export fun f(0: Tally): Int = 1\n",
     )).toEqual([refusal]);
   });
 

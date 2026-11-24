@@ -9,7 +9,7 @@ a bottom or divisor written as a literal zero is refused when the program is com
 the `//` form, arithmetic, ordering, display, hashing, conversions with `Dec`, rounding
 to an integer, JavaScript representation, and acceptance tests.
 **Companions:** `operators-logic-precedence.md` (§6.4, the `//` form),
-`pattern-matching.md` (§2.10, §7.2), `integer-widening.md` (§9, `FromDec`), `dec.md`,
+`pattern-matching.md` (§2.5, §2.10, §7.2), `integer-widening.md` (§9, `FromDec`), `dec.md`,
 `modules.md` (§5.3, §5.5), `integral-constraint.md`, `division-remainder.md`,
 `numeric-literals.md`, `constraints.md`, and the future complete stdlib listing.
 
@@ -98,6 +98,13 @@ like `..`, and not a declared pattern: `Rat` exports no pattern, nothing is impo
 to write it, and it names the prelude's `Rat` by identity, so a module that declares a
 `Rat` of its own still writes the prelude's fraction with it (Intrinsics §7). `create`
 remains the canonical constructor name; `//` is the spelling a program writes.
+
+A bare integer literal is a pattern at `Rat` too, and it is the fraction over one:
+`1` is the case `1//1`, and `-3` the case `-3//1` (Pattern Matching §2.5, §2.10). It
+is tested as that fraction is, on the canonical top and bottom, so no dictionary runs
+and `1` and `1//1` are one case. A literal beyond the safe-integer range is written
+as that fraction with an `n` top, `9007199254740993n//1`. A decimal-point or `d`
+literal is not a pattern at `Rat`: a fraction that is not whole is written `1//2`.
 
 A `//` pattern that its literals show can never match is a dead case and is refused
 (Pattern Matching §7.2): a literal bottom of zero or less, or two literal sides not in
@@ -253,6 +260,9 @@ not merely round-trips.
   division that was meant (Operators §6.4): "a fraction's top and bottom are integers,
   and `r` is a `Rat` — to divide, write `r / 2`", and at a `Dec` side
   `Rat.fromDec(d) / 2`. `1//2//3` is refused as a chain.
+- A bare integer literal pattern beyond the safe-integer range at `Rat` is refused
+  with the fraction it means (Pattern Matching §2.5): "integer literal exceeds Int
+  range; write `9007199254740993n//1` for a Rat".
 - A dead `//` pattern is refused as Pattern Matching §7.2 words it, with the spelling
   that matches where one exists: "this case is unreachable; a fraction comes apart in
   lowest terms with a positive bottom, so `2//6` never matches — write `1//3`"; at
