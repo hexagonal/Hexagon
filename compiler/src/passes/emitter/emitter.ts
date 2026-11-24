@@ -8422,6 +8422,20 @@ class JavaScriptEmitter {
           );
           return { tests: [`${dictionary}.equals(${value}, ${literal})`], bindings: [] };
         }
+        // The two tests below are right only at those four primitives. A
+        // literal at any other type — above all a variable its caller chooses —
+        // is one the checker refused or made `Int`, so reaching here with one is
+        // a compiler defect, reported as one rather than emitted as a test that
+        // never matches.
+        if (
+          type.kind !== "Primitive" ||
+          (type.name !== "Int" && type.name !== "Nat" && type.name !== "BigInt" && type.name !== "Float")
+        ) {
+          this.#reportUnreachableEvidence(
+            "an integer literal pattern reached emission at a type whose equality is not `===`",
+            pattern.span,
+          );
+        }
         return {
           tests: [
             type.kind === "Primitive" && type.name === "Float"

@@ -7559,6 +7559,17 @@ class Checker {
    * by the text, so a dot call on them dispatches.
    */
   readonly #madeInt = new Set<Resolved.SymbolId>();
+  /**
+   * Every unannotated lambda parameter, with its type where it is made, in the
+   * order lambdas are read, so an enclosing lambda's come before its body's: a
+   * literal pattern's position that becomes `Int` where its binding generalizes
+   * is labelled at the first parameter that holds it (`#defaultPatternPositions`).
+   */
+  readonly #parameterSeats: {
+    readonly lambda: Resolved.LambdaExpr;
+    readonly parameter: Resolved.LambdaExpr["parameters"][number];
+    readonly type: Mono;
+  }[] = [];
   #nextVariable = 0;
 
   constructor(diagnostics: Diagnostics.Bag, options: CheckOptions) {
@@ -14013,6 +14024,11 @@ class Checker {
           }
         }
         this.#integerTestedParameters(expression, parameters);
+        for (const [index, parameter] of expression.parameters.entries()) {
+          if (parameter.annotation === undefined) {
+            this.#parameterSeats.push({ lambda: expression, parameter, type: parameters[index]! });
+          }
+        }
         effectFrame.params = parameters;
         frameOn(effectFrame, "fail").params = parameters;
         const host = this.#knots.at(-1)?.host;
@@ -17371,6 +17387,13 @@ class Checker {
         of this.#pendingLiteralRestrictions
     ) {
       const actual = this.#prune(type);
+      // A position a binding quantified is one `#defaultPatternPositions` could
+      // not make `Int`: its value is the caller's, and a type the caller chooses
+      // is not one whose equality the compiler computes.
+      if (actual.kind === "Variable" && actual.rigidName === undefined && this.#quantified.has(actual.id)) {
+        this.#refuseCallersLiteral(pattern, root, inOrAlternative || !armGuardSeat || armHasGuard);
+        continue;
+      }
       // A variable that survived defaulting is one a non-defaultable constraint
       // blocked, and §4's own report has already named it; an error type has been
       // reported too. Neither is this restriction's to speak about.
@@ -17392,6 +17415,30 @@ class Checker {
       );
     }
     this.#pendingLiteralRestrictions.length = 0;
+  }
+
+  /**
+   * §2.5's restriction at a position its binding left to the caller: the
+   * literal is refused, naming the two spellings that work — the parameter's
+   * type written, or the guard, whose `==` runs through the caller's `Eq`. The
+   * guard is offered where `#checkLiteralPrimitive` offers it; the position
+   * carries the `Eq` (and `Signed`) the literal demanded, so the comparison
+   * compiles there.
+   */
+  #refuseCallersLiteral(
+    pattern: Resolved.IntegerPattern,
+    root: Resolved.Pattern | undefined,
+    guardUnavailable: boolean,
+  ): void {
+    const spelled = pattern.written ?? pattern.decimal;
+    const head = `\`${spelled}\` is not a pattern at a type left to the caller; write the parameter's type`;
+    const guard = guardUnavailable ? undefined : literalPatternGuard(pattern, spelled, root, this.#typeText);
+    this.#diagnostics.add({
+      severity: "error",
+      message: guard === undefined ? head : `${head}, or bind a name and test it in a guard: \`${guard}\``,
+      primary: pattern.span,
+    });
+    this.#brokenPatterns.add(pattern);
   }
 
   /** Runs §7 only after every deferred pattern has received its typing verdict. */
@@ -39203,6 +39250,7 @@ class Checker {
         this.#refuseOrDefault(variable, variable.requirements[0]!.span);
       }
     }
+    this.#defaultPatternPositions(type, level);
     variables = this.#collectVariables(type).filter(
       (variable) => variable.level > level,
     );
@@ -39348,6 +39396,87 @@ class Checker {
     }
     for (const variable of variables) this.#quantified.add(variable.id);
     return { variables, type };
+  }
+
+  /**
+   * Pattern Matching §2.5 and Numeric Literals §4: a number type that only a
+   * literal pattern tests, and no line of the binding settles, is an `Int` —
+   * never quantified, even where a parameter holds it. A pattern's literal is
+   * compared with compiler-computed equality at a type the checker knows, and
+   * a type the caller chose is not one; this is the default the bare subject
+   * takes where its parameter is made (`#integerTestedParameters`), taken here
+   * for a position beneath the subject, which only the whole body reveals.
+   *
+   * Asked of what defaulting left: a position §4 cannot make `Int` — one that
+   * also demands `Frac` — stays a variable, and its pattern is refused at the
+   * end of the module (`#checkPendingLiteralRestrictions`). A position an
+   * expression literal reaches and no pattern does (`x == 1`) is not this
+   * rule's, and stays generic.
+   */
+  #defaultPatternPositions(type: Mono, level: number): void {
+    if (this.#pendingLiteralRestrictions.length === 0) return;
+    const tested = new Map<number, Resolved.IntegerPattern>();
+    for (const { pattern, type: position } of this.#pendingLiteralRestrictions) {
+      const actual = this.#prune(position);
+      if (actual.kind === "Variable" && !tested.has(actual.id)) tested.set(actual.id, pattern);
+    }
+    if (tested.size === 0) return;
+    for (const variable of this.#collectVariables(type)) {
+      if (variable.level <= level || variable.instance !== undefined || variable.rigidName !== undefined) continue;
+      const pattern = tested.get(variable.id);
+      if (pattern === undefined || !this.#canDefaultToInt(variable)) continue;
+      const origin = this.#patternDefaultOrigin(variable, pattern);
+      this.#bind(variable, primitive("Int"), pattern.span);
+      if (variable.instance !== undefined) this.#numberDefaults.set(variable.instance, origin);
+    }
+  }
+
+  /**
+   * Where `#defaultPatternPositions` says a number became `Int`, and what to
+   * write there: the first unannotated parameter that holds it, in the words
+   * of the bare subject's label (`#integerTestedParameters`); the pattern
+   * itself where no parameter does.
+   */
+  #patternDefaultOrigin(variable: Variable, pattern: Resolved.IntegerPattern): NumberDefault {
+    const seat = this.#parameterSeats.find(({ type }) => this.#occurs(variable, type));
+    const reason = "a pattern tests it with a number nothing had decided";
+    if (seat === undefined) {
+      return {
+        span: pattern.span,
+        held: variable,
+        say: () =>
+          `the number this pattern tests became an \`Int\` here: nothing had decided its type — ` +
+          "write the function's type where it is bound",
+      };
+    }
+    const { lambda, parameter, type } = seat;
+    if (isSyntheticParameterName(parameter.name)) {
+      const destructured = parameterPattern(lambda, parameter.symbol);
+      const spelled = destructured === undefined ? undefined : this.#sourceSlice(destructured.span);
+      return spelled === undefined
+        ? {
+          span: keywordSpan(lambda.span),
+          held: type,
+          say: () =>
+            `this match function's parameter became an \`Int\` here: ${reason} — ` +
+            "write the function's type where it is bound",
+        }
+        : {
+          span: parameter.span,
+          held: type,
+          say: (written) =>
+            `a number in \`${spelled}\` became an \`Int\` here: ${reason} — ` +
+            (written === undefined ? "write its type here" : `write \`(${spelled}: ${written})\``),
+        };
+    }
+    const whole = this.#prune(type) === variable;
+    return {
+      span: parameter.span,
+      held: type,
+      say: (written) =>
+        `${whole ? `\`${parameter.name}\`` : `a number in \`${parameter.name}\``} became an \`Int\` here: ` +
+        `${reason} — ${written === undefined ? "write its type here" : `write \`${parameter.name}: ${written}\``}`,
+    };
   }
 
   /**
