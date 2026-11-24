@@ -110,7 +110,9 @@ describe("#1158 controls", () => {
       "onetwohalfother",
     ],
     [
-      "an unsettled literal defaults to `Int`",
+      // No line settles this position, so `f` generalizes over it. The answer is
+      // right at `Int`; the shape's other callers are #1637.
+      "a position no line settles answers right at `Int`",
       "let f(x) =\n    match Some(x) with\n" + ONE + "export let out: String = f(1) ++ f(2)\n",
       "oneother",
     ],
