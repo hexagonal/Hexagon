@@ -7561,6 +7561,12 @@ class Checker {
    */
   readonly #namedLambdas = new Map<Resolved.LambdaExpr, Resolved.SymbolId>();
   /**
+   * The lambdas an exported `let` or `fun` binds, whose signature is written
+   * whole (Modules §4.1.1), so a label advises no hole in a parameter's type
+   * there (`#patternDefaultOrigin`).
+   */
+  readonly #exportedLambdas = new Set<Resolved.LambdaExpr>();
+  /**
    * The parameters made `Int` where they are made, because a `match` in their
    * body tests them with an integer (Numeric Literals §4): their type is decided
    * by the text, so a dot call on them dispatches.
@@ -18040,15 +18046,16 @@ class Checker {
    * A type as a claim would write it (Pattern Matching §2.9): the type this
    * module spells, with a hole for each part inference has not settled and a
    * declared variable by its name. `undefined` where any part cannot be
-   * written here: a structural record, a nominal type no name reaches, a
-   * colour still open.
+   * written here: a structural record (unless `rows`), a nominal type no name
+   * reaches, a colour still open. With `rows`, a structural record is spelled
+   * as a parameter's annotation writes it, its open row `...` (Products §4).
    */
-  #claimSpelling(type: Mono): string | undefined {
+  #claimSpelling(type: Mono, rows = false): string | undefined {
     const actual = this.#prune(type);
     const spelled = (parts: readonly Mono[]): string | undefined => {
       const written: string[] = [];
       for (const part of parts) {
-        const spelling = this.#claimSpelling(part);
+        const spelling = this.#claimSpelling(part, rows);
         if (spelling === undefined) return undefined;
         written.push(spelling);
       }
@@ -18094,12 +18101,26 @@ class Checker {
           marks.push(isImpure(colour));
         }
         const parameters = spelled(actual.parameters);
-        const result = this.#claimSpelling(actual.result);
+        const result = this.#claimSpelling(actual.result, rows);
         if (parameters === undefined || result === undefined) return undefined;
         return `(${parameters}) ${markedArrow(marks[0]!, marks[1]!)} ${result}`;
       }
       case "Constructor":
         return this.#typeSpellingAtSite(actual);
+      case "Record": {
+        if (!rows) return undefined;
+        // Read through a tail inference bound to another record, so every
+        // field the value carries is named.
+        const row = this.#normalizeRecord(actual);
+        const fields: string[] = [];
+        for (const [name, field] of row.fields) {
+          const spelling = this.#claimSpelling(field, rows);
+          if (spelling === undefined) return undefined;
+          fields.push(`${name}: ${spelling}`);
+        }
+        if (row.tail !== undefined) fields.push(row.tail.rigidName === undefined ? "..." : `...${row.tail.rigidName}`);
+        return `{${fields.join(", ")}}`;
+      }
       default:
         return undefined;
     }
@@ -25524,6 +25545,7 @@ class Checker {
         const value = ungrouped(inner.value);
         if (value.kind === "Lambda") {
           this.#namedLambdas.set(value, inner.binding.symbol);
+          if (inner.exported) this.#exportedLambdas.add(value);
           // Its parameters as written, a declaration a report can read (#1240).
           this.#lambdaParameters.set(inner.binding.symbol, value.parameters);
         }
@@ -39577,6 +39599,14 @@ class Checker {
       };
     }
     const { lambda, parameter, type } = seat;
+    // A part of the parameter's type the function leaves undecided is a hole,
+    // and a structural record keeps its open row: the annotation decides the
+    // number, and inference gives the rest as without it. An exported function's
+    // signature is whole (Modules §4.1.1), so there a hole is no spelling.
+    const spell = (written: string | undefined, wanted: Mono | undefined): string | undefined =>
+      written !== undefined || wanted === undefined || this.#exportedLambdas.has(lambda)
+        ? written
+        : this.#claimSpelling(this.#replacing(type, this.#prune(variable), wanted), true);
     if (isSyntheticParameterName(parameter.name)) {
       const destructured = parameterPattern(lambda, parameter.symbol);
       const spelled = destructured === undefined ? undefined : this.#sourceSlice(destructured.span);
@@ -39591,7 +39621,7 @@ class Checker {
           held: type,
           say: (written, wanted) =>
             `a number in \`${spelled}\` became an \`Int\` here: ${reason} — ` +
-            advise(written, wanted, (type) => `write \`(${spelled}: ${type})\``),
+            advise(spell(written, wanted), wanted, (type) => `write \`(${spelled}: ${type})\``),
         };
     }
     const whole = this.#prune(type) === variable;
@@ -39600,7 +39630,7 @@ class Checker {
       held: type,
       say: (written, wanted) =>
         `${whole ? `\`${parameter.name}\`` : `a number in \`${parameter.name}\``} became an \`Int\` here: ` +
-        `${reason} — ${advise(written, wanted, (type) => `write \`${parameter.name}: ${type}\``)}`,
+        `${reason} — ${advise(spell(written, wanted), wanted, (type) => `write \`${parameter.name}: ${type}\``)}`,
     };
   }
 
@@ -41215,8 +41245,12 @@ class Checker {
     switch (actual.kind) {
       case "Tuple":
         return { ...actual, elements: actual.elements.map(go) };
-      case "Record":
-        return { ...actual, fields: new Map([...actual.fields].map(([name, field]) => [name, go(field)])) };
+      case "Record": {
+        // A field may stand in a tail inference bound to another record, so
+        // the row is read through its tail before its fields are replaced.
+        const row = this.#normalizeRecord(actual);
+        return { ...row, fields: new Map([...row.fields].map(([name, field]) => [name, go(field)])) };
+      }
       case "Vector":
         return { ...actual, element: go(actual.element) };
       case "Set":
