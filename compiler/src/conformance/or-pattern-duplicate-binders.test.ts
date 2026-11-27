@@ -197,3 +197,119 @@ describe("#104 controls", () => {
       .toEqual(["duplicate parameter `p`"]);
   });
 });
+
+describe("#104 more shapes, each one report per mistake", () => {
+  const unions = header + "union T3 = A3(Int) | B3(Int) | C3(Int)\nunion M = M1(Int, T) | M2(T, Int) | N(Int)\n\n";
+  const messages = (body: string): readonly string[] =>
+    compileMain(unions + body).diagnostics.map(({ message }) => message);
+  const arm = (type: string, pattern: string, fallback = false) =>
+    `let f(p: ${type}): Int =\n    match p with\n        ${pattern} => 1\n` + (fallback ? "        _ => 0\n" : "");
+  const twice = (name: string) => `\`${name}\` is bound twice in this pattern`;
+
+  // The check runs before an inherited name is skipped: within one alternative
+  // of an enclosing or-pattern, its shared name can still be bound twice.
+  test.each([
+    ["a binder, then an or-pattern", "M1(x, (A(x) | B(x))) | N(x)"],
+    ["an or-pattern, then a binder", "M2((A(x) | B(x)), x) | N(x)"],
+  ])("a repeat inside one alternative of an enclosing or-pattern: %s", (_order, pattern) => {
+    expect(messages(arm("M", pattern, true))).toEqual([twice("x")]);
+  });
+
+  test.each([
+    ["a binder beside a nested or-pattern", "(Int, T3)", "(x, ((A3(x) | B3(x)) | C3(x)))", false],
+    ["an or-pattern with a sibling inside, then a binder", "(W, Int)", "(P((A(x) | B(x)), _) | Q(x), x)", false],
+    ["a rest, then an or-pattern", "Vector(Int)", "[...x, (x | x)]", true],
+  ])("%s", (_shape, type, pattern, fallback) => {
+    expect(messages(arm(type, pattern, fallback))).toEqual([twice("x")]);
+  });
+
+  test("`as` over an or-pattern repeating a binder beside it names that binder", () => {
+    expect(messages(arm("(Int, T)", "(w, (A(x) | B(x)) as w)"))).toEqual([twice("w")]);
+  });
+
+  // Two parameters are two patterns, not one (Statements §5.2).
+  test.each([
+    ["a plain parameter, then an or-pattern", "fun f(x: Int, (A(x) | B(x)): T): Int = x\n"],
+    ["an or-pattern, then a plain parameter", "fun f((A(x) | B(x)): T, x: Int): Int = x\n"],
+    ["a lambda", "let g: (Int, T) -> Int = (x, (A(x) | B(x))) => x\n"],
+  ])("an or-pattern parameter beside a plain one: %s", (_order, body) => {
+    expect(messages(body)).toEqual(["duplicate parameter `x`"]);
+  });
+
+  test("a name missing from one alternative and bound twice is two mistakes, two reports", () => {
+    expect(messages(arm("(Int, T3)", "(x, (A3(x) | B3(_) | C3(x)))"))).toEqual([
+      "`x` must be bound in every alternative of an or-pattern",
+      twice("x"),
+    ]);
+  });
+});
+
+describe("#104 more controls that run", () => {
+  const run = (body: string): Promise<Record<string, unknown>> =>
+    runMain("module Main\n\nunion T = A(Int) | B(Int) | C(Int)\n" + body);
+
+  test("an or-pattern nested deep in another, beside a binder", async () => {
+    expect(await run(
+      "union V = P(T, T)\nlet f(p: (Int, V)): Int =\n    match p with\n" +
+        "        (y, (P((A(x) | B(x)), C(z)) | P(C(z), (A(x) | B(x))))) => y * 100 + x * 10 + z\n" +
+        "        _ => 0\n" +
+        "export let out: (Int, Int, Int) = (f((1, P(B(2), C(3)))), f((1, P(C(4), A(5)))), f((1, P(A(1), A(1)))))\n",
+    )).toMatchObject({ out: [123, 154, 0] });
+  });
+
+  test("an inherited name bound in several alternatives", async () => {
+    expect(await run(
+      "union M = M1(Int, T) | M2(T, Int) | N(Int, Int)\nlet f(m: M): Int =\n    match m with\n" +
+        "        M1(y, (A(x) | B(x) | C(x))) | M2((A(x) | B(x) | C(x)), y) | N(x, y) => x * 10 + y\n" +
+        "export let out: (Int, Int, Int) = (f(M1(1, C(2))), f(M2(B(3), 4)), f(N(5, 6)))\n",
+    )).toMatchObject({ out: [21, 34, 56] });
+  });
+
+  test("two or-patterns binding different names", async () => {
+    expect(await run(
+      "let f(p: (T, T)): Int =\n    match p with\n        ((A(x) | B(x) | C(x)), (A(y) | B(y) | C(y))) => x * 10 + y\n" +
+        "export let out: Int = f((A(1), C(2)))\n",
+    )).toMatchObject({ out: 12 });
+  });
+
+  test("or-patterns in separate arms, functions and blocks do not meet", async () => {
+    expect(await run(
+      "let f(p: (T, Int)): Int =\n    match p with\n        ((A(x) | B(x)), 0) => x\n        (_, x) => x * 100\n" +
+        "fun h1((A(x) | B(x) | C(x)): T): Int = x\n" +
+        "fun h2((A(x) | B(x) | C(x)): T): Int = x * 2\n" +
+        "let k1: Int =\n    let (A(x) | B(x) | C(x)) = A(3)\n    x\n" +
+        "let k2: Int =\n    let (A(x) | B(x) | C(x)) = B(4)\n    x\n" +
+        "export let out: (Int, Int, Int, Int, Int, Int) = (f((A(1), 0)), f((B(1), 2)), h1(C(5)), h2(A(6)), k1, k2)\n",
+    )).toMatchObject({ out: [1, 200, 5, 12, 3, 4] });
+  });
+
+  test("vector rests in alternatives", async () => {
+    expect(await run(
+      "let f(v: Vector(Int)): Int =\n    match v with\n" +
+        "        [1, x, ...r] | [...r, x, 2] => x * 10 + r.length()\n        _ => 0\n" +
+        "export let out: (Int, Int, Int) = (f([1, 5, 7, 8]), f([9, 9, 6, 2]), f([3]))\n",
+    )).toMatchObject({ out: [52, 62, 0] });
+  });
+
+  test("fraction alternatives", async () => {
+    expect(await run(
+      "let f(r: Rat): BigInt =\n    match r with\n        (n // 1) | (1 // n) => n\n        _ => 0\n" +
+        "export let out: (BigInt, BigInt, BigInt) = (f(5 // 1), f(1 // 7), f(2 // 3))\n",
+    )).toMatchObject({ out: [5n, 7n, 0n] });
+  });
+
+  test("record punning in alternatives", async () => {
+    expect(await run(
+      "union U = R({a: Int, x: Int})\nlet f(u: U): Int =\n    match u with\n" +
+        "        R({a = 1, x}) | R({a = 2, x}) => x\n        _ => 0\n" +
+        "export let out: (Int, Int, Int) = (f(R({a = 1, x = 4})), f(R({a = 2, x = 7})), f(R({a = 3, x = 9})))\n",
+    )).toMatchObject({ out: [4, 7, 0] });
+  });
+
+  test("an or-pattern shadows an outer `let`", async () => {
+    expect(await run(
+      "let x = 100\nlet f(t: T): Int =\n    match t with\n        A(x) | B(x) | C(x) => x\n" +
+        "export let out: (Int, Int) = (f(B(4)), x)\n",
+    )).toMatchObject({ out: [4, 100] });
+  });
+});
