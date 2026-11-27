@@ -823,6 +823,8 @@ late pedagogy pass, not a commitment to the current order.
   guards. An `n`-suffixed pattern is monomorphic `BigInt`, supports exact arbitrary-precision
   positive and negative values, and shares coverage identity with an equal bare integer
   at a BigInt position (`0` and `0n` are one case); patterns never widen their position.
+  At a `Rat` a bare integer is the fraction over one (`1` and `1//1` are one case, and
+  `1` matches `2//2`); no other literal stands there (#1638).
   `True`/`False` are
   constructor patterns, and a `match` over both is exhaustive by ordinary closed-union
   checking, not by a finite-literal-domain rule.

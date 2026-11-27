@@ -91,8 +91,8 @@ let describeCount(count: Int): String =
 ```
 
 `_` is the wildcard: it matches anything and binds nothing. Infinite sets such as
-`Int`, `Nat`, `BigInt`, `Float`, `Dec`, and `String` always need a wildcard or variable
-catch-all because a finite list of literals cannot cover every possible value.
+`Int`, `Nat`, `BigInt`, `Float`, `Dec`, `Rat`, and `String` always need a wildcard or
+variable catch-all because a finite list of literals cannot cover every possible value.
 
 The `n` suffix means `BigInt` in a pattern too. It lets you match an exact integer
 beyond the range of a bare literal:
@@ -118,6 +118,12 @@ not matching; use a guard checking `places()` when that count matters.
 The `d` suffix fixes the pattern's type to Dec, so it cannot match a Float position.
 Unlike an expression, a pattern needs the suffix even at a Dec position: `0.5 =>` there
 is refused, and the message suggests `0.5d`.
+
+A bare integer pattern works at a `Rat` position too, and there it is the whole number
+as a fraction: `1` is the case `1//1`, so it also matches `2//2`, which is the same
+value, and writing `1` and `1//1` as two arms makes the second unreachable. It is the
+only literal a `Rat` position takes: `0.5 =>` and `0.5d =>` are refused there, and a
+fraction that is not whole is matched with the `//` pattern this chapter reaches below.
 
 A `Float` literal matches by the same equality that `==` uses, and no more loosely:
 a computed value matches a written one only when `==` would say they are equal. The
@@ -651,8 +657,10 @@ fraction pattern reads a `Rat`'s top and bottom through a view in the same way.
 The scrutinee is evaluated once, and arms retain their written order. Structural
 patterns add no hidden user-defined dispatch; literal patterns use the same equality
 semantics as `==`: literals at `Int`, `Nat`, `BigInt`, and `String` compile to direct
-`===` tests, with BigInt values emitted as JavaScript bigint literals. A `Float` literal compiles to the same equality test that `==` on `Float` emits. The
-generated code follows the same decisions the source makes visible.
+`===` tests, with BigInt values emitted as JavaScript bigint literals. A `Float` literal compiles to the same equality test that `==` on `Float` emits.
+A bare integer at a `Rat` compiles exactly as the fraction pattern over one does: the
+arm `1` tests the top and the bottom with `=== 1n`. The generated code follows the same
+decisions the source makes visible.
 
 This chapter covers the complete pattern language over the data introduced so far.
 Later chapters add patterns where their surrounding feature becomes concrete: vector
