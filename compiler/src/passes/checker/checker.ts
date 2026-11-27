@@ -2488,9 +2488,17 @@ interface Requirement {
    * `Iterable` a value must honor to be adapted into the sequence the seat
    * expects. Its failures are the seat's mismatch, worded against the seat's
    * type (`sequenceSeat`), because the seat is what the program wrote.
+   *
+   * `"annotation"` is a binder's written list — `<a: Eq>` on a `let`, a `fun`
+   * head, an `honor` header — and is the declaration itself, so §4.2's
+   * declared-list check never refuses it. `"hole"` is a type hole's written
+   * list, `_ : Hash`: a demand on whatever fills the hole (Functions §4.1, a
+   * floor), so a declared variable that fills it must entail it like any
+   * other demand of the body (§4.2).
    */
   readonly origin:
     | "annotation"
+    | "hole"
     | "literal"
     | "operation"
     | "interpolation"
@@ -42153,6 +42161,7 @@ class Checker {
       literal: "literal",
       conversion: "evidence",
       annotation: "evidence",
+      hole: "evidence",
       use: "evidence",
       derived: "evidence",
     } as const)[requirement.origin];
@@ -42619,11 +42628,14 @@ class Checker {
       const variable = this.#fresh(level, false);
       holes.set(annotation.id, variable);
       this.#typeHoles.push({ span: annotation.span, type: variable });
-      // A written list seeds the accumulation register (§4.4) — no
-      // `declaredConstraints`, which is what would make it a cap: seeding is a
-      // floor, accumulation continues past it, and everything downstream reads
-      // the one set. Seeded inside the memo, so an alias applied at one written
-      // hole raises one obligation however many positions the body has.
+      // A written list is a demand on what fills the hole (§4.4): it seeds the
+      // accumulation register with no `declaredConstraints`, which is what
+      // would make it a cap — seeding is a floor, accumulation continues past
+      // it. Its origin is `"hole"`, not a binder's `"annotation"`, so a
+      // declared variable that fills the hole must entail the list as it must
+      // any demand of the body (Functions §4.2). Seeded inside the memo, so an
+      // alias applied at one written hole raises one obligation however many
+      // positions the body has.
       for (const [at, constraint] of annotation.constraints.entries()) {
         if (!this.#constraintNames.has(constraint)) {
           this.#diagnostics.add({
@@ -42641,7 +42653,7 @@ class Checker {
           this.#refuseProjectionBinder(constraint, variable, annotation.span);
           continue;
         }
-        this.#require(constraint, variable, annotation.span, "annotation");
+        this.#require(constraint, variable, annotation.span, "hole");
       }
       return variable;
     }
