@@ -14,7 +14,7 @@
 import { describe, expect, test } from "vitest";
 
 import { AnalysisSession } from "../analysis/session.js";
-import { compileMain, projectDiagnostics, runProject } from "../support/test-project.js";
+import { compileFiles, compileMain, projectDiagnostics, runProject } from "../support/test-project.js";
 import * as Typed from "../syntax/typed/index.js";
 
 /** The scheme the checker gave a top-level binding, as it renders it. */
@@ -758,6 +758,111 @@ describe("§8.15 a declared variable filling a constrained hole keeps its contra
   test("§4.4 a hole and a plain demand naming one constraint are one mistake, one report", () => {
     expect(refusals("module Main\n\nexport let f<a: Eq>(x: a): Int = Hash.hash((x : _ : Hash))\n"))
       .toEqual([[HASH, "_"]]);
+  });
+
+  test("§4.4 two holes naming one constraint are one refusal", () => {
+    expect(refusals("module Main\n\nexport let f<a: Eq>(x: a): Bool = (x : _ : Hash) == (x : _ : Hash)\n"))
+      .toEqual([[HASH, "_"]]);
+  });
+
+  test("§4.4 a hole beside the operation it serves is one report: `==`, interpolation", () => {
+    expect(refusals("module Main\n\nexport let f<a: Eq>(x: a): Bool = (x : _ : Hash) == x\n"))
+      .toEqual([[HASH, "_"]]);
+    expect(refusals('module Main\n\nexport let f<a: Eq>(x: a): String = "${(x : _ : Show)}"\n'))
+      .toEqual([[SHOW, "_"]]);
+  });
+
+  test("§4.4 a dot call on the refused fill is the same mistake, so the refusal is its one report", () => {
+    for (const [body, report] of [
+      ["export let f<a: Eq>(x: a): Int = (x : _ : Hash).hash()\n", HASH],
+      ["export let f<a: Eq>(x: a): String = (x : _ : Show).show()\n", SHOW],
+      ["export let f<a: Eq>(x: a): Int =\n    let y: _ : Hash = x\n    y.hash()\n", HASH],
+    ] as const) {
+      expect(refusals("module Main\n\n" + body), body).toEqual([[report, "_"]]);
+    }
+    // With no refusal of `Hash` to speak for it, the dot call keeps Method
+    // Syntax §9 row 7's own report.
+    expect(refusals("module Main\n\nexport let f<a: Eq>(x: a): Int = x.hash()\n")).toEqual([[
+      "`a` is a declared type variable, so `.hash` can only be one of its constraints' members, " +
+        "and none of `a`'s constraints has a subject-first member `hash`; add the constraint to " +
+        "the parameter's binder, use a concrete nominal type, or call a qualified function",
+      "hash",
+    ]]);
+  });
+
+  test("§4.4 a local function's own binder is a contract its holes meet", () => {
+    expect(refusals(
+      "module Main\n\nexport let f(x: Int): Bool =\n" +
+        "    let g<b: Eq>(y: b): Bool = (y : _ : Hash) == y\n    g(x)\n",
+    )).toEqual([[
+      "`b` is declared to honor `Eq`, but the body requires `Hash`; write `<b: Hash>`, " +
+        "or remove the constraint annotation to let it be inferred",
+      "_",
+    ]]);
+  });
+
+  test("§4.4 a hole in a local function inside an `honor` body or a default is refused too", () => {
+    // The demand reaches the header's or the subject's variable when the local
+    // function is generalized, so the report stands at its name.
+    expect(refusals(
+      "module Main\n\nrecord Box(a) = { item: a }\nrecord P = { n: Int }\n" +
+        "honor Eq<P> =\n    equals(x, y) = x.n == y.n\n" +
+        "honor<a: Eq> Eq<Box(a)> =\n    equals(x, y) =\n" +
+        "        let h(z: a): Bool = (z : _ : Hash) == z\n        h(x.item) and x.item == y.item\n" +
+        "let same(x: Box(P), y: Box(P)): Bool = x == y\n" +
+        "export let out: Bool = same(Box({ item = P({ n = 1 }) }), Box({ item = P({ n = 1 }) }))\n",
+    )).toEqual([[
+      "`a` is declared to honor `Eq`, but the body requires `Hash`; write `<a: Hash>` on the `honor` header",
+      "h",
+    ]]);
+    expect(refusals(
+      "module Main\n\nconstraint Labelled<a: Eq> =\n    label(value: a) -> a\n" +
+        "    same(value: a) -> Bool =\n        let h(z: a): Bool = (z : _ : Hash) == z\n        h(value)\n" +
+        "honor Labelled<Int> =\n    label(value) = value\n" +
+        "let n: Int = 1\nexport let out: Bool = same(n)\n",
+    )).toEqual([[
+      "`a` is `Labelled`'s subject, so the body reaches only `Labelled` and its base constraints, " +
+        "but it requires `Hash`; add `Hash` as a base constraint — write `constraint Labelled<a: Hash>`",
+      "h",
+    ]]);
+  });
+
+  test("§4.4 entailment through a user base chain, and its converse refused", () => {
+    const chain =
+      "module Main\n\nconstraint A<a: Eq> =\n    weightA(value: a) -> Int\n" +
+      "constraint B<a: A> =\n    weightB(value: a) -> Int\n";
+    expect(emitted(chain + "export let f<a: B>(x: a): Bool = (x : _ : Eq) == x\n"))
+      .toContain("const f = (x, __B_a) => __B_a.A.Eq.equals(x, x);");
+    expect(refusals(chain + "export let f<a: A>(x: a): Bool = (x : _ : B) == x\n")).toEqual([[
+      "`a` is declared to honor `A`, but the body requires `B`; write `<a: B>`, " +
+        "or remove the constraint annotation to let it be inferred",
+      "_",
+    ]]);
+  });
+
+  test("§4.4 qualified constraint names on both sides are compared by declaration", () => {
+    const compiled = compileFiles([
+      ["/main.hex", "module Main\n\nimport Lib\nexport let f<a: Lib.Heavy>(x: a): Int = Lib.heft((x : _ : Lib.Heft))\n"],
+      ["/lib.hex", "module Lib\n\nexport constraint Heft<a> =\n    heft(value: a) -> Int\n" +
+        "export constraint Heavy<a: Heft> =\n    heavy(value: a) -> Int\n"],
+    ]);
+    expect(compiled.diagnostics.map(({ message }) => message)).toEqual([]);
+    expect(compiled.modules.find(({ source }) => source.path === "/main.hex")!.javascript.text)
+      .toContain("const f = (x, __Heavy_a) => __heft(x, __Heavy_a.Heft);");
+  });
+
+  test("§4.4 a list of two is met by a declared list of two that entails it", () => {
+    expect(emitted("module Main\n\nexport let f<a: (Hash, Show)>(x: a): Bool = (x : _ : (Eq, Show)) == x\n"))
+      .toContain("const f = (x, __Hash_a, __Show_a) => __Hash_a.Eq.equals(x, x);");
+  });
+
+  test("§4.4 a hole's list joins an inferred scheme in the evidence order every source gets", () => {
+    // Seeded, called and operated demands on two variables: the dictionaries
+    // follow the variables, then the constraint names, whatever made them.
+    expect(emitted(
+      "module Main\n\nlet f(x, y) = if (x : _ : Show) == x then Hash.hash(x) + Show.show(x).length() " +
+        "else (if y < y then 1 else 0)\nexport let out: Int = f(1, 2)\n",
+    )).toContain("const f = (x, y, __Hash_a, __Show_a, __Ord_b) =>");
   });
 
   test("§4.4 the advice, followed, compiles", () => {

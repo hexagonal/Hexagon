@@ -8765,6 +8765,13 @@ class Checker {
    * `x.compare(y)`).
    */
   #boundMembers(variable: Variable): ReadonlyMap<string, MemberCandidate[]> {
+    return this.#membersReached(
+      (variable.declaredConstraints ?? []).map((constraint) => this.#constraintIdentity(constraint)),
+    );
+  }
+
+  /** The members the given constraints and their bases put within reach, by member name. */
+  #membersReached(identities: Iterable<string>): ReadonlyMap<string, MemberCandidate[]> {
     const found = new Map<string, MemberCandidate[]>();
     const seen = new Set<string>();
     const admit = (identity: string): void => {
@@ -8782,9 +8789,7 @@ class Checker {
       }
       for (const base of declaration.baseConstraintIdentities) admit(base);
     };
-    for (const constraint of variable.declaredConstraints ?? []) {
-      admit(this.#constraintIdentity(constraint));
-    }
+    for (const identity of identities) admit(identity);
     return found;
   }
 
@@ -10622,6 +10627,11 @@ class Checker {
           ),
       );
     }
+    // The constraint that owns the member was demanded of this variable and
+    // refused already (Functions §4.2), and that refusal advises the list that
+    // puts the member within reach: it is the one report for the one mistake.
+    const refused = this.#membersReached(variable.rejectedConstraints).get(name) ?? [];
+    if (refused.some(({ subjectFirst }) => subjectFirst)) return ERROR;
     // §9 row 7. The bounds are the entire candidate set, so the message says so
     // and offers the three ways out — never the row constraint, which a declared
     // variable never takes.
