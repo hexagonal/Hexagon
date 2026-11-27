@@ -138,7 +138,10 @@ means, and canonical Hexagon omits it, writing the bare binder `x`.
 A hole — and only a hole — may carry a written constraint list, the §4.2
 form: `x: _: Show`, or `xs: Vector(_: Num)` for an element. The list is a
 requirement the fill must satisfy — a floor, never a cap; a named variable
-instead constrains at its binder (§4.2), the one home a name affords.
+instead constrains at its binder (§4.2), the one home a name affords. Where
+a named variable fills a hole, the hole's list is a demand on that variable
+like any demand of the body, so the variable's written list, where it has
+one, must entail it (§4.2).
 Semantics, legal positions, constrained holes, and the
 total-contract fence (no holes in exported signatures or declaration
 surfaces) are owned by `decisions-ml-dialect-annotations-2026-08.md`.
