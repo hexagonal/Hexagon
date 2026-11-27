@@ -5195,19 +5195,44 @@ class Resolver {
       for (const name of namesByAlternative.flat()) {
         if (!sourceNames.has(name.text)) sourceNames.set(name.text, name);
       }
+      // The or-pattern binds each of its names once in the pattern around it, so
+      // each name meets that pattern's duplicate check here, as a lone binder
+      // would at the tail below: `(x, (A(x) | B(x)))`, `(A(x) | B(x)) as x` and
+      // two sibling or-patterns are one name bound twice. The check comes before
+      // the inherited-name skip, because a name an enclosing or-pattern shares
+      // can still be bound twice within this alternative of it. A repeat is
+      // settled by this report alone, never claimed again, but the alternatives
+      // still get a binding so the rest of the pattern and the body resolve.
+      // Each alternative then checks against a fresh map of its own: `A(x) |
+      // B(x)` binds `x` once, in two universes (§2.1).
       const shared = new Map(sharedBindings);
       for (const [text, name] of sourceNames) {
-        if (shared.has(text)) continue;
-        const claimed = this.#claimBinder(name, scope, binderClass);
-        const binding = this.#declare(name, declaredKind(binderClass));
-        shared.set(text, binding);
-        if (claimed) {
-          scope.define(
-            text,
-            binding.symbol,
-            binderClass === "sequential" ? this.#sequentialVisibleFrom : undefined,
-          );
+        const duplicate = seen.get(text);
+        if (duplicate !== undefined) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: `\`${text}\` is bound twice in this pattern`,
+            primary: name.span,
+            labels: [{ span: duplicate.span, message: "first binding is here" }],
+          });
+          if (!shared.has(text)) shared.set(text, this.#declare(name, declaredKind(binderClass)));
+          continue;
         }
+        if (!shared.has(text)) {
+          const claimed = this.#claimBinder(name, scope, binderClass);
+          const binding = this.#declare(name, declaredKind(binderClass));
+          shared.set(text, binding);
+          if (claimed) {
+            scope.define(
+              text,
+              binding.symbol,
+              binderClass === "sequential" ? this.#sequentialVisibleFrom : undefined,
+            );
+          }
+        }
+        // Recorded at this occurrence, so a later repeat's label points into
+        // this alternative rather than at a shared binding's first spelling.
+        seen.set(text, { ...shared.get(text)!, span: name.span });
       }
       return {
         kind: "Or",
