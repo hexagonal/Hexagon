@@ -69,13 +69,13 @@ describe("#1637 a position only a literal pattern touches is an `Int`", () => {
       "a tuple element",
       "let f(p) =\n    match p with\n        (1, _) => \"one\"\n        _ => \"other\"\n" +
         "export let out: String = f((1d, \"a\"))\n",
-      [MISMATCH, inPart("p", "write its type here")],
+      [MISMATCH, inPart("p", "write `p: (Dec, _)`")],
     ],
     [
       "a record field",
       "let f(r) =\n    match r with\n        { n = 1 } => \"one\"\n        _ => \"other\"\n" +
         "export let out: String = f({ n = 1d })\n",
-      [MISMATCH, inPart("r", "write its type here")],
+      [MISMATCH, inPart("r", "write `r: {n: Dec, ...}`")],
     ],
     [
       "a vector element",
@@ -303,6 +303,139 @@ describe("#1637 the default waits for a binding that generalizes", () => {
       "fun callee(o) =\n    match o with\n" + ONE +
         "fun caller(z: Dec) = callee(Some(z))\nexport let out: String = caller(1d)\n",
     )).toEqual([MISMATCH, inPart("o", "write `o: Option(Dec)`")]);
+  });
+});
+
+describe("#1637 the label spells the parameter's type in every shape", () => {
+  // Each row: the program, its label, and the program with the label's
+  // annotation written, which compiles and answers.
+  test.each([
+    [
+      "a tuple",
+      "let f(p) =\n    match p with\n        (1, _) => \"one\"\n        _ => \"other\"\n",
+      "export let out: String = f((1d, \"x\"))\n",
+      "p",
+      "p: (Dec, _)",
+      "export let out: String = f((1d, \"x\")) ++ f((2.5d, 3))\n",
+      "oneother",
+    ],
+    [
+      "a record, called with more fields",
+      "let f(r) =\n    match r with\n        { n = 1 } => \"one\"\n        _ => \"other\"\n",
+      "export let out: String = f({ n = 1d, m = \"x\" })\n",
+      "r",
+      "r: {n: Dec, ...}",
+      "export let out: String = f({ n = 1d, m = \"x\" }) ++ f({ n = 2d })\n",
+      "oneother",
+    ],
+    [
+      "a record whose other field the body settles",
+      "let f(r) =\n    match r with\n        { n = 1, s = s } => s\n        _ => \"other\"\n",
+      "export let out: String = f({ n = 1d, s = \"one\" })\n",
+      "r",
+      "r: {n: Dec, s: String, ...}",
+      "export let out: String = f({ n = 1d, s = \"one\" }) ++ f({ n = 2d, s = \"two\", t = 0 })\n",
+      "oneother",
+    ],
+    [
+      "a tuple in an `Option`",
+      "let f(o) =\n    match o with\n        Some((1, _)) => \"one\"\n        _ => \"other\"\n",
+      "export let out: String = f(Some((1d, \"x\")))\n",
+      "o",
+      "o: Option((Dec, _))",
+      "export let out: String = f(Some((1d, \"x\"))) ++ f(Some((2d, 4)))\n",
+      "oneother",
+    ],
+    [
+      "a vector of tuples",
+      "let f(v) =\n    match v with\n        [(1, _)] => \"one\"\n        _ => \"other\"\n",
+      "export let out: String = f([(1d, \"x\")])\n",
+      "v",
+      "v: Vector((Dec, _))",
+      "export let out: String = f([(1d, \"x\")]) ++ f([(2d, 5)])\n",
+      "oneother",
+    ],
+    [
+      "a record in a tuple",
+      "let f(p) =\n    match p with\n        ({ n = 1 }, _) => \"one\"\n        _ => \"other\"\n",
+      "export let out: String = f(({ n = 1d, m = 2 }, \"x\"))\n",
+      "p",
+      "p: ({n: Dec, ...}, _)",
+      "export let out: String = f(({ n = 1d, m = 2 }, \"x\")) ++ f(({ n = 3d }, 4))\n",
+      "oneother",
+    ],
+    [
+      "the second of two parameters",
+      "let f(a, p) =\n    match p with\n        (1, _) => a\n        _ => \"other\"\n",
+      "export let out: String = f(\"one\", (1d, \"x\"))\n",
+      "p",
+      "p: (Dec, _)",
+      "export let out: String = f(\"one\", (1d, \"x\")) ++ f(\"two\", (2d, 3))\n",
+      "oneother",
+    ],
+    [
+      "a component the body settles, named and not a hole",
+      "let g(s: String): String = s\nlet f(p) =\n    match p with\n        (1, s) => g(s)\n        _ => \"other\"\n",
+      "export let out: String = f((1d, \"x\"))\n",
+      "p",
+      "p: (Dec, String)",
+      "export let out: String = f((1d, \"x\")) ++ f((2d, \"y\"))\n",
+      "xother",
+    ],
+    [
+      "a function component, its arrow as the body calls it",
+      "let f(p) =\n    match p with\n        (1, g) => g(2)\n        _ => \"other\"\n",
+      "export let out: String = f((1d, (n) => \"x\"))\n",
+      "p",
+      "p: (Dec, (_) -> String)",
+      "export let out: String = f((1d, (n) => \"x\")) ++ f((2d, (n: Int) => \"y\"))\n",
+      "xother",
+    ],
+    [
+      "a generic union",
+      "union Two(a, b) = Two(x: a, y: b)\nlet f(t) =\n    match t with\n        Two(1, _) => \"one\"\n" +
+        "        _ => \"other\"\n",
+      "export let out: String = f(Two(1d, \"x\"))\n",
+      "t",
+      "t: Two(Dec, _)",
+      "export let out: String = f(Two(1d, \"x\")) ++ f(Two(2d, 3))\n",
+      "oneother",
+    ],
+  ])("%s", async (_shape, definition, call, name, annotation, calls, answer) => {
+    expect(reports(definition + call)).toEqual([MISMATCH, inPart(name, `write \`${annotation}\``)]);
+    const written = definition.replace(`(${name})`, `(${annotation})`).replace(`, ${name})`, `, ${annotation})`);
+    expect(written).not.toBe(definition);
+    expect(await run(written + calls)).toBe(answer);
+  });
+
+  test("a destructured parameter writes the hole in its own parentheses", async () => {
+    const definition = "let f((a, b)) =\n    match Some(a) with\n" + ONE;
+    expect(reports(definition + "export let out: String = f((1d, \"x\"))\n")).toEqual([
+      MISMATCH,
+      inPart("(a, b)", "write `((a, b): (Dec, _))`"),
+    ]);
+    expect(await run(
+      definition.replace("f((a, b))", "f((a, b): (Dec, _))") + "export let out: String = f((1d, \"x\")) ++ f((3d, 2))\n",
+    )).toBe("oneother");
+  });
+
+  test("an exported function writes its whole signature, so no hole is advised there", () => {
+    expect(reports(
+      "export let f(p) =\n    match p with\n        (1, _) => \"one\"\n        _ => \"other\"\n" +
+        "export let out: String = f((1d, \"x\"))\n",
+    )).toEqual([
+      "exported function `f` requires a complete signature; add type for parameter `p` and a return type",
+      MISMATCH,
+      inPart("p", "write its type here"),
+    ]);
+  });
+
+  test("an exported function whose type has no hole is advised it", () => {
+    expect(reports("export " + SPECIMEN + "export let out: String = f(Some(1d))\n")).toEqual([
+      "exported function `f` requires a complete signature; add type for parameter `o` and a return type",
+      MISMATCH,
+      inPart("o", "write `o: Option(Dec)`"),
+    ]);
   });
 });
 
