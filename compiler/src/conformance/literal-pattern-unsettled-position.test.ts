@@ -401,6 +401,79 @@ describe("#1637 the label spells the parameter's type in every shape", () => {
       "export let out: String = f(Two(1d, \"x\")) ++ f(Two(2d, 3))\n",
       "oneother",
     ],
+    [
+      "a record field read before the match, so the number stands in the row's tail",
+      "let f(r) =\n    let t: String = r.s\n    match Some(r.n) with\n        Some(1) => t\n        _ => \"other\"\n",
+      "export let out: String = f({ n = 1d, s = \"a\" })\n",
+      "r",
+      "r: {s: String, n: Dec, ...}",
+      "export let out: String = f({ n = 1d, s = \"a\" }) ++ f({ n = 2d, s = \"b\" })\n",
+      "aother",
+    ],
+    [
+      "a record pattern after a field is read",
+      "let f(r) =\n    let t: String = r.s\n    match r with\n        { n = 1 } => t\n        _ => \"other\"\n",
+      "export let out: String = f({ n = 1d, s = \"a\" })\n",
+      "r",
+      "r: {s: String, n: Dec, ...}",
+      "export let out: String = f({ n = 1d, s = \"a\" }) ++ f({ n = 2d, s = \"b\", z = 0 })\n",
+      "aother",
+    ],
+    [
+      "two literal fields after a field is read",
+      "let f(r) =\n    let t: String = r.s\n    match r with\n        { n = 1, m = 2 } => t\n        _ => \"other\"\n",
+      "export let out: String = f({ n = 1d, m = 2, s = \"a\" })\n",
+      "r",
+      "r: {s: String, n: Dec, m: Int, ...}",
+      "export let out: String = f({ n = 1d, m = 2, s = \"a\" }) ++ f({ n = 1d, m = 3, s = \"b\" })\n",
+      "aother",
+    ],
+    [
+      "a record in a tuple whose field is read first",
+      "let f(p) =\n    let (r, _) = p\n    let t: String = r.s\n    match p with\n        ({ n = 1 }, _) => t\n" +
+        "        _ => \"other\"\n",
+      "export let out: String = f(({ n = 1d, s = \"a\" }, 0))\n",
+      "p",
+      "p: ({s: String, n: Dec, ...}, _)",
+      "export let out: String = f(({ n = 1d, s = \"a\" }, 0)) ++ f(({ n = 2d, s = \"b\" }, \"z\"))\n",
+      "aother",
+    ],
+    [
+      "a `Result`",
+      "let f(o) =\n    match o with\n        Ok(1) => \"one\"\n        _ => \"other\"\n",
+      "export let out: String = f(Ok(1d))\n",
+      "o",
+      "o: Result(Dec)",
+      "export let out: String = f(Ok(1d)) ++ f(Ok(2d))\n",
+      "oneother",
+    ],
+    [
+      "a function's result",
+      "let f(g) =\n    match g() with\n        Some(1) => \"one\"\n        _ => \"other\"\n",
+      "export let out: String = f(() => Some(1d))\n",
+      "g",
+      "g: () -> Option(Dec)",
+      "export let out: String = f(() => Some(1d)) ++ f(() => None)\n",
+      "oneother",
+    ],
+    [
+      "a nominal record",
+      "record R(a) = {n: a}\nlet f(x) =\n    match x with\n        R({ n = 1 }) => \"one\"\n        _ => \"other\"\n",
+      "export let out: String = f(R({n = 1d}))\n",
+      "x",
+      "x: R(Dec)",
+      "export let out: String = f(R({n = 1d})) ++ f(R({n = 2d}))\n",
+      "oneother",
+    ],
+    [
+      "a module whose own `record Dec` takes the bare name",
+      "record Dec = {v: Int}\nlet f(p) =\n    match p with\n        (1, _) => \"one\"\n        _ => \"other\"\n",
+      "export let out: String = f((1d, \"x\"))\n",
+      "p",
+      "p: (Dec.Dec, _)",
+      "export let out: String = f((1d, \"x\")) ++ f((2d, 3))\n",
+      "oneother",
+    ],
   ])("%s", async (_shape, definition, call, name, annotation, calls, answer) => {
     expect(reports(definition + call)).toEqual([MISMATCH, inPart(name, `write \`${annotation}\``)]);
     const written = definition.replace(`(${name})`, `(${annotation})`).replace(`, ${name})`, `, ${annotation})`);
@@ -417,6 +490,18 @@ describe("#1637 the label spells the parameter's type in every shape", () => {
     expect(await run(
       definition.replace("f((a, b))", "f((a, b): (Dec, _))") + "export let out: String = f((1d, \"x\")) ++ f((3d, 2))\n",
     )).toBe("oneother");
+  });
+
+  test("a destructured record parameter writes its open row in its own parentheses", async () => {
+    const definition = "let f({ n = n, s = s }) =\n    match Some(n) with\n        Some(1) => s\n        _ => \"other\"\n";
+    expect(reports(definition + "export let out: String = f({ n = 1d, s = \"a\" })\n")).toEqual([
+      MISMATCH,
+      inPart("{ n = n, s = s }", "write `({ n = n, s = s }: {n: Dec, s: String, ...})`"),
+    ]);
+    expect(await run(
+      definition.replace("f({ n = n, s = s })", "f({ n = n, s = s }: {n: Dec, s: String, ...})") +
+        "export let out: String = f({ n = 1d, s = \"a\" }) ++ f({ n = 2d, s = \"b\" })\n",
+    )).toBe("aother");
   });
 
   test("an exported function writes its whole signature, so no hole is advised there", () => {

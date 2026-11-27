@@ -41245,8 +41245,12 @@ class Checker {
     switch (actual.kind) {
       case "Tuple":
         return { ...actual, elements: actual.elements.map(go) };
-      case "Record":
-        return { ...actual, fields: new Map([...actual.fields].map(([name, field]) => [name, go(field)])) };
+      case "Record": {
+        // A field may stand in a tail inference bound to another record, so
+        // the row is read through its tail before its fields are replaced.
+        const row = this.#normalizeRecord(actual);
+        return { ...row, fields: new Map([...row.fields].map(([name, field]) => [name, go(field)])) };
+      }
       case "Vector":
         return { ...actual, element: go(actual.element) };
       case "Set":
