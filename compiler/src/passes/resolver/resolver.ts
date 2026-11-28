@@ -1546,6 +1546,7 @@ class Resolver {
   /** An `as` binder's clause deletion, if it has one, set before it resolves. */
   readonly #asDrops = new Map<number, Diagnostics.Edit | undefined>();
   readonly #punnedBinders = new Set<number>();
+  readonly #undroppableBinders = new Set<number>();
   /**
    * Duplicate reports whose repeat could be dropped, settled once the module
    * has resolved: the edit is offered only if nothing read the binding the
@@ -2663,7 +2664,7 @@ class Resolver {
       for (let index = this.#diagnostics.count - 1; index >= 0; index -= 1) {
         if (this.#diagnostics.tagAt(index) !== report) continue;
         this.#diagnostics.replace(index, {
-          ...report,
+          ...this.#diagnostics.at(index)!,
           fixes: [{ message: `perhaps ${what}`, edits: [edit], suggestion: true }],
         });
         break;
@@ -5497,8 +5498,18 @@ class Resolver {
       };
     }
     if (pattern.kind === "Record") {
+      const fieldNames = pattern.fields.map((field) => field.name.text);
       for (const field of pattern.fields) {
-        if (field.pattern.kind === "Binding" && field.pattern.name.span.start.offset === field.name.span.start.offset) {
+        if (fieldNames.indexOf(field.name.text) !== fieldNames.lastIndexOf(field.name.text)) {
+          // A repeated field is its own refusal, and no edit to a binder
+          // under it can lift that, so none is offered.
+          for (const name of Parsed.patternNames(field.pattern)) {
+            this.#undroppableBinders.add(name.span.start.offset);
+          }
+        } else if (
+          field.pattern.kind === "Binding" &&
+          field.pattern.name.span.start.offset === field.name.span.start.offset
+        ) {
           this.#punnedBinders.add(field.name.span.start.offset);
         }
       }
@@ -5529,7 +5540,9 @@ class Resolver {
       span: pattern.name.span,
       replacement: this.#punnedBinders.has(at) ? `${pattern.name.text} = _` : "_",
     };
-    if (sharedBindings === undefined && drop !== undefined) this.#binderDrops.set(at, drop);
+    if (sharedBindings === undefined && drop !== undefined && !this.#undroppableBinders.has(at)) {
+      this.#binderDrops.set(at, drop);
+    }
     const duplicate = seen.get(pattern.name.text);
     if (duplicate !== undefined) {
       this.#reportBoundTwice(pattern.name.text, duplicate, pattern.name.span, scope);
@@ -5541,14 +5554,16 @@ class Resolver {
       this.#declare(pattern.name, declaredKind(binderClass));
     // Recorded at the earlier of this occurrence and the one it repeats, so a
     // third occurrence is labelled at the first and every repeat gets its own
-    // caret. A binding shared by an or-pattern's alternatives carries its
-    // declaring occurrence's span, so the occurrence's own is written here.
-    seen.set(pattern.name.text, {
-      ...binding,
-      span: duplicate === undefined
-        ? pattern.name.span
-        : orderedBySource(duplicate.span, pattern.name.span)[0],
-    });
+    // caret. A repeat keeps the binding it repeats, the one the body reads, so
+    // a third occurrence's edit asks about that binding's uses. A binding
+    // shared by an or-pattern's alternatives carries its declaring
+    // occurrence's span, so the occurrence's own is written here.
+    seen.set(
+      pattern.name.text,
+      duplicate === undefined
+        ? { ...binding, span: pattern.name.span }
+        : { ...duplicate, span: orderedBySource(duplicate.span, pattern.name.span)[0] },
+    );
     if (claimed) {
       scope.define(
         pattern.name.text,

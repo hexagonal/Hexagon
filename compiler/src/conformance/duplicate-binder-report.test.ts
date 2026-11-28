@@ -27,6 +27,20 @@ function messages(source: string): readonly string[] {
   return compileMain(source).diagnostics.map(({ message }) => message);
 }
 
+/** `source` with the edits of every report's one fix applied together. */
+function appliedAll(source: string, reports: ReturnType<typeof duplicates>): string {
+  return reports
+    .flatMap((report) => {
+      expect(report.fixes).toHaveLength(1);
+      return report.fixes![0]!.edits;
+    })
+    .sort((a, b) => b.span.start.offset - a.span.start.offset)
+    .reduce(
+      (text, edit) => text.slice(0, edit.span.start.offset) + edit.replacement + text.slice(edit.span.end.offset),
+      source,
+    );
+}
+
 /** `source` with the edits of the report's one fix applied. */
 function applied(source: string, report: ReturnType<typeof duplicates>[number]): string {
   expect(report.fixes).toHaveLength(1);
@@ -78,6 +92,7 @@ describe("#104 an unused repeat is offered its edit", () => {
     ["an or-pattern, then a rest", arm("Vector(T)", "[(A(x) | B(x)), ...x]"), "[(A(x) | B(x)), ..._]"],
     ["a typed binder", arm("(Int, Int)", "((x: Int), (x: Int))"), "((x: Int), (_: Int))"],
     ["a fraction", `${header}let f(r: Rat): Int =\n    match r with\n        x // x => 1\n`, "x // _"],
+    ["two fields binding one name", arm("{a: Int, b: Int}", "{a = x, b = x}"), "{a = x, b = _}"],
   ])("in a match arm, %s", (_shape, source, rewritten) => {
     const [report, ...rest] = duplicates(source);
     expect(rest).toEqual([]);
@@ -108,6 +123,28 @@ describe("#104 an unused repeat is offered its edit", () => {
   });
 });
 
+describe("#104 three occurrences", () => {
+  test.each([
+    ["a tuple", arm("(Int, Int, Int)", "(x, x, x)"), "(x, _, _)"],
+    ["a vector with a rest between", arm("Vector(Int)", "[x, ...x, x]"), "[x, ..._, _]"],
+  ])("in %s, unused, every repeat is offered its edit, and together they compile", (_shape, source, rewritten) => {
+    const reports = duplicates(source);
+    expect(reports).toHaveLength(2);
+    const fixed = appliedAll(source, reports);
+    expect(fixed).toContain(rewritten);
+    expect(messages(fixed)).toEqual(messages(source).filter((message) => !message.includes("bound twice")));
+  });
+
+  test.each([
+    ["a tuple", arm("(Int, Int, Int)", "(x, x, x)", "x")],
+    ["a vector with a rest between", arm("Vector(Int)", "[x, ...x, x]", "x.length()")],
+  ])("in %s, read by the body, no repeat is offered an edit", (_shape, source) => {
+    const reports = duplicates(source);
+    expect(reports).toHaveLength(2);
+    for (const report of reports) expect(report.fixes ?? []).toEqual([]);
+  });
+});
+
 describe("#104 a repeat is offered no edit", () => {
   test.each([
     ["an arm body reads the name", arm("(Int, Int)", "(x, x)", "x")],
@@ -125,6 +162,11 @@ describe("#104 a repeat is offered no edit", () => {
     // An or-pattern's alternatives must bind the same names (§2.6), so its
     // occurrence is never dropped alone.
     ["the later occurrence is an or-pattern", arm("(Int, T)", "(x, (A(x) | B(x)))")],
+    // The repeated field is refused on its own, and no binder edit lifts that.
+    [
+      "a punned field repeated",
+      arm("U", "R({x, x})").replace("union T", "union U = R({x: Int})\nunion T"),
+    ],
     [
       "both occurrences are inside an or-pattern's alternative",
       arm("U", "C(x, x) | D(x, x)").replace("union T", "union U = C(Int, Int) | D(Int, Int)\nunion T"),
