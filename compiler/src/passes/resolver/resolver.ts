@@ -5192,8 +5192,15 @@ class Resolver {
       }
 
       const sourceNames = new Map<string, Parsed.Name>();
+      // Each name's first occurrence in source, which the duplicate report
+      // marks: `patternNames` lists a vector's rest after its elements.
+      const earliest = new Map<string, Source.Span>();
       for (const name of namesByAlternative.flat()) {
         if (!sourceNames.has(name.text)) sourceNames.set(name.text, name);
+        const known = earliest.get(name.text);
+        if (known === undefined || name.span.start.offset < known.start.offset) {
+          earliest.set(name.text, name.span);
+        }
       }
       // The or-pattern binds each of its names once in the pattern around it, so
       // each name meets that pattern's duplicate check here, as a lone binder
@@ -5209,12 +5216,7 @@ class Resolver {
       for (const [text, name] of sourceNames) {
         const duplicate = seen.get(text);
         if (duplicate !== undefined) {
-          this.#diagnostics.add({
-            severity: "error",
-            message: `\`${text}\` is bound twice in this pattern`,
-            primary: name.span,
-            labels: [{ span: duplicate.span, message: "first binding is here" }],
-          });
+          this.#reportBoundTwice(text, duplicate.span, earliest.get(text)!);
           if (!shared.has(text)) shared.set(text, this.#declare(name, declaredKind(binderClass)));
           continue;
         }
@@ -5230,9 +5232,9 @@ class Resolver {
             );
           }
         }
-        // Recorded at this occurrence, so a later repeat's label points into
-        // this alternative rather than at a shared binding's first spelling.
-        seen.set(text, { ...shared.get(text)!, span: name.span });
+        // Recorded at this or-pattern's first occurrence, so a repeat's label
+        // points into it rather than at an enclosing shared binding's spelling.
+        seen.set(text, { ...shared.get(text)!, span: earliest.get(text)! });
       }
       return {
         kind: "Or",
@@ -5465,19 +5467,16 @@ class Resolver {
     // one binding per name (`sharedBindings`), already claimed above.
     const duplicate = seen.get(pattern.name.text);
     if (duplicate !== undefined) {
-      this.#diagnostics.add({
-        severity: "error",
-        message: `\`${pattern.name.text}\` is bound twice in this pattern`,
-        primary: pattern.name.span,
-        labels: [{ span: duplicate.span, message: "first binding is here" }],
-      });
+      this.#reportBoundTwice(pattern.name.text, duplicate.span, pattern.name.span);
     }
     const claimed = duplicate === undefined && sharedBindings === undefined &&
       this.#claimBinder(pattern.name, scope, binderClass);
 
     const binding = sharedBindings?.get(pattern.name.text) ??
       this.#declare(pattern.name, declaredKind(binderClass));
-    seen.set(pattern.name.text, binding);
+    // Recorded at this occurrence: a binding shared by an or-pattern's
+    // alternatives carries its declaring occurrence's span, not this one's.
+    seen.set(pattern.name.text, { ...binding, span: pattern.name.span });
     if (claimed) {
       scope.define(
         pattern.name.text,
@@ -5486,6 +5485,23 @@ class Resolver {
       );
     }
     return { kind: "Binding", binding, span: pattern.span };
+  }
+
+  /**
+   * Reports one name bound twice in one pattern (Pattern Matching §2.1, §12).
+   * The pair is ordered by source position, not by which occurrence resolved
+   * second: a vector's rest resolves before its elements, so in `[x, ...x]` the
+   * rest is the one met first. The caret marks the later occurrence and the
+   * label the earlier, as "duplicate parameter" does.
+   */
+  #reportBoundTwice(text: string, met: Source.Span, repeat: Source.Span): void {
+    const [first, second] = orderedBySource(met, repeat);
+    this.#diagnostics.add({
+      severity: "error",
+      message: `\`${text}\` is bound twice in this pattern; rename one occurrence`,
+      primary: second,
+      labels: [{ span: first, message: "first binding is here" }],
+    });
   }
 
   /**
