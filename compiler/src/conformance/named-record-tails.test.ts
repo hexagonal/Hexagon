@@ -1,0 +1,252 @@
+/**
+ * A named record tail `...a` written in an annotation is declared, as a written
+ * type variable is (#520; Products §4, Functions §4.1). Inference may not close
+ * it, grow it, or join it to another written tail; a bare `...` stays solved by
+ * inference. Before, the tail was an ordinary inference variable: the published
+ * face disagreed with the code, and an importer read a field the value did not
+ * carry (`NaN` at run time).
+ */
+
+import { describe, expect, test } from "vitest";
+
+import { compileFiles, compileMain, projectDiagnostics, runMain, runProject } from "../support/test-project.js";
+
+function declarations(source: string): string {
+  const project = compileMain(source);
+  expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
+  return project.modules.find((module) => module.source.path === "/main.hex")!.declarations.text;
+}
+
+const OPEN = "({ x: number } & a)";
+const FACE = `<a>(r: ${OPEN}) => ${OPEN}`;
+
+const CLOSED = "`...a` says this record may have more fields, but the body requires exactly `{ x: Int }`; " +
+  "write `{ x: Int }`, or remove the annotation";
+const GROWN = "`{ n: Int, ...a }` does not name `xs`; write `{ n: Int, xs: T, ...a }`";
+const JOINED = "`...a` and `...b` are written separately, but these records must have the same additional " +
+  "fields; use one name";
+
+describe("#520 a written tail keeps a caller's fields", () => {
+  const bodies = [
+    ["identity", "r"],
+    ["a spread", "{...r}"],
+    ["an update", "{r with x = 1}"],
+  ] as const;
+
+  describe.each(bodies)("%s", (_name, body) => {
+    test("in the body itself", async () => {
+      const source = "module Main\n\n" +
+        `export let f(r: {x: Int, ...a}): {x: Int, ...a} = ${body}\n` +
+        "export let out: Int = f({x = 5, y = 2}).y\n";
+      expect(declarations(source)).toContain(`export declare const f: ${FACE};`);
+      expect(await runMain(source)).toMatchObject({ out: 2 });
+    });
+
+    test("through a higher-order helper", async () => {
+      const source = "module Main\n\n" +
+        "let keep(g: (b) -> b): (b) -> b = g\n" +
+        `export let m(): ({x: Int, ...a}) -> {x: Int, ...a} = keep((r) => ${body})\n` +
+        "export let out: Int = m()({x = 5, y = 2}).y\n";
+      expect(declarations(source)).toContain(`export declare const m: <a>() => (arg0: ${OPEN}) => ${OPEN};`);
+      expect(await runMain(source)).toMatchObject({ out: 2 });
+    });
+
+    test("through a returned local `let`", async () => {
+      const source = "module Main\n\n" +
+        "export let m(): ({x: Int, ...a}) -> {x: Int, ...a} =\n" +
+        `    let g(r) = ${body}\n` +
+        "    g\n" +
+        "export let out: Int = m()({x = 5, y = 2}).y\n";
+      expect(declarations(source)).toContain(`export declare const m: <a>() => (arg0: ${OPEN}) => ${OPEN};`);
+      expect(await runMain(source)).toMatchObject({ out: 2 });
+    });
+
+    test("through an inner ascription that writes the same `...a`", async () => {
+      const source = "module Main\n\n" +
+        "export let f(r: {x: Int, ...a}): {x: Int, ...a} =\n" +
+        `    let s: {x: Int, ...a} = ${body}\n` +
+        "    s\n" +
+        "export let out: Int = f({x = 5, y = 2}).y\n";
+      expect(declarations(source)).toContain(`export declare const f: ${FACE};`);
+      expect(await runMain(source)).toMatchObject({ out: 2 });
+    });
+
+    test("in a tuple in the function's result", async () => {
+      const source = "module Main\n\n" +
+        `export let f(r: {x: Int, ...a}): ({x: Int, ...a}, Int) = (${body}, r.x)\n` +
+        "export let out: Int =\n" +
+        "    let (s, n) = f({x = 5, y = 2})\n" +
+        "    s.y + n\n";
+      expect(declarations(source)).toContain(`export declare const f: <a>(r: ${OPEN}) => [${OPEN}, number];`);
+      expect(await runMain(source)).toMatchObject({ out: 7 });
+    });
+
+    test("across a module boundary", async () => {
+      const exports = await runProject([
+        ["/main.hex", "module Main\n\nimport Lib\n\nexport let out: Int = Lib.f({x = 5, y = 2}).y\n"],
+        ["/lib.hex", `module Lib\n\nexport let f(r: {x: Int, ...a}): {x: Int, ...a} = ${body}\n`],
+      ]);
+      expect(exports).toMatchObject({ out: 2 });
+    });
+  });
+
+  test("a composition of two lambdas", async () => {
+    const source = "module Main\n\n" +
+      "let compose(f: (b) -> c, g: (c) -> d): (b) -> d = (x) => g(f(x))\n" +
+      "export let m(): ({x: Int, ...a}) -> {x: Int, ...a} = compose((r) => {r with x = 1}, (r) => {...r})\n" +
+      "export let out: Int = m()({x = 5, y = 2}).y\n";
+    expect(declarations(source)).toContain(`export declare const m: <a>() => (arg0: ${OPEN}) => ${OPEN};`);
+    expect(await runMain(source)).toMatchObject({ out: 2 });
+  });
+
+  test("the issue's collapse: a tail alone through a helper, read by an importer", async () => {
+    const exports = await runProject([
+      ["/main.hex", "module Main\n\nimport Lib\n\nexport let out: Int = Lib.m()({x = 5, y = 2}).y\n"],
+      [
+        "/lib.hex",
+        "module Lib\n\nlet keep(g: (b) -> b): (b) -> b = g\n" +
+        "export let m(): ({...a}) -> {...a} = keep((r) => {...r})\n",
+      ],
+    ]);
+    expect(exports).toMatchObject({ out: 2 });
+  });
+
+  test("a pattern annotation and a nested lambda's annotation name the signature's tail", () => {
+    expect(declarations(
+      "module Main\n\n" +
+      "export let f(r: {x: Int, ...a}): {x: Int, ...a} =\n" +
+      "    let (s: {x: Int, ...a}) = r\n" +
+      "    s\n" +
+      "export let g(r: {x: Int, ...a}): () -> {x: Int, ...a} =\n" +
+      "    (): {x: Int, ...a} => r\n",
+    )).toContain(
+      `export declare const f: ${FACE};\n` +
+      `export declare const g: <a>(r: ${OPEN}) => () => ${OPEN};`,
+    );
+  });
+
+  test("a type variable and a tail of one spelling stay two variables", async () => {
+    const source = "module Main\n\n" +
+      "export let f(x: a, r: {n: a, ...a}): {n: a, ...a} = {r with n = x}\n" +
+      "export let out: Int = f(1, {n = 2, m = \"s\"}).n\n";
+    expect(declarations(source)).toContain(
+      "export declare const f: <a, b>(x: a, r: ({ n: a } & b)) => ({ n: a } & b);",
+    );
+    expect(await runMain(source)).toMatchObject({ out: 1 });
+  });
+
+  test("a knot sibling with no annotation of its own passes the record through, and the tail stays open", async () => {
+    const source = "module Main\n\n" +
+      "fun\n" +
+      "    export pass(r: {x: Int, ...a}): {x: Int, ...a} = if r.x <= 0 then r else back({r with x = r.x - 1})\n" +
+      "    back(r) = pass(r)\n" +
+      "export let out: Int = pass({x = 3, y = 7}).y\n";
+    expect(declarations(source)).toContain(`export declare function pass<a>(r: ${OPEN}): ${OPEN};`);
+    expect(await runMain(source)).toMatchObject({ out: 7 });
+  });
+});
+
+describe("#520 a written tail is refused, once, where inference would move it", () => {
+  test("a body that closes it", () => {
+    expect(projectDiagnostics(
+      "module Main\n\nexport let f(r: {x: Int, ...a}): {x: Int, ...a} = {x = r.x}\n",
+    )).toEqual([CLOSED]);
+  });
+
+  test("a callee that takes a closed record", () => {
+    expect(projectDiagnostics(
+      "module Main\n\n" +
+      "let c(p: {x: Int}): Int = p.x\n" +
+      "export let f(r: {x: Int, ...a}): Int = c(r)\n",
+    )).toEqual([CLOSED]);
+  });
+
+  test("a field the annotation does not name, at the read", () => {
+    const source = "module Main\n\n" +
+      "export let f(r: {n: Int, ...a}): {n: Int, ...a} =\n" +
+      "    let k = r.xs\n" +
+      "    r\n";
+    const compiled = compileMain(source);
+    expect(compiled.diagnostics.map(({ message }) => message)).toEqual([GROWN]);
+    const primary = compiled.diagnostics[0]!.primary;
+    expect(source.slice(primary.start.offset, primary.end.offset)).toBe("r.xs");
+  });
+
+  test("the unsound program: the importer no longer reads a field nobody passed", () => {
+    const project = compileFiles([
+      [
+        "/main.hex",
+        "module Main\n\nimport Lib\n\n" +
+        "export let out: Int = Lib.f({n = 1, xs = 2}).missing\n" +
+        "export let plus: Int = out + 1\n",
+      ],
+      [
+        "/lib.hex",
+        "module Lib\n\n" +
+        "export let f(r: {n: Int, ...a}): {n: Int, ...a} =\n" +
+        "    let k = r.xs\n" +
+        "    r\n",
+      ],
+    ]);
+    expect(project.diagnostics.map(({ message }) => message)).toEqual([GROWN]);
+  });
+
+  test("two written tails joined", () => {
+    expect(projectDiagnostics(
+      "module Main\n\n" +
+      "export let f(r: {x: Int, ...a}, s: {x: Int, ...b}): Int =\n" +
+      "    let t = if True then r else s\n" +
+      "    t.x\n",
+    )).toEqual([JOINED]);
+    expect(projectDiagnostics(
+      "module Main\n\nexport let f(r: {x: Int, ...a}): {x: Int, ...b} = r\n",
+    )).toEqual([JOINED]);
+  });
+
+  test("a block-valued binding that cannot be generalized keeps the declared-variable report", () => {
+    expect(projectDiagnostics(
+      "module Main\n\n" +
+      "let p: ({x: Int, ...a}) -> {x: Int, ...a} =\n" +
+      "    let h = (r) => r\n" +
+      "    h\n",
+    )).toEqual([
+      "`a` is a declared type variable, but this right-hand side is a computation that cannot be " +
+        "generalized in `a` (`a` occurs in an invariant position); bind where the type is known, or " +
+        "remove the annotation",
+    ]);
+  });
+
+  test("a knot sibling that uses the member at a closed record", () => {
+    expect(projectDiagnostics(
+      "module Main\n\n" +
+      "fun\n" +
+      "    export pass(r: {x: Int, ...a}): {x: Int, ...a} = if r.x <= 0 then r else {r with x = back(r.x)}\n" +
+      "    back(n: Int): Int = pass({x = n - 1}).x\n",
+    )).toEqual([CLOSED]);
+  });
+});
+
+describe("#520 a bare tail is still solved by inference", () => {
+  test("its faces are unchanged", () => {
+    expect(declarations(
+      "module Main\n\n" +
+      "export let echo(r: {x: Int, ...}): {x: Int, ...} = r\n" +
+      "export let closes(r: {x: Int, ...}): {x: Int, ...} = {x = r.x}\n" +
+      "let keep(g: (b) -> b): (b) -> b = g\n" +
+      "export let m(): ({...}) -> {...} = keep((r) => {...r})\n",
+    )).toBe(
+      "export declare const echo: <a>(r: { x: number }) => { x: number };\n" +
+      "export declare const closes: <a>(r: ({ x: number } & a)) => { x: number };\n" +
+      "export declare const m: <a>() => (arg0: {  }) => {  };\n",
+    );
+  });
+
+  test("a field it does not name is still inferred onto it", () => {
+    expect(declarations(
+      "module Main\n\n" +
+      "export let f(r: {n: Int, ...}): {n: Int, ...} =\n" +
+      "    let k = r.xs\n" +
+      "    r\n",
+    )).toContain("export declare const f: <a, b>(r: { n: number; xs: a }) => { n: number; xs: a };");
+  });
+});

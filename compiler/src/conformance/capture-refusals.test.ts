@@ -1097,45 +1097,58 @@ describe("item 7 — an open structural record at a declaration or the release s
   /**
    * **A tail inference has solved is no longer open**, which is why the walk
    * normalizes the row before asking and reads the mono rather than the
-   * annotation. `w`'s parameter is written open and the call to `g` in its own
-   * binding group closes it, so the release seat sees the closed record the
+   * annotation. `w`'s parameter is written open with a bare tail, and the call
+   * to `g` in its own binding group closes it, so the release seat sees the closed record the
    * crossing would really be directed by — and any captured collection that
    * solved it would then be items 1 and 2's business.
    */
   test("a solved tail closes the row, and the seat is legal", () => {
+    // The tails are bare: a written `...q` is declared (#520), and the call
+    // closing it is refused at the call, which is the test below.
     expect(diagnose(
       "let g(r: {n: Int, m: Int}): Int = r.n\n" +
-        "let w(r: {n: Int, ...q}): (Int, JsValue) = (g(r), JsValue.from(r))\n" +
+        "let w(r: {n: Int, ...}): (Int, JsValue) = (g(r), JsValue.from(r))\n" +
         "export let go(): Int = 1\n",
     )).toEqual([]);
     // …and the same declaration with nothing to close it is refused.
     expect(diagnose(
-      "let w(r: {n: Int, ...q}): (Int, JsValue) = (r.n, JsValue.from(r))\n" +
+      "let w(r: {n: Int, ...}): (Int, JsValue) = (r.n, JsValue.from(r))\n" +
         "export let go(): Int = 1\n",
     )).toEqual([releasedOpenRow("{ n: Int, ... }")]);
-    // And a tail solved only *partly* — `q` bound to another open row — is
+    // And a tail solved only *partly* — bound to another open row — is
     // still open, and the message quotes the fields the solution contributed.
     // Reading the annotation instead of the solved type would quote `{n: Int,
     // ...}` and hide the field the reader has to think about.
     expect(diagnose(
-      "let g(r: {n: Int, m: Int, ...z}): Int = r.n\n" +
-        "let w(r: {n: Int, ...q}): (Int, JsValue) = (g(r), JsValue.from(r))\n" +
+      "let g(r: {n: Int, m: Int, ...}): Int = r.n\n" +
+        "let w(r: {n: Int, ...}): (Int, JsValue) = (g(r), JsValue.from(r))\n" +
         "export let go(): Int = 1\n",
     )).toEqual([releasedOpenRow("{ n: Int, m: Int, ... }")]);
+  });
+
+  test("a written tail a call would close is refused once, at the call (#520)", () => {
+    expect(diagnose(
+      "let g(r: {n: Int, m: Int}): Int = r.n\n" +
+        "let w(r: {n: Int, ...q}): (Int, JsValue) = (g(r), JsValue.from(r))\n" +
+        "export let go(): Int = 1\n",
+    )).toEqual([
+      "`...q` says this record may have more fields, but the body requires exactly `{ n: Int, m: Int }`; " +
+        "write `{ n: Int, m: Int }`, or remove the annotation",
+    ]);
   });
 
   /**
    * **The seat reads the row through its tail**, which is what normalizing it
    * does and what no other pin here needs. A branch join binds one parameter's
-   * tail to the *other* record rather than merging two annotations: `p` becomes
-   * `{m: Int, ...q}`, so the type the seat holds is a record of one field with
+   * tail to the *other* record rather than merging two annotations: `x`'s tail
+   * becomes `{m: Int, ...}`, so the type the seat holds is a record of one field with
    * a tail that is itself a record. Read raw it is `{n: Int, ...}`, which hides
    * the field the join brought in; read through the tail it is the `{n: Int, m:
    * Int, ...}` the value really carries.
    */
   test("a tail bound to another record contributes its fields to the message", () => {
     expect(diagnose(
-      "let pick(b: Bool, x: {n: Int, ...p}, y: {m: Int, ...q}): JsValue =\n" +
+      "let pick(b: Bool, x: {n: Int, ...}, y: {m: Int, ...}): JsValue =\n" +
         "    JsValue.from(if b then x else y)\n" +
         "export let go(): Int = 1\n",
     )).toEqual([releasedOpenRow("{ n: Int, m: Int, ... }")]);

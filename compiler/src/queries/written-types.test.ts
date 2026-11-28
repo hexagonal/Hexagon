@@ -269,15 +269,17 @@ describe("write down this header's types", () => {
       .toBe(program("let double<a: Num>(x: a): a = x * 2", "let y = double(2.5)", "let z = double(2)"));
   });
 
-  test("an open row stays open, where writing its result alone would close it", () => {
+  test("an open row stays open, its result written alone included (#520)", () => {
     const source = program("fun ‸copy(r) = {...r}");
     expect(rewritten(source, HEADER_TITLE)).toBe(program("fun copy(r: { ...a }): { ...a } = {...r}"));
     expect(faceOf(program("fun copy(r: {...a}): {...a} = {...r}"), "copy")).toBe(faceOf(marked(source).text, "copy"));
+    // A written tail is declared (#520), so the parameter's inferred row joins
+    // it rather than closing it: the result written alone keeps the type.
     expect(applied(program("fun copy(r) =‸ {...r}"), writeTitle("result", "copy")))
-      .toBe("refused: Writing `: { ...a }` would change the type of `copy` from `{ ...a } -> { ...a }` to `{} -> {}`.");
+      .toBe(program("fun copy(r): { ...a } = {...r}"));
     // A local, whose face is no module's: its own type is compared.
     expect(applied(program("let outer() =", "    let copy(r) =‸ {...r}", "    copy({})"), writeTitle("result", "copy")))
-      .toBe("refused: Writing `: { ...a }` would change the type of `copy` from `{ ...a } -> { ...a }` to `{} -> {}`.");
+      .toBe(program("let outer() =", "    let copy(r): { ...a } = {...r}", "    copy({})"));
   });
 
   test("an exported function's whole signature, which ends its report", () => {
@@ -291,9 +293,9 @@ describe("write down this header's types", () => {
     expect(rewritten(program(...head, "    ‸two(n, m) = n + m"), HEADER_TITLE)).toBe(program(...head, "    two(n: Int, m: Int) = n + m"));
   });
 
-  test("refused, naming the header", () => {
+  test("a lambda in a call's argument keeps the row the header writes (#520)", () => {
     expect(applied(program("let keep(f) = f", "fun ‸m(z) = keep((r) => {...r})"), HEADER_TITLE))
-      .toBe("refused: Writing the types of `m`'s header would change the type of `m` from `a -> { ...b } -> { ...b }` to `a -> {} -> {}`.");
+      .toBe(program("let keep(f) = f", "fun m(z: a): { ...b } -> { ...b } = keep((r) => {...r})"));
   });
 
   test("an exported `fun` block member's, whose binder list goes on the block's head", () => {
@@ -468,12 +470,16 @@ describe("refused, with the reason", () => {
     );
   });
 
-  test("an edit that changes a face another module reads", () => {
+  test("an edit that keeps the face another module reads (#520)", () => {
+    // This was the specimen of a write that broke an importer: the written
+    // tail closed where the lambda's row met it. A written tail is declared
+    // now, so the face the action writes is the face the importer reads.
     const use = { "/use.hex": ["module Use", "import Main", "export let use(): Int = Main.m()({x = 1}).x", ""].join("\n") };
+    const after = program("let keep(f) = f", "export fun m(): { ...a } -> { ...a } = keep((r) => {...r})");
     expect(applied(program("let keep(f) = f", "export fun m()‸ = keep((r) => {...r})"), writeTitle("result", "m"), use))
-      .toBe("refused: Writing `: { ...a } -> { ...a }` would break `/use.hex`: record fields do not match; unexpected `x`.");
+      .toBe(after);
     expect(applied(program("let keep(f) = f", "export fun m()‸ = keep((r) => {...r})"), writeTitle("result", "m")))
-      .toBe("refused: Writing `: { ...a } -> { ...a }` would change the type of `m` from `() -> { ...a } -> { ...a }` to `() -> {} -> {}`.");
+      .toBe(after);
   });
 });
 

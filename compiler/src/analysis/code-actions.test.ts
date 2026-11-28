@@ -1027,36 +1027,28 @@ describe("code actions: infer return type", () => {
       .toBe("module Main\n\n" + "export fun copy(r: {...a}): { ...a } = {...r}\n");
   });
 
-  test("refuses an annotation that would silently change the type", () => {
-    // The one that justifies compiling before offering, and it is *not* reached
-    // through a bare parameter: the open row lives under an arrow rather than
-    // being the result, so this declaration has no parameters at all and
-    // nothing earlier has anything to say about it. Only writing the annotation
-    // and compiling it shows the row closing.
-    //
-    // *(#513.)* The lambda sits in a **call's argument**, which is what keeps
-    // the row closing: a written face reaches no argument through a
-    // function's result (Functions §4.3, #1066), so it never reaches the
-    // lambda, whose parameter is inferred, then unified with `{...a}`
-    // afterwards — the pre-propagation order, and the collapse this guard
-    // exists to catch. The bare shape (`= (r) => {...r}`) is where the return
-    // annotation now *supplies*: the parameter takes the written row itself,
-    // the two faces agree, and the action is offered. Pinned as its own case
-    // below. (The specimen was a tuple component until #1066 made the literal
-    // forms hand their components the face.)
+  test("a lambda in a call's argument keeps the row the annotation writes (#520)", () => {
+    // This specimen used to be refused: the lambda sits in a **call's
+    // argument**, which a written face does not reach (Functions §4.3, #1066),
+    // so its parameter is inferred and only then unified with `{...a}` — and a
+    // written tail was an inference variable, so that meeting closed it and
+    // writing the annotation changed `m`'s type to `() -> {} -> {}`. A written
+    // tail is declared now (#520): the meeting joins the lambda's row to it,
+    // the face the action writes is the face `m` has, and the action is
+    // offered. The guard itself is pinned by `written-types.test.ts`.
     const source = "module Main\n\n" + "let keep<t>(x: t): t = x\n" +
       "export fun m() = keep((r) => {...r})\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "m("));
-    expect(action.edits).toEqual([]);
-    expect(action.disabled).toBe(
-      "Writing `: { ...a } -> { ...a }` would change the type of `m` " +
-        "from `() -> { ...a } -> { ...a }` to `() -> {} -> {}`.",
+    expect(action.disabled).toBe(undefined);
+    expect(applied(source, action)).toBe(
+      "module Main\n\n" + "let keep<t>(x: t): t = x\n" +
+        "export fun m(): { ...a } -> { ...a } = keep((r) => {...r})\n",
     );
   });
 
   test("a supplied lambda keeps the row the annotation writes (#513)", () => {
-    // The specimen the case above used to be. Expected-type propagation lands
+    // The specimen the case above once was. Expected-type propagation lands
     // the written return annotation at the lambda before its body is inferred
     // (Functions §4.3), so `r` *is* the written `{...a}` rather than an
     // independently inferred row unified with it afterwards — and the written
