@@ -319,6 +319,15 @@ interface Variable {
    * replaces. Display only — it never affects unification, unlike `rigidName`.
    */
   displayName?: string;
+  /**
+   * A **named record tail** — the `a` of `{x: Int, ...a}` written in an
+   * annotation (Products §4). It is declared as a written type variable is, so
+   * it carries `rigidName` and inference may neither close it, grow it, nor
+   * join it to another written tail; this mark says which of the two kinds of
+   * declared variable it is, for the reports that name it (`...a`, never `a`).
+   * A bare `...` is never marked: inference solves it (#520).
+   */
+  tail?: boolean;
   level: number;
   instance?: Mono;
   literalOnly: boolean;
@@ -6282,6 +6291,13 @@ class Checker {
   // `a` as the signature (functions.md §4.1). `undefined` at module level, where each
   // binding is its own definition and gets a fresh scope. Saved/restored per lambda.
   #annotationVariableScope: Map<string, Variable> | undefined = undefined;
+  /**
+   * The enclosing declaration's named record tails (`...a`), scoped as
+   * `#annotationVariableScope` is: a body's ascription or pattern that writes
+   * `...a` names the signature's tail (#520). Kept apart from the type
+   * variables, because `a` and `...a` are two variables.
+   */
+  #annotationTailScope: Map<string, Variable> | undefined = undefined;
   /** The declared variables a requirement's site could name, where it had any (#1352). */
   readonly #requirementScopes = new WeakMap<Requirement, ReadonlyMap<string, Variable>>();
   /**
@@ -7544,6 +7560,30 @@ class Checker {
   /** The claim whose unification is running, for its reports (`#claimMismatch`, `#claimArrowFix`). */
   #claimAt: ClaimAt | undefined;
   /**
+   * The two records whose meeting is binding a written tail (#520), `own` the
+   * side that holds it: what `#bind`'s refusal of a written tail quotes.
+   */
+  #tailMeeting: { readonly own: RecordMono; readonly other: RecordMono } | undefined;
+  /**
+   * The written tails a meeting was refused for (#520), now in error, each
+   * with the mistakes already reported on it: a field it was grown by, its
+   * closing, the tail it was joined to. A later meeting making only those
+   * mistakes again is silent; a different one is reported. A record whose row
+   * ends in a refused tail is in error as a whole where it is published, as a
+   * refused type variable's type is, so an importer is not handed a face to
+   * report against again.
+   */
+  readonly #refusedTails = new Map<Variable, Set<string>>();
+  /**
+   * The tail maps whose names are declared (#520): a function signature's and
+   * the body it scopes over, a constraint member's header, an honor seat's
+   * contract, a declared pattern's head. One map is one declaration, so one
+   * variable per name.
+   */
+  readonly #declaredTailMaps = new WeakSet<Map<string, Variable>>();
+  /** The `fun` member whose written signature declared each written tail (#520). */
+  readonly #tailOwners = new Map<Variable, { readonly symbol: Resolved.SymbolId; readonly name: string }>();
+  /**
    * The value the pattern being checked takes apart, for the claims its typed
    * patterns make (`#claimPatternType`). Set where a pattern's walk starts
    * (`#atBinders`).
@@ -7982,14 +8022,19 @@ class Checker {
         // read from the header rather than inferred — the one function header
         // in the language with no body beneath it (Effects §13.1).
         const memberFace = this.#openFace(0, member.span, member.binding.name, false);
+        // One tail per name across the header, declared and quantified as the
+        // subject is (#520): rigid where a default body is checked against it,
+        // fresh at every use.
+        const memberTails = this.#declaredTails();
         const { parameters, result, effect: writtenContract, fail: writtenContractFail } = this.#elaborateHeader(
           member.parameters.map((parameter) => ({ annotation: parameter.annotation, name: parameter.name })),
           member.returnAnnotation,
           member.effect,
           member.arrowSpan,
           memberFace,
-          (annotation) => this.#annotationType(annotation, 0, new Map(), typeParameters, impliedTypes),
+          (annotation) => this.#annotationType(annotation, 0, memberTails, typeParameters, impliedTypes),
         );
+        for (const tail of memberTails.values()) this.#quantified.add(tail.id);
         const contractEffect = writtenContract ?? PURE;
         member.parameters.forEach((parameter, index) => {
           this.#schemes.set(parameter.symbol, { variables: [], type: parameters[index] ?? ERROR });
@@ -8045,6 +8090,7 @@ class Checker {
             ...impliedTypes.values(),
             ...contractColours,
             ...contractFailColours,
+            ...memberTails.values(),
           ],
           type: memberType,
           constraint: item.name,
@@ -11070,6 +11116,7 @@ class Checker {
     // bindings that both write `a` would share one rigid variable, and the
     // second would meet one the first had already quantified.
     const enclosingVariableScope = this.#annotationVariableScope;
+    const enclosingTailScope = this.#annotationTailScope;
     // §2.2.2's second boundary: module level is outside every function
     // signature, so a `>->` written in a binding annotation, a `var`, or an
     // ascription here has neither an inlet of its own nor an enclosing colour to
@@ -11088,6 +11135,7 @@ class Checker {
         !(item.kind === "Honor" && spanKey(this.#knotOf(item)) === spanKey(this.#honorKnot.span))
       ) this.#closeHonorKnot();
       if (enclosingVariableScope === undefined) this.#annotationVariableScope = new Map();
+      if (enclosingTailScope === undefined) this.#annotationTailScope = this.#declaredTails();
 
       // *(#700.)* A `fun` **block** is the one place a body may name a binding
       // written below it (Functions §7.3), so it is the one place inference
@@ -11126,11 +11174,14 @@ class Checker {
             });
           }
         }
+        // One tail per name across the head, declared as its type variables
+        // are (#520).
+        const headTails = this.#declaredTails();
         const subject = item.head === undefined
           ? this.#fresh(level + 1, false)
-          : this.#annotationType(item.head.result, level + 1, new Map(), headVariables);
+          : this.#annotationType(item.head.result, level + 1, headTails, headVariables);
         const writtenComponents = item.head?.components.map(({ annotation }) =>
-          this.#annotationType(annotation, level + 1, new Map(), headVariables)
+          this.#annotationType(annotation, level + 1, headTails, headVariables)
         );
         if (writtenComponents !== undefined && writtenComponents.length === 0) {
           this.#diagnostics.add({
@@ -12216,6 +12267,7 @@ class Checker {
     if (moduleItems && this.#honorKnot !== undefined) this.#closeHonorKnot();
     this.#linkedArrowPosition = enclosingPosition;
     this.#annotationVariableScope = enclosingVariableScope;
+    this.#annotationTailScope = enclosingTailScope;
 
     if (moduleItems) return UNIT;
     const finalItem = items.at(-1);
@@ -12609,7 +12661,7 @@ class Checker {
     let result: Mono | undefined;
     let face: SignatureFace;
     let variables: Map<string, Variable>;
-    const tails = new Map<string, Variable>();
+    const tails = this.#declaredTails(this.#annotationTailScope);
     try {
       face = this.#openFace(level + 1, lambda.span, name, this.#effectFrames.length > 0);
       variables = new Map<string, Variable>(this.#annotationVariableScope);
@@ -13892,7 +13944,7 @@ class Checker {
           // What the face's written results stand over: the value the body hands back.
           signature.value = this.#givenValue(expression.body).span;
         }
-        const annotationTails = landedHeader?.tails ?? new Map<string, Variable>();
+        const annotationTails = landedHeader?.tails ?? this.#declaredTails(this.#annotationTailScope);
         // Inherit the enclosing definition's type variables so a nested lambda's
         // annotations may name them (lexical scoping); its own `<...>` binders below
         // shadow by overwriting.
@@ -14074,7 +14126,9 @@ class Checker {
         // A lambda's parameters are its inputs: the types they hold are theirs.
         for (const parameterType of parameters) this.#markNamed(parameterType);
         const savedVariableScope = this.#annotationVariableScope;
+        const savedTailScope = this.#annotationTailScope;
         this.#annotationVariableScope = annotationVariables;
+        this.#annotationTailScope = annotationTails;
         // A **written** return annotation is this right-hand side's own written
         // face (§4.1), so it supplies the body ahead of inference exactly as a
         // binding annotation supplies its value — elaborated early only where an
@@ -14103,6 +14157,7 @@ class Checker {
           returnAnnotationType ?? (plainResult ? undefined : landing?.result),
         );
         this.#annotationVariableScope = savedVariableScope;
+        this.#annotationTailScope = savedTailScope;
         let result = inferredResult;
         // A lambda's body is a seat (Numeric Literals §5.1, #1062): where the
         // landed result component is concrete, a value there widens into it as
@@ -17798,7 +17853,12 @@ class Checker {
       written = binders === "let"
         ? this.#bindingAnnotation(pattern.annotation, level, pattern.span, undefined)
         : this.#inPosition(binders, () =>
-          this.#annotationType(pattern.annotation, level, new Map(), this.#annotationVariableScope ?? new Map())
+          this.#annotationType(
+            pattern.annotation,
+            level,
+            this.#annotationTailScope ?? this.#declaredTails(),
+            this.#annotationVariableScope ?? new Map(),
+          )
         );
     } finally {
       this.#ascribedTypeSpan = enclosingAscribedType;
@@ -26613,7 +26673,7 @@ class Checker {
         const written = this.#annotationType(
           annotation,
           level + 1,
-          new Map(),
+          this.#annotationTailScope ?? this.#declaredTails(),
           this.#annotationVariableScope ?? new Map(),
         );
         this.#landInto(component, written, annotation.span);
@@ -27337,7 +27397,12 @@ class Checker {
     owner: string | undefined,
   ): Mono {
     const elaborate = (): Mono =>
-      this.#annotationType(annotation, level, new Map(), this.#annotationVariableScope ?? new Map());
+      this.#annotationType(
+        annotation,
+        level,
+        this.#annotationTailScope ?? this.#declaredTails(),
+        this.#annotationVariableScope ?? new Map(),
+      );
     if (annotation.kind !== "Function") {
       if (!annotationHasFunction(annotation)) return this.#inPosition("no-signature", elaborate);
       const face = this.#openFace(level, declaration, owner, this.#effectFrames.length > 0);
@@ -31762,13 +31827,16 @@ class Checker {
     this.#suppressLinkedArrowReports = true;
     try {
       const face = this.#openFace(level, member.span, member.binding.name, false, false);
+      // The header's tails, one per name and declared, as at the declaration
+      // (#520): an honor's body may not close, grow or join them.
+      const tails = this.#declaredTails();
       const { parameters, result, effect, fail } = this.#elaborateHeader(
         member.parameters.map((parameter) => ({ annotation: parameter.annotation, name: parameter.name })),
         member.returnAnnotation,
         member.effect,
         member.arrowSpan,
         face,
-        (annotation) => this.#annotationType(annotation, level, new Map(), subjectTypes, impliedTypes),
+        (annotation) => this.#annotationType(annotation, level, tails, subjectTypes, impliedTypes),
       );
       const contractType: FunctionMono = {
         kind: "Function",
@@ -35434,6 +35502,13 @@ class Checker {
       else this.#diagnostics.add({ severity: "error", message: message() ?? "record shape mismatch", primary: span });
       return;
     }
+    // A written tail is declared (#520), so the meeting is solved principally:
+    // only the side whose fields fall short is extended. Guarded to a meeting
+    // that holds one, so a record with only bare tails is solved as before.
+    if (this.#isWrittenTail(left.tail) || this.#isWrittenTail(right.tail)) {
+      this.#unifyWrittenTails(left, right, leftOnly, rightOnly, span);
+      return;
+    }
     if (left.tail !== undefined && right.tail !== undefined) {
       const actualLeftTail = this.#prune(left.tail);
       const actualRightTail = this.#prune(right.tail);
@@ -35456,6 +35531,194 @@ class Checker {
     if (right.tail !== undefined) {
       this.#bind(right.tail, { kind: "Record", fields: leftOnly }, span);
     }
+  }
+
+  /** A tail map whose names are declared, seeded from `from` (#520). */
+  #declaredTails(from?: ReadonlyMap<string, Variable>): Map<string, Variable> {
+    const tails = new Map<string, Variable>(from ?? []);
+    this.#declaredTailMaps.add(tails);
+    return tails;
+  }
+
+  /** Whether a record's row ends in a written tail a meeting refused (#520). */
+  #rowInError(record: RecordMono): boolean {
+    if (this.#refusedTails.size === 0) return false;
+    const tail = this.#normalizeRecord(record).tail;
+    return tail !== undefined && this.#refusedTails.has(tail);
+  }
+
+  /** Whether a (normalized) record's tail is a written `...a` still standing (#520). */
+  #isWrittenTail(tail: Variable | undefined): boolean {
+    return tail !== undefined && tail.tail === true && tail.instance === undefined;
+  }
+
+  /**
+   * Two records meeting where one holds a written tail (#520), after their
+   * shared fields met and a closed side's missing fields were refused. The
+   * solution is the principal one: equal field sets join the two tails; where
+   * one side has fields the other lacks, only the shorter side's tail is
+   * extended, with those fields and the other side's tail; a fresh shared tail
+   * is minted only where each side has fields the other lacks. A written tail
+   * the solution would close, extend, or join to another written tail is
+   * refused by `#bind`'s declared-variable arm, which `#tailMeeting` tells what
+   * the two records were.
+   */
+  #unifyWrittenTails(
+    left: RecordMono,
+    right: RecordMono,
+    leftOnly: ReadonlyMap<string, Mono>,
+    rightOnly: ReadonlyMap<string, Mono>,
+    span: Source.Span,
+  ): void {
+    const enclosing = this.#tailMeeting;
+    try {
+      if (left.tail === undefined || right.tail === undefined) {
+        // One side is closed, and the open side's fields are all on it.
+        const [open, closed, extra] = left.tail === undefined
+          ? [right, left, leftOnly]
+          : [left, right, rightOnly];
+        this.#tailMeeting = { own: open, other: closed };
+        this.#bind(open.tail!, { kind: "Record", fields: new Map(extra) }, span);
+        return;
+      }
+      if (left.tail === right.tail) {
+        if (leftOnly.size > 0 || rightOnly.size > 0) {
+          this.#recordMismatch([...leftOnly.keys(), ...rightOnly.keys()], span);
+        }
+        return;
+      }
+      if (leftOnly.size === 0 && rightOnly.size === 0) {
+        this.#tailMeeting = { own: left, other: right };
+        this.#bind(left.tail, right.tail, span);
+        return;
+      }
+      if (leftOnly.size === 0 || rightOnly.size === 0) {
+        const [short, long, extra] = leftOnly.size === 0 ? [left, right, rightOnly] : [right, left, leftOnly];
+        this.#tailMeeting = { own: short, other: long };
+        this.#bind(short.tail!, { kind: "Record", fields: new Map(extra), tail: long.tail! }, span);
+        return;
+      }
+      // Each side has fields the other lacks. A written tail on either side is
+      // refused once, at the first that stands; the other side is then left
+      // alone, so the one mistake is one report.
+      for (const [own, other, extra] of [[left, right, rightOnly], [right, left, leftOnly]] as const) {
+        if (!this.#isWrittenTail(own.tail)) continue;
+        this.#tailMeeting = { own, other };
+        this.#bind(own.tail!, { kind: "Record", fields: new Map(extra), tail: other.tail! }, span);
+        return;
+      }
+    } finally {
+      this.#tailMeeting = enclosing;
+    }
+  }
+
+  /**
+   * A field's type as a tail report may print it (#520): a literal still
+   * unsolved reads as the `Int` it will default to, and a written variable by
+   * its name. `undefined` where a variable inference has not solved remains,
+   * since any letter printed for it would be one no one wrote — and could be
+   * the tail's own name.
+   */
+  #tailFieldDisplay(type: Mono): string | undefined {
+    const colours = new Set(this.#effectVariables(type));
+    const replacements = new Map<number, Mono>();
+    for (const variable of this.#collectVariables(type)) {
+      if (variable.rigidName !== undefined || colours.has(variable.id) || this.#openedColours.has(variable)) continue;
+      if (!this.#canDefaultToInt(variable)) return undefined;
+      replacements.set(variable.id, primitive("Int"));
+    }
+    return this.#display(replacements.size === 0 ? type : this.#replaceVariables(type, replacements));
+  }
+
+  /**
+   * A record as a tail report quotes it: every field its tail contributes, and
+   * a written tail by its name (#520). `undefined` where a field's type cannot
+   * be printed truthfully (`#tailFieldDisplay`).
+   */
+  #tailRecordDisplay(record: RecordMono): string | undefined {
+    const row = this.#normalizeRecord(record);
+    const fields: string[] = [];
+    for (const [name, field] of row.fields) {
+      const shown = this.#tailFieldDisplay(field);
+      if (shown === undefined) return undefined;
+      fields.push(`${name}: ${shown}`);
+    }
+    if (row.tail !== undefined) fields.push(row.tail.tail === true ? `...${row.tail.rigidName}` : "...");
+    return fields.length === 0 ? "{}" : `{ ${fields.join(", ")} }`;
+  }
+
+  /**
+   * The report for a written tail `#bind` refuses (#520), in Products §4's
+   * words. `type` is what the meeting would have made the tail; `#tailMeeting`
+   * says which two records met.
+   */
+  #writtenTailRefusal(variable: Variable, type: Mono): string {
+    if (type.kind === "Variable") {
+      // Named in the order the text declares them, never by which side of the
+      // meeting each stood on.
+      const [first, second] = type.id < variable.id ? [type, variable] : [variable, type];
+      const spell = (tail: Variable): string =>
+        tail.tail === true ? `\`...${tail.rigidName}\`` : `\`${tail.rigidName}\``;
+      // Two members of one recursive knot, each writing its own tail: the
+      // members are checked together, so the two must be one, and no head can
+      // declare a tail. The repair is the later member's: an unnamed tail, or
+      // no annotations, lets inference link it to the first.
+      const firstOwner = this.#tailOwners.get(first);
+      const secondOwner = this.#tailOwners.get(second);
+      if (
+        first.tail === true && second.tail === true &&
+        firstOwner !== undefined && secondOwner !== undefined && firstOwner.symbol !== secondOwner.symbol &&
+        this.#knots.some((knot) => knot.types.has(firstOwner.symbol) && knot.types.has(secondOwner.symbol))
+      ) {
+        const later = `\`${secondOwner.name}\``;
+        return `${spell(first)} written on \`${firstOwner.name}\` and ${spell(second)} written on ${later} ` +
+          "are separate, but members of a recursive knot are checked together at not-yet-general types; " +
+          `write ${later}'s tail as \`...\`, or drop ${later}'s annotations and let inference link the knot`;
+      }
+      // Two tails of one spelling that are two variables (#520): each
+      // annotation's is its own, so "one name" would not repair it.
+      if (first.tail === true && second.tail === true && first.rigidName === second.rigidName) {
+        return `two written tails, both spelled ${spell(first)}, meet here; each annotation's tail is its own, ` +
+          "but these records must have the same additional fields; write both as `...`, or remove both " +
+          "annotations";
+      }
+      return `${spell(first)} and ${spell(second)} are written separately, but these records must have ` +
+        "the same additional fields; use one name";
+    }
+    const name = `\`...${variable.rigidName}\``;
+    const meeting = this.#tailMeeting;
+    const record = type.kind === "Record" ? type : undefined;
+    if (record === undefined || meeting === undefined) {
+      return `${name} says this record may have more fields, but here it cannot have more; ` +
+        "remove the annotation to let the type be inferred";
+    }
+    if (record.tail === undefined) {
+      const exact = this.#tailRecordDisplay(meeting.other);
+      const fields = [...this.#normalizeRecord(meeting.other).fields.keys()].map((field) => `\`${field}\``);
+      // The closed side names fields the annotation does not: it is not a
+      // body's demand but a record with exactly those fields, met here.
+      const head = record.fields.size > 0
+        ? `${name} says this record may have more fields, but here it is exactly `
+        : `${name} says this record may have more fields, but the body requires exactly `;
+      return exact === undefined
+        ? head.replace(/exactly $/u, "") +
+          `a record of exactly the fields ${fields.join(", ")}; name each of them in the annotation, ` +
+          "or remove the annotation"
+        : `${head}\`${exact}\`; write \`${exact}\`, or remove the annotation`;
+    }
+    const own = this.#normalizeRecord(meeting.own);
+    const missing = [...record.fields.keys()];
+    const written = [...own.fields].map(([field, part]) => `${field}: ${this.#tailFieldDisplay(part) ?? "_"}`);
+    const named = missing.length === 1 ? `\`${missing[0]}\`` : missing.map((field) => `\`${field}\``).join(", ");
+    const placeholders = ["T", "U", "V", "W"];
+    const grown = [
+      ...written,
+      ...missing.map((field, index) => `${field}: ${placeholders[index] ?? `T${index + 1}`}`),
+      `...${variable.rigidName}`,
+    ];
+    const ownShown = this.#tailRecordDisplay(meeting.own) ??
+      `{ ${[...written, `...${variable.rigidName}`].join(", ")} }`;
+    return `\`${ownShown}\` does not name ${named}; write \`{ ${grown.join(", ")} }\``;
   }
 
   /**
@@ -35609,6 +35872,53 @@ class Checker {
     if (variable.rigidName !== undefined) {
       if (type.kind === "Variable" && type.rigidName === undefined) {
         this.#bind(type, variable, span);
+        return;
+      }
+      // A written tail (#520) is declared as a written type variable is, and
+      // is refused in Products §4's words: closed, extended, or joined to
+      // another written tail. It owns no knot head, so the knot's arms below
+      // never meet it.
+      const tailSide = variable.tail === true
+        ? { own: variable, other: type }
+        : type.kind === "Variable" && type.tail === true
+        ? { own: type, other: variable }
+        : undefined;
+      if (tailSide !== undefined) {
+        // Refused once: the tail is then in error, and stays a variable so
+        // that every record holding it — a copy a generalization made
+        // included — is published in error rather than closed (`#publicType`).
+        const other = tailSide.other.kind === "Variable" && tailSide.other.tail === true
+          ? tailSide.other
+          : undefined;
+        // What this meeting would do to the tail, as the mistakes it makes.
+        const mistakes = other !== undefined
+          ? [`join:${Math.min(tailSide.own.id, other.id)}:${Math.max(tailSide.own.id, other.id)}`]
+          : tailSide.other.kind === "Record" && tailSide.other.tail !== undefined
+          ? [...tailSide.other.fields.keys()].map((field) => `grow:${field}`)
+          // A closing is keyed by the exact record it closes at: two different
+          // closings are two mistakes, the same one met twice is one.
+          : [`closed:${tailSide.other.kind === "Record" ? [...tailSide.other.fields.keys()].sort().join(",") : ""}`];
+        const seen = (tail: Variable): Set<string> => {
+          let found = this.#refusedTails.get(tail);
+          if (found === undefined) this.#refusedTails.set(tail, found = new Set());
+          return found;
+        };
+        const ownSeen = seen(tailSide.own);
+        const fresh = mistakes.some((mistake) => !ownSeen.has(mistake));
+        for (const mistake of mistakes) ownSeen.add(mistake);
+        // A tail refused as closed by a record of more fields was refused for
+        // those fields too: a read of one of them is the same mistake.
+        if (other === undefined && tailSide.other.kind === "Record" && tailSide.other.tail === undefined) {
+          for (const field of tailSide.other.fields.keys()) ownSeen.add(`grow:${field}`);
+        }
+        if (other !== undefined) for (const mistake of mistakes) seen(other).add(mistake);
+        if (!fresh) return;
+        this.#diagnostics.add({
+          severity: "error",
+          message: this.#writtenTailRefusal(tailSide.own, tailSide.other),
+          primary: span,
+        });
+        if (type.kind === "Variable") this.#clashedVariables.add(type.id);
         return;
       }
       // A constraint's implied type, met in a default body (#1123): each honor
@@ -39518,9 +39828,15 @@ class Checker {
           this.#diagnostics.add({
             severity: "error",
             message:
-              `\`${variable.rigidName}\` is a declared type variable, but this right-hand ` +
-              `side is a computation that cannot be generalized in \`${variable.rigidName}\` ` +
-              `(${this.#declineReason(variable.rigidName, variable, declined)}); ` +
+              // A written tail is named as written (#520), so a report on `a`
+              // and one on `...a` are told apart.
+              (variable.tail === true
+                ? `\`...${variable.rigidName}\` is a declared record tail, but this right-hand ` +
+                  `side is a computation that cannot be generalized in \`...${variable.rigidName}\` ` +
+                  `(${this.#declineReason(`...${variable.rigidName}`, variable, declined)}); `
+                : `\`${variable.rigidName}\` is a declared type variable, but this right-hand ` +
+                  `side is a computation that cannot be generalized in \`${variable.rigidName}\` ` +
+                  `(${this.#declineReason(variable.rigidName, variable, declined)}); `) +
               // An unconstrained listed variable is not #712's to refuse, so
               // either exit alone already compiles.
               (this.#nameListVariables.has(variable) && variable.requirements.length > 0
@@ -42693,6 +43009,14 @@ class Checker {
     return WRITTEN_ERROR;
   }
 
+  /**
+   * A record annotation's tail. A bare `...` is an ordinary inference variable,
+   * fresh at each use. A **named** `...a` is declared (#520): one rigid variable
+   * per name in the declaration, as a written type variable is (Functions §4.1),
+   * so an ascription or a pattern in the body that writes `...a` means the
+   * signature's. It shares no variable with a type variable `a` of the same
+   * spelling — the two maps are separate.
+   */
   #annotationTail(
     name: string | undefined,
     level: number,
@@ -42701,7 +43025,20 @@ class Checker {
     if (name === undefined) return this.#fresh(level, false);
     const existing = namedTails.get(name);
     if (existing !== undefined) return existing;
-    const tail = this.#fresh(level, false);
+    // Declared only where the map is a signature's (`#declaredTails`): a seat
+    // that elaborates with a map of its own keeps the inference variable it
+    // always had.
+    if (!this.#declaredTailMaps.has(namedTails)) {
+      const tail = this.#fresh(level, false);
+      namedTails.set(name, tail);
+      return tail;
+    }
+    const tail = this.#fresh(level, false, name);
+    tail.tail = true;
+    // The `fun` member whose signature writes it, for the knot's wording of a
+    // refusal (#520). Read off the owner the elaboration already carries.
+    const owner = this.#annotationOwner;
+    if (owner?.kind === "member") this.#tailOwners.set(tail, { symbol: owner.symbol, name: owner.name });
     namedTails.set(name, tail);
     return tail;
   }
@@ -44332,7 +44669,9 @@ class Checker {
    */
   #openRowRefusal(found: CaptureFindings, seat: OpenRowSeat): string | undefined {
     const row = seat === "exempt" ? undefined : found.open;
-    if (row === undefined) return undefined;
+    // A row ending in a written tail already refused is in error (#520): its
+    // mistake was reported where the tail was refused.
+    if (row === undefined || this.#rowInError(row)) return undefined;
     const rendered = this.#display(row);
     // Two sentences, because two things are true at two seats. A **declaration**
     // takes §9's checklist row verbatim, in Products §4's vocabulary — "this
@@ -46008,6 +46347,7 @@ class Checker {
         elements: actual.elements.map((element) => this.#publicType(element, seen)),
       };
     }
+    if (actual.kind === "Record" && this.#rowInError(actual)) return { kind: "Error" };
     if (actual.kind === "Record") {
       // **The fields are normalized; the tail is not followed.** The two halves
       // answer two different readers and only one of them may move.
@@ -46031,8 +46371,13 @@ class Checker {
       // got by identity across a declared position (#961 review 2). One link
       // is the reading this corpus already had, and it is the one that keeps
       // a rigid tail rigid.
+      //
+      // A **written** tail at the chain's end is the exception (#520): it is
+      // declared, so inference never moved it, and the chain to it is fields a
+      // meeting put in front of it — the published row keeps it open.
       const row = this.#normalizeRecord(actual);
-      const tail = actual.tail === undefined ? undefined : this.#prune(actual.tail);
+      const linked = actual.tail === undefined ? undefined : this.#prune(actual.tail);
+      const tail = linked?.kind !== "Variable" && row.tail?.tail === true ? row.tail : linked;
       return {
         kind: "Record",
         fields: [...row.fields].map(([name, field]) => ({
