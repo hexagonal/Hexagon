@@ -226,6 +226,72 @@ describe("#520 a written tail is refused, once, where inference would move it", 
   });
 });
 
+describe("#520 two knot members' written tails, refused in the knot's words", () => {
+  const knotted = (first: string, second: string, earlier: string, later: string): string =>
+    `${first} written on \`${earlier}\` and ${second} ` +
+    `written on \`${later}\` are separate, but members of a recursive knot are checked together at ` +
+    `not-yet-general types; write \`${later}\`'s tail as \`...\`, or drop \`${later}\`'s annotations and ` +
+    "let inference link the knot";
+
+  const cases = [
+    {
+      name: "K1: two names",
+      head: "fun\n",
+      first: "    export pass(r: {x: Int, ...a}): {x: Int, ...a} = if r.x <= 0 then r else back({r with x = r.x - 1})\n",
+      earlier: "pass",
+      later: "back",
+      written: "    back(r: {x: Int, ...b}): {x: Int, ...b} = pass(r)\n",
+      bare: "    back(r: {x: Int, ...}): {x: Int, ...} = pass(r)\n",
+      dropped: "    back(r) = pass(r)\n",
+      use: "export let out: Int = pass({x = 3, y = 7}).y\n",
+      tails: ["`...a`", "`...b`"],
+      out: 7,
+    },
+    {
+      name: "K5: one name, under a constrained block head",
+      head: "fun<t: Show>\n",
+      first: "    export measure(r: {v: t, ...a}): String = if True then show(r.v) else again(r)\n",
+      earlier: "measure",
+      later: "again",
+      written: "    again(r: {v: t, ...a}): String = measure(r)\n",
+      bare: "    again(r: {v: t, ...}): String = measure(r)\n",
+      dropped: "    again(r) = measure(r)\n",
+      use: "export let out: String = measure({v = 3, w = \"x\"})\n",
+      tails: ["`...a`", "`...a`"],
+      out: "3",
+    },
+    {
+      name: "K6: one name",
+      head: "fun\n",
+      first: "    export f(r: {x: Int, ...a}): {x: Int, ...a} = if r.x <= 0 then r else g(r)\n",
+      earlier: "f",
+      later: "g",
+      written: "    g(r: {x: Int, ...a}): {x: Int, ...a} = f({r with x = r.x - 1})\n",
+      bare: "    g(r: {x: Int, ...}): {x: Int, ...} = f({r with x = r.x - 1})\n",
+      dropped: "    g(r) = f({r with x = r.x - 1})\n",
+      use: "export let out: Int = f({x = 2, y = 9}).y\n",
+      tails: ["`...a`", "`...a`"],
+      out: 9,
+    },
+  ];
+
+  describe.each(cases)("$name", ({ head, first, earlier, later, written, bare, dropped, use, tails, out }) => {
+    test("refused once, naming both members and the later one's repairs", () => {
+      expect(projectDiagnostics("module Main\n\n" + head + first + written + use))
+        .toEqual([knotted(tails[0]!, tails[1]!, earlier, later)]);
+    });
+
+    test.each([["its tail written as `...`", bare], ["its annotations dropped", dropped]])(
+      "repaired with %s, it compiles and keeps the caller's field",
+      async (_how, member) => {
+        const source = "module Main\n\n" + head + first + member + use;
+        expect(projectDiagnostics(source)).toEqual([]);
+        expect(await runMain(source)).toMatchObject({ out });
+      },
+    );
+  });
+});
+
 describe("#520 a bare tail is still solved by inference", () => {
   test("its faces are unchanged", () => {
     expect(declarations(

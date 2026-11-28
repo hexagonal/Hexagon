@@ -7572,6 +7572,8 @@ class Checker {
    * again.
    */
   readonly #refusedTails = new Set<Variable>();
+  /** The `fun` member whose written signature declared each written tail (#520). */
+  readonly #tailOwners = new Map<Variable, { readonly symbol: Resolved.SymbolId; readonly name: string }>();
   /**
    * The value the pattern being checked takes apart, for the claims its typed
    * patterns make (`#claimPatternType`). Set where a pattern's walk starts
@@ -35605,6 +35607,22 @@ class Checker {
       const [first, second] = type.id < variable.id ? [type, variable] : [variable, type];
       const spell = (tail: Variable): string =>
         tail.tail === true ? `\`...${tail.rigidName}\`` : `\`${tail.rigidName}\``;
+      // Two members of one recursive knot, each writing its own tail: the
+      // members are checked together, so the two must be one, and no head can
+      // declare a tail. The repair is the later member's: an unnamed tail, or
+      // no annotations, lets inference link it to the first.
+      const firstOwner = this.#tailOwners.get(first);
+      const secondOwner = this.#tailOwners.get(second);
+      if (
+        first.tail === true && second.tail === true &&
+        firstOwner !== undefined && secondOwner !== undefined && firstOwner.symbol !== secondOwner.symbol &&
+        this.#knots.some((knot) => knot.types.has(firstOwner.symbol) && knot.types.has(secondOwner.symbol))
+      ) {
+        const later = `\`${secondOwner.name}\``;
+        return `${spell(first)} written on \`${firstOwner.name}\` and ${spell(second)} written on ${later} ` +
+          "are separate, but members of a recursive knot are checked together at not-yet-general types; " +
+          `write ${later}'s tail as \`...\`, or drop ${later}'s annotations and let inference link the knot`;
+      }
       return `${spell(first)} and ${spell(second)} are written separately, but these records must have ` +
         "the same additional fields; use one name";
     }
@@ -42914,6 +42932,10 @@ class Checker {
     if (existing !== undefined) return existing;
     const tail = this.#fresh(level, false, name);
     tail.tail = true;
+    // The `fun` member whose signature writes it, for the knot's wording of a
+    // refusal (#520). Read off the owner the elaboration already carries.
+    const owner = this.#annotationOwner;
+    if (owner?.kind === "member") this.#tailOwners.set(tail, { symbol: owner.symbol, name: owner.name });
     namedTails.set(name, tail);
     return tail;
   }
