@@ -1132,7 +1132,7 @@ describe("item 7 — an open structural record at a declaration or the release s
         "let w(r: {n: Int, ...q}): (Int, JsValue) = (g(r), JsValue.from(r))\n" +
         "export let go(): Int = 1\n",
     )).toEqual([
-      "`...q` says this record may have more fields, but the body requires exactly `{ n: Int, m: Int }`; " +
+      "`...q` says this record may have more fields, but here it is exactly `{ n: Int, m: Int }`; " +
         "write `{ n: Int, m: Int }`, or remove the annotation",
     ]);
   });

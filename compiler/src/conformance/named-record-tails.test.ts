@@ -203,15 +203,15 @@ describe("#520 a written tail is refused, once, where inference would move it", 
     )).toEqual([JOINED]);
   });
 
-  test("a block-valued binding that cannot be generalized keeps the declared-variable report", () => {
+  test("a block-valued binding that cannot be generalized keeps the declared-variable report, naming the tail", () => {
     expect(projectDiagnostics(
       "module Main\n\n" +
       "let p: ({x: Int, ...a}) -> {x: Int, ...a} =\n" +
       "    let h = (r) => r\n" +
       "    h\n",
     )).toEqual([
-      "`a` is a declared type variable, but this right-hand side is a computation that cannot be " +
-        "generalized in `a` (`a` occurs in an invariant position); bind where the type is known, or " +
+      "`...a` is a declared record tail, but this right-hand side is a computation that cannot be " +
+        "generalized in `...a` (`...a` occurs in an invariant position); bind where the type is known, or " +
         "remove the annotation",
     ]);
   });
@@ -223,6 +223,136 @@ describe("#520 a written tail is refused, once, where inference would move it", 
       "    export pass(r: {x: Int, ...a}): {x: Int, ...a} = if r.x <= 0 then r else {r with x = back(r.x)}\n" +
       "    back(n: Int): Int = pass({x = n - 1}).x\n",
     )).toEqual([CLOSED]);
+  });
+
+  test("each different mistake on one tail is reported once", () => {
+    expect(projectDiagnostics("module Main\n\nexport let f(r: {n: Int, ...a}): Int = r.xs + r.ys\n")).toEqual([
+      "`{ n: Int, ...a }` does not name `xs`; write `{ n: Int, xs: T, ...a }`",
+      "`{ n: Int, ...a }` does not name `ys`; write `{ n: Int, ys: T, ...a }`",
+    ]);
+    expect(projectDiagnostics("module Main\n\nexport let f(r: {n: Int, ...a}): Int = r.xs + r.xs\n")).toEqual([
+      "`{ n: Int, ...a }` does not name `xs`; write `{ n: Int, xs: T, ...a }`",
+    ]);
+    expect(projectDiagnostics(
+      "module Main\n\n" +
+      "let c(p: {n: Int}): Int = p.n\n" +
+      "export let f(r: {n: Int, ...a}): Int = r.xs + c(r)\n",
+    )).toEqual([
+      "`{ n: Int, ...a }` does not name `xs`; write `{ n: Int, xs: T, ...a }`",
+      "`...a` says this record may have more fields, but the body requires exactly `{ n: Int }`; " +
+        "write `{ n: Int }`, or remove the annotation",
+    ]);
+  });
+});
+
+describe("#520 a record with more fields than a written tail allows", () => {
+  test("a value: the message names its fields' types, and its advice compiles", () => {
+    expect(projectDiagnostics("module Main\n\nexport let v: {n: Int, ...a} = {n = 1, y = 2}\n")).toEqual([
+      "`...a` says this record may have more fields, but here it is exactly `{ n: Int, y: Int }`; " +
+        "write `{ n: Int, y: Int }`, or remove the annotation",
+    ]);
+    expect(projectDiagnostics("module Main\n\nexport let v: {n: Int, y: Int} = {n = 1, y = 2}\n")).toEqual([]);
+  });
+
+  test("a knot sibling's argument: one report, and its advice compiles and runs", async () => {
+    expect(projectDiagnostics(
+      "module Main\n\n" +
+      "fun\n" +
+      "    export pass(r: {x: Int, ...a}): {x: Int, ...a} = if r.x <= 0 then r else {r with x = back(r.x)}\n" +
+      "    back(n: Int): Int = pass({x = n - 1, y = 2}).y\n",
+    )).toEqual([
+      "`...a` says this record may have more fields, but here it is exactly `{ x: Int, y: Int }`; " +
+        "write `{ x: Int, y: Int }`, or remove the annotation",
+    ]);
+    expect(await runMain(
+      "module Main\n\n" +
+      "fun\n" +
+      "    export pass(r: {x: Int, y: Int}): {x: Int, y: Int} = if r.x <= 0 then r else {r with x = back(r.x)}\n" +
+      "    back(n: Int): Int = pass({x = n - 1, y = 2}).y\n" +
+      "export let out: Int = pass({x = 2, y = 5}).y\n",
+    )).toMatchObject({ out: 5 });
+  });
+
+  test("two declarations' tails of one spelling are not told to use one name", () => {
+    const messages = projectDiagnostics(
+      "module Main\n\n" +
+      "var cell: Option({n: Int, ...a}) = None\n" +
+      "export let f(r: {n: Int, ...a}): {n: Int, ...a} =\n" +
+      "    cell := Some(r)\n" +
+      "    r\n",
+    );
+    expect(messages).toContain(
+      "two tails written in separate declarations, both spelled `...a`, meet here; each is its own, but " +
+        "these records must have the same additional fields; write one of them as `...`, or remove an annotation",
+    );
+    expect(messages.some((message) => message.includes("use one name"))).toBe(false);
+  });
+});
+
+describe("#520 a constraint member's written tail", () => {
+  const constraint = "constraint C<a> =\n    m(x: a, r: {n: Int, ...q}) -> {n: Int, ...q}\n";
+
+  test("is fresh at every use, directly and through a generic forwarder", async () => {
+    expect(await runMain(
+      "module Main\n\n" + constraint +
+      "honor C<Int> =\n    m(x, r) = {r with n = r.n + x}\n" +
+      "let use<a: C>(x: a, r: {n: Int, ...p}): {n: Int, ...p} = m(x, r)\n" +
+      "let one: Int = 1\n" +
+      "export let out: Int = m(one, {n = 1}).n + m(one, {n = 1, y = 5}).y\n" +
+      "export let through: Int = use(one, {n = 1, y = 5}).y + use(one, {n = 2}).n\n",
+    )).toMatchObject({ out: 7, through: 8 });
+  });
+
+  test("a default body is checked against it, and keeps it", async () => {
+    expect(await runMain(
+      "module Main\n\n" +
+      "constraint C<a> =\n" +
+      "    k(x: a) -> Int\n" +
+      "    m(x: a, r: {n: Int, ...q}) -> {n: Int, ...q} = r\n" +
+      "honor C<Int> =\n    k(x) = x\n" +
+      "let one: Int = 1\n" +
+      "export let out: Int = m(one, {n = 1, y = 5}).y + m(one, {n = 2}).n\n",
+    )).toMatchObject({ out: 7 });
+  });
+
+  test("an honor body that closes or grows it is refused, once", () => {
+    expect(projectDiagnostics(
+      "module Main\n\n" + constraint + "honor C<Int> =\n    m(x, r) = {n = r.n + x}\n",
+    )).toEqual([
+      "`...q` says this record may have more fields, but the body requires exactly `{ n: Int }`; " +
+        "write `{ n: Int }`, or remove the annotation",
+    ]);
+    expect(projectDiagnostics(
+      "module Main\n\n" + constraint + "honor C<Int> =\n    m(x, r) =\n        let k: Int = r.xs\n        r\n",
+    )).toEqual(["`{ n: Int, ...q }` does not name `xs`; write `{ n: Int, xs: T, ...q }`"]);
+  });
+});
+
+describe("#520 a declared pattern's written tail", () => {
+  const pattern = "pattern wrapped(value: {n: Int, ...a}): {inner: {n: Int, ...a}}\n";
+
+  test("is one tail across the head, fresh at every use", async () => {
+    expect(await runMain(
+      "module Main\n\n" + pattern +
+      "    view(w) = w.inner\n" +
+      "    build(value) = {inner = value}\n" +
+      "export let out: Int =\n" +
+      "    let (v)wrapped = {inner = {n = 1, z = 2}}\n" +
+      "    let (u)wrapped = {inner = {n = 4}}\n" +
+      "    let w = ({n = 1, k = 10})wrapped\n" +
+      "    v.z + u.n + w.inner.k\n",
+    )).toMatchObject({ out: 16 });
+  });
+
+  test("a view that closes it is refused", () => {
+    expect(projectDiagnostics(
+      "module Main\n\n" + pattern +
+      "    view(w) = {n = w.inner.n}\n" +
+      "    build(value) = {inner = value}\n",
+    )).toEqual([
+      "`...a` says this record may have more fields, but the body requires exactly `{ n: Int }`; " +
+        "write `{ n: Int }`, or remove the annotation",
+    ]);
   });
 });
 

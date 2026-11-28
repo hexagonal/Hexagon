@@ -7565,13 +7565,22 @@ class Checker {
    */
   #tailMeeting: { readonly own: RecordMono; readonly other: RecordMono } | undefined;
   /**
-   * The written tails a meeting was refused for (#520), now in error: a later
-   * meeting that would refuse one again is silent, and a record whose row ends
-   * in one is in error as a whole where it is published, as a refused type
-   * variable's type is, so an importer is not handed a face to report against
-   * again.
+   * The written tails a meeting was refused for (#520), now in error, each
+   * with the mistakes already reported on it: a field it was grown by, its
+   * closing, the tail it was joined to. A later meeting making only those
+   * mistakes again is silent; a different one is reported. A record whose row
+   * ends in a refused tail is in error as a whole where it is published, as a
+   * refused type variable's type is, so an importer is not handed a face to
+   * report against again.
    */
-  readonly #refusedTails = new Set<Variable>();
+  readonly #refusedTails = new Map<Variable, Set<string>>();
+  /**
+   * The tail maps whose names are declared (#520): a function signature's and
+   * the body it scopes over, a constraint member's header, an honor seat's
+   * contract, a declared pattern's head. One map is one declaration, so one
+   * variable per name.
+   */
+  readonly #declaredTailMaps = new WeakSet<Map<string, Variable>>();
   /** The `fun` member whose written signature declared each written tail (#520). */
   readonly #tailOwners = new Map<Variable, { readonly symbol: Resolved.SymbolId; readonly name: string }>();
   /**
@@ -8013,14 +8022,19 @@ class Checker {
         // read from the header rather than inferred — the one function header
         // in the language with no body beneath it (Effects §13.1).
         const memberFace = this.#openFace(0, member.span, member.binding.name, false);
+        // One tail per name across the header, declared and quantified as the
+        // subject is (#520): rigid where a default body is checked against it,
+        // fresh at every use.
+        const memberTails = this.#declaredTails();
         const { parameters, result, effect: writtenContract, fail: writtenContractFail } = this.#elaborateHeader(
           member.parameters.map((parameter) => ({ annotation: parameter.annotation, name: parameter.name })),
           member.returnAnnotation,
           member.effect,
           member.arrowSpan,
           memberFace,
-          (annotation) => this.#annotationType(annotation, 0, new Map(), typeParameters, impliedTypes),
+          (annotation) => this.#annotationType(annotation, 0, memberTails, typeParameters, impliedTypes),
         );
+        for (const tail of memberTails.values()) this.#quantified.add(tail.id);
         const contractEffect = writtenContract ?? PURE;
         member.parameters.forEach((parameter, index) => {
           this.#schemes.set(parameter.symbol, { variables: [], type: parameters[index] ?? ERROR });
@@ -8076,6 +8090,7 @@ class Checker {
             ...impliedTypes.values(),
             ...contractColours,
             ...contractFailColours,
+            ...memberTails.values(),
           ],
           type: memberType,
           constraint: item.name,
@@ -11120,7 +11135,7 @@ class Checker {
         !(item.kind === "Honor" && spanKey(this.#knotOf(item)) === spanKey(this.#honorKnot.span))
       ) this.#closeHonorKnot();
       if (enclosingVariableScope === undefined) this.#annotationVariableScope = new Map();
-      if (enclosingTailScope === undefined) this.#annotationTailScope = new Map();
+      if (enclosingTailScope === undefined) this.#annotationTailScope = this.#declaredTails();
 
       // *(#700.)* A `fun` **block** is the one place a body may name a binding
       // written below it (Functions §7.3), so it is the one place inference
@@ -11159,11 +11174,14 @@ class Checker {
             });
           }
         }
+        // One tail per name across the head, declared as its type variables
+        // are (#520).
+        const headTails = this.#declaredTails();
         const subject = item.head === undefined
           ? this.#fresh(level + 1, false)
-          : this.#annotationType(item.head.result, level + 1, new Map(), headVariables);
+          : this.#annotationType(item.head.result, level + 1, headTails, headVariables);
         const writtenComponents = item.head?.components.map(({ annotation }) =>
-          this.#annotationType(annotation, level + 1, new Map(), headVariables)
+          this.#annotationType(annotation, level + 1, headTails, headVariables)
         );
         if (writtenComponents !== undefined && writtenComponents.length === 0) {
           this.#diagnostics.add({
@@ -12643,7 +12661,7 @@ class Checker {
     let result: Mono | undefined;
     let face: SignatureFace;
     let variables: Map<string, Variable>;
-    const tails = new Map<string, Variable>(this.#annotationTailScope);
+    const tails = this.#declaredTails(this.#annotationTailScope);
     try {
       face = this.#openFace(level + 1, lambda.span, name, this.#effectFrames.length > 0);
       variables = new Map<string, Variable>(this.#annotationVariableScope);
@@ -13926,7 +13944,7 @@ class Checker {
           // What the face's written results stand over: the value the body hands back.
           signature.value = this.#givenValue(expression.body).span;
         }
-        const annotationTails = landedHeader?.tails ?? new Map<string, Variable>(this.#annotationTailScope);
+        const annotationTails = landedHeader?.tails ?? this.#declaredTails(this.#annotationTailScope);
         // Inherit the enclosing definition's type variables so a nested lambda's
         // annotations may name them (lexical scoping); its own `<...>` binders below
         // shadow by overwriting.
@@ -17838,7 +17856,7 @@ class Checker {
           this.#annotationType(
             pattern.annotation,
             level,
-            this.#annotationTailScope ?? new Map(),
+            this.#annotationTailScope ?? this.#declaredTails(),
             this.#annotationVariableScope ?? new Map(),
           )
         );
@@ -26655,7 +26673,7 @@ class Checker {
         const written = this.#annotationType(
           annotation,
           level + 1,
-          this.#annotationTailScope ?? new Map(),
+          this.#annotationTailScope ?? this.#declaredTails(),
           this.#annotationVariableScope ?? new Map(),
         );
         this.#landInto(component, written, annotation.span);
@@ -27382,7 +27400,7 @@ class Checker {
       this.#annotationType(
         annotation,
         level,
-        this.#annotationTailScope ?? new Map(),
+        this.#annotationTailScope ?? this.#declaredTails(),
         this.#annotationVariableScope ?? new Map(),
       );
     if (annotation.kind !== "Function") {
@@ -31809,13 +31827,16 @@ class Checker {
     this.#suppressLinkedArrowReports = true;
     try {
       const face = this.#openFace(level, member.span, member.binding.name, false, false);
+      // The header's tails, one per name and declared, as at the declaration
+      // (#520): an honor's body may not close, grow or join them.
+      const tails = this.#declaredTails();
       const { parameters, result, effect, fail } = this.#elaborateHeader(
         member.parameters.map((parameter) => ({ annotation: parameter.annotation, name: parameter.name })),
         member.returnAnnotation,
         member.effect,
         member.arrowSpan,
         face,
-        (annotation) => this.#annotationType(annotation, level, new Map(), subjectTypes, impliedTypes),
+        (annotation) => this.#annotationType(annotation, level, tails, subjectTypes, impliedTypes),
       );
       const contractType: FunctionMono = {
         kind: "Function",
@@ -35512,6 +35533,13 @@ class Checker {
     }
   }
 
+  /** A tail map whose names are declared, seeded from `from` (#520). */
+  #declaredTails(from?: ReadonlyMap<string, Variable>): Map<string, Variable> {
+    const tails = new Map<string, Variable>(from ?? []);
+    this.#declaredTailMaps.add(tails);
+    return tails;
+  }
+
   /** Whether a record's row ends in a written tail a meeting refused (#520). */
   #rowInError(record: RecordMono): boolean {
     if (this.#refusedTails.size === 0) return false;
@@ -35585,12 +35613,36 @@ class Checker {
   }
 
   /**
-   * A record as a tail report quotes it: every field its tail contributes, and
-   * a written tail by its name (#520).
+   * A field's type as a tail report may print it (#520): a literal still
+   * unsolved reads as the `Int` it will default to, and a written variable by
+   * its name. `undefined` where a variable inference has not solved remains,
+   * since any letter printed for it would be one no one wrote — and could be
+   * the tail's own name.
    */
-  #tailRecordDisplay(record: RecordMono): string {
+  #tailFieldDisplay(type: Mono): string | undefined {
+    const colours = new Set(this.#effectVariables(type));
+    const replacements = new Map<number, Mono>();
+    for (const variable of this.#collectVariables(type)) {
+      if (variable.rigidName !== undefined || colours.has(variable.id) || this.#openedColours.has(variable)) continue;
+      if (!this.#canDefaultToInt(variable)) return undefined;
+      replacements.set(variable.id, primitive("Int"));
+    }
+    return this.#display(replacements.size === 0 ? type : this.#replaceVariables(type, replacements));
+  }
+
+  /**
+   * A record as a tail report quotes it: every field its tail contributes, and
+   * a written tail by its name (#520). `undefined` where a field's type cannot
+   * be printed truthfully (`#tailFieldDisplay`).
+   */
+  #tailRecordDisplay(record: RecordMono): string | undefined {
     const row = this.#normalizeRecord(record);
-    const fields = [...row.fields].map(([name, field]) => `${name}: ${this.#display(field)}`);
+    const fields: string[] = [];
+    for (const [name, field] of row.fields) {
+      const shown = this.#tailFieldDisplay(field);
+      if (shown === undefined) return undefined;
+      fields.push(`${name}: ${shown}`);
+    }
     if (row.tail !== undefined) fields.push(row.tail.tail === true ? `...${row.tail.rigidName}` : "...");
     return fields.length === 0 ? "{}" : `{ ${fields.join(", ")} }`;
   }
@@ -35623,6 +35675,13 @@ class Checker {
           "are separate, but members of a recursive knot are checked together at not-yet-general types; " +
           `write ${later}'s tail as \`...\`, or drop ${later}'s annotations and let inference link the knot`;
       }
+      // Two declarations' tails of one spelling (#520): each is its own, so
+      // "one name" would not repair it.
+      if (first.tail === true && second.tail === true && first.rigidName === second.rigidName) {
+        return `two tails written in separate declarations, both spelled ${spell(first)}, meet here; each ` +
+          "is its own, but these records must have the same additional fields; write one of them as `...`, " +
+          "or remove an annotation";
+      }
       return `${spell(first)} and ${spell(second)} are written separately, but these records must have ` +
         "the same additional fields; use one name";
     }
@@ -35630,17 +35689,26 @@ class Checker {
     const meeting = this.#tailMeeting;
     const record = type.kind === "Record" ? type : undefined;
     if (record === undefined || meeting === undefined) {
-      return `${name} says this record may have more fields, but the body requires ` +
-        `\`${this.#display(type)}\`; remove the annotation to let the type be inferred`;
+      return `${name} says this record may have more fields, but here it cannot have more; ` +
+        "remove the annotation to let the type be inferred";
     }
     if (record.tail === undefined) {
       const exact = this.#tailRecordDisplay(meeting.other);
-      return `${name} says this record may have more fields, but the body requires exactly ` +
-        `\`${exact}\`; write \`${exact}\`, or remove the annotation`;
+      const fields = [...this.#normalizeRecord(meeting.other).fields.keys()].map((field) => `\`${field}\``);
+      // The closed side names fields the annotation does not: it is not a
+      // body's demand but a record with exactly those fields, met here.
+      const head = record.fields.size > 0
+        ? `${name} says this record may have more fields, but here it is exactly `
+        : `${name} says this record may have more fields, but the body requires exactly `;
+      return exact === undefined
+        ? head.replace(/exactly $/u, "") +
+          `a record of exactly the fields ${fields.join(", ")}; name each of them in the annotation, ` +
+          "or remove the annotation"
+        : `${head}\`${exact}\`; write \`${exact}\`, or remove the annotation`;
     }
     const own = this.#normalizeRecord(meeting.own);
     const missing = [...record.fields.keys()];
-    const written = [...own.fields].map(([field, part]) => `${field}: ${this.#display(part)}`);
+    const written = [...own.fields].map(([field, part]) => `${field}: ${this.#tailFieldDisplay(part) ?? "_"}`);
     const named = missing.length === 1 ? `\`${missing[0]}\`` : missing.map((field) => `\`${field}\``).join(", ");
     const placeholders = ["T", "U", "V", "W"];
     const grown = [
@@ -35648,8 +35716,9 @@ class Checker {
       ...missing.map((field, index) => `${field}: ${placeholders[index] ?? `T${index + 1}`}`),
       `...${variable.rigidName}`,
     ];
-    return `\`${this.#tailRecordDisplay(meeting.own)}\` does not name ${named}; ` +
-      `write \`{ ${grown.join(", ")} }\``;
+    const ownShown = this.#tailRecordDisplay(meeting.own) ??
+      `{ ${[...written, `...${variable.rigidName}`].join(", ")} }`;
+    return `\`${ownShown}\` does not name ${named}; write \`{ ${grown.join(", ")} }\``;
   }
 
   /**
@@ -35821,9 +35890,27 @@ class Checker {
         const other = tailSide.other.kind === "Variable" && tailSide.other.tail === true
           ? tailSide.other
           : undefined;
-        if (this.#refusedTails.has(tailSide.own) || (other !== undefined && this.#refusedTails.has(other))) return;
-        this.#refusedTails.add(tailSide.own);
-        if (other !== undefined) this.#refusedTails.add(other);
+        // What this meeting would do to the tail, as the mistakes it makes.
+        const mistakes = other !== undefined
+          ? [`join:${Math.min(tailSide.own.id, other.id)}:${Math.max(tailSide.own.id, other.id)}`]
+          : tailSide.other.kind === "Record" && tailSide.other.tail !== undefined
+          ? [...tailSide.other.fields.keys()].map((field) => `grow:${field}`)
+          : ["closed"];
+        const seen = (tail: Variable): Set<string> => {
+          let found = this.#refusedTails.get(tail);
+          if (found === undefined) this.#refusedTails.set(tail, found = new Set());
+          return found;
+        };
+        const ownSeen = seen(tailSide.own);
+        const fresh = mistakes.some((mistake) => !ownSeen.has(mistake));
+        for (const mistake of mistakes) ownSeen.add(mistake);
+        // A tail refused as closed by a record of more fields was refused for
+        // those fields too: a read of one of them is the same mistake.
+        if (other === undefined && tailSide.other.kind === "Record" && tailSide.other.tail === undefined) {
+          for (const field of tailSide.other.fields.keys()) ownSeen.add(`grow:${field}`);
+        }
+        if (other !== undefined) for (const mistake of mistakes) seen(other).add(mistake);
+        if (!fresh) return;
         this.#diagnostics.add({
           severity: "error",
           message: this.#writtenTailRefusal(tailSide.own, tailSide.other),
@@ -39739,9 +39826,15 @@ class Checker {
           this.#diagnostics.add({
             severity: "error",
             message:
-              `\`${variable.rigidName}\` is a declared type variable, but this right-hand ` +
-              `side is a computation that cannot be generalized in \`${variable.rigidName}\` ` +
-              `(${this.#declineReason(variable.rigidName, variable, declined)}); ` +
+              // A written tail is named as written (#520), so a report on `a`
+              // and one on `...a` are told apart.
+              (variable.tail === true
+                ? `\`...${variable.rigidName}\` is a declared record tail, but this right-hand ` +
+                  `side is a computation that cannot be generalized in \`...${variable.rigidName}\` ` +
+                  `(${this.#declineReason(`...${variable.rigidName}`, variable, declined)}); `
+                : `\`${variable.rigidName}\` is a declared type variable, but this right-hand ` +
+                  `side is a computation that cannot be generalized in \`${variable.rigidName}\` ` +
+                  `(${this.#declineReason(variable.rigidName, variable, declined)}); `) +
               // An unconstrained listed variable is not #712's to refuse, so
               // either exit alone already compiles.
               (this.#nameListVariables.has(variable) && variable.requirements.length > 0
@@ -42930,6 +43023,14 @@ class Checker {
     if (name === undefined) return this.#fresh(level, false);
     const existing = namedTails.get(name);
     if (existing !== undefined) return existing;
+    // Declared only where the map is a signature's (`#declaredTails`): a seat
+    // that elaborates with a map of its own keeps the inference variable it
+    // always had.
+    if (!this.#declaredTailMaps.has(namedTails)) {
+      const tail = this.#fresh(level, false);
+      namedTails.set(name, tail);
+      return tail;
+    }
     const tail = this.#fresh(level, false, name);
     tail.tail = true;
     // The `fun` member whose signature writes it, for the knot's wording of a
