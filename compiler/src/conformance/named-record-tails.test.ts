@@ -273,19 +273,44 @@ describe("#520 a record with more fields than a written tail allows", () => {
     )).toMatchObject({ out: 5 });
   });
 
-  test("two declarations' tails of one spelling are not told to use one name", () => {
-    const messages = projectDiagnostics(
+  test("two tails of one spelling: the message is true, and its advice compiles", async () => {
+    const program = (s: string, t: string): string =>
       "module Main\n\n" +
-      "var cell: Option({n: Int, ...a}) = None\n" +
-      "export let f(r: {n: Int, ...a}): {n: Int, ...a} =\n" +
-      "    cell := Some(r)\n" +
-      "    r\n",
-    );
-    expect(messages).toContain(
-      "two tails written in separate declarations, both spelled `...a`, meet here; each is its own, but " +
-        "these records must have the same additional fields; write one of them as `...`, or remove an annotation",
-    );
-    expect(messages.some((message) => message.includes("use one name"))).toBe(false);
+      "let pick(c: Bool, f: x, g: x): x = if c then f else g\n" +
+      "export let f(r: {n: Int, z: Int}): Int =\n" +
+      `    let h = pick(True, (${s}) => s, (${t}) => t)\n` +
+      "    h(r).z\n";
+    const messages = projectDiagnostics(program("s: {n: Int, ...b}", "t: {n: Int, ...b}"));
+    // The second report is its own mistake: `h` is not generalized, so the
+    // tail that survives is closed where `h` meets `r`.
+    expect(messages).toEqual([
+      "two written tails, both spelled `...b`, meet here; each annotation's tail is its own, but these " +
+        "records must have the same additional fields; write both as `...`, or remove both annotations",
+      "`...b` says this record may have more fields, but here it is exactly `{ n: Int, z: Int }`; " +
+        "write `{ n: Int, z: Int }`, or remove the annotation",
+    ]);
+    for (const repaired of [program("s: {n: Int, ...}", "t: {n: Int, ...}"), program("s", "t")]) {
+      expect(await runMain(repaired + "export let out: Int = f({n = 1, z = 2})\n")).toMatchObject({ out: 2 });
+    }
+  });
+
+  test("two different closings of one tail are two reports; one closing met twice is one", () => {
+    expect(projectDiagnostics(
+      "module Main\n\n" +
+      "let c2(p: {x: Int, y: Int}): Int = p.y\n" +
+      "export let f(r: {x: Int, ...a}): {x: Int, ...a} =\n" +
+      "    let k = c2(r)\n" +
+      "    {x = k}\n",
+    )).toEqual([
+      "`...a` says this record may have more fields, but here it is exactly `{ x: Int, y: Int }`; " +
+        "write `{ x: Int, y: Int }`, or remove the annotation",
+      CLOSED,
+    ]);
+    expect(projectDiagnostics(
+      "module Main\n\n" +
+      "let c(p: {x: Int}): {x: Int} = p\n" +
+      "export let f(r: {x: Int, ...a}): {x: Int, ...a} = c(r)\n",
+    )).toEqual([CLOSED]);
   });
 });
 

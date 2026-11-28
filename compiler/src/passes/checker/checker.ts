@@ -35675,12 +35675,12 @@ class Checker {
           "are separate, but members of a recursive knot are checked together at not-yet-general types; " +
           `write ${later}'s tail as \`...\`, or drop ${later}'s annotations and let inference link the knot`;
       }
-      // Two declarations' tails of one spelling (#520): each is its own, so
-      // "one name" would not repair it.
+      // Two tails of one spelling that are two variables (#520): each
+      // annotation's is its own, so "one name" would not repair it.
       if (first.tail === true && second.tail === true && first.rigidName === second.rigidName) {
-        return `two tails written in separate declarations, both spelled ${spell(first)}, meet here; each ` +
-          "is its own, but these records must have the same additional fields; write one of them as `...`, " +
-          "or remove an annotation";
+        return `two written tails, both spelled ${spell(first)}, meet here; each annotation's tail is its own, ` +
+          "but these records must have the same additional fields; write both as `...`, or remove both " +
+          "annotations";
       }
       return `${spell(first)} and ${spell(second)} are written separately, but these records must have ` +
         "the same additional fields; use one name";
@@ -35895,7 +35895,9 @@ class Checker {
           ? [`join:${Math.min(tailSide.own.id, other.id)}:${Math.max(tailSide.own.id, other.id)}`]
           : tailSide.other.kind === "Record" && tailSide.other.tail !== undefined
           ? [...tailSide.other.fields.keys()].map((field) => `grow:${field}`)
-          : ["closed"];
+          // A closing is keyed by the exact record it closes at: two different
+          // closings are two mistakes, the same one met twice is one.
+          : [`closed:${tailSide.other.kind === "Record" ? [...tailSide.other.fields.keys()].sort().join(",") : ""}`];
         const seen = (tail: Variable): Set<string> => {
           let found = this.#refusedTails.get(tail);
           if (found === undefined) this.#refusedTails.set(tail, found = new Set());
