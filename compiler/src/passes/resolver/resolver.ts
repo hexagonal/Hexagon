@@ -1362,12 +1362,21 @@ class Scope {
     });
   }
 
+  /**
+   * Every binding of this scope a lookup has landed on. Any lookup counts, a
+   * claim's rebinding check as much as a use, so a symbol absent here is one
+   * nothing read (the unused-repeat edit of `#reportBoundTwice` relies on it).
+   */
+  readonly used = new Set<Resolved.SymbolId>();
+
   lookupLocal(name: string): Resolved.SymbolId | undefined {
-    return this.#bindings.get(name);
+    const own = this.#bindings.get(name);
+    if (own !== undefined) this.used.add(own);
+    return own;
   }
 
   lookup(name: string): Resolved.SymbolId | undefined {
-    return this.#bindings.get(name) ?? this.parent?.lookup(name);
+    return this.lookupLocal(name) ?? this.parent?.lookup(name);
   }
 
   /**
@@ -1527,6 +1536,28 @@ class Resolver {
     -readonly [K in keyof Resolved.PreludeTypeImport]: Resolved.PreludeTypeImport[K];
   }[] = [];
   readonly #usedPreludeSymbols = new Set<Resolved.SymbolId>();
+  /**
+   * The edit that would drop a binder, by the offset of its name, for each
+   * binder outside an or-pattern: `_` in its place (`x = _` for a punned
+   * field), or the whole ` as x` clause for an `as` binder (Pattern Matching
+   * §12's duplicate-binder row).
+   */
+  readonly #binderDrops = new Map<number, Diagnostics.Edit>();
+  /** An `as` binder's clause deletion, if it has one, set before it resolves. */
+  readonly #asDrops = new Map<number, Diagnostics.Edit | undefined>();
+  readonly #punnedBinders = new Set<number>();
+  readonly #undroppableBinders = new Set<number>();
+  /**
+   * Duplicate reports whose repeat could be dropped, settled once the module
+   * has resolved: the edit is offered only if nothing read the binding the
+   * name resolved to in the scope the pattern binds into.
+   */
+  readonly #unusedRepeats: {
+    readonly report: Diagnostics.Diagnostic;
+    readonly scope: Scope;
+    readonly symbol: Resolved.SymbolId;
+    readonly edit: Diagnostics.Edit;
+  }[] = [];
   /**
    * Every prelude term of a given name, in prelude order — *not* only the one
    * `#preludeScope` holds. Two prelude members may export the same bare name
@@ -2625,6 +2656,20 @@ class Resolver {
     // to dodge every name the emitted module binds, and that set is only closed
     // once every declaration has been through `#declare` (PR #91 finding F1).
     const preludeChannel = this.#preludeInstanceChannel(module.span);
+    // Every body has resolved, so a duplicate whose binding nothing read can
+    // now be offered the edit that drops its repeat.
+    for (const { report, scope: bound, symbol, edit } of this.#unusedRepeats) {
+      if (bound.used.has(symbol)) continue;
+      const what = edit.replacement === "" ? "remove the `as` clause" : "write `_` for the repeat";
+      for (let index = this.#diagnostics.count - 1; index >= 0; index -= 1) {
+        if (this.#diagnostics.tagAt(index) !== report) continue;
+        this.#diagnostics.replace(index, {
+          ...this.#diagnostics.at(index)!,
+          fixes: [{ message: `perhaps ${what}`, edits: [edit], suggestion: true }],
+        });
+        break;
+      }
+    }
     // Dictionary Sharing §5's naming pass, last of all: it needs every declared
     // instance and every imported one in one place, and both channels are only
     // complete here.
@@ -5192,8 +5237,15 @@ class Resolver {
       }
 
       const sourceNames = new Map<string, Parsed.Name>();
+      // Each name's first occurrence in source, which the duplicate report
+      // marks: `patternNames` lists a vector's rest after its elements.
+      const earliest = new Map<string, Source.Span>();
       for (const name of namesByAlternative.flat()) {
         if (!sourceNames.has(name.text)) sourceNames.set(name.text, name);
+        const known = earliest.get(name.text);
+        if (known === undefined || name.span.start.offset < known.start.offset) {
+          earliest.set(name.text, name.span);
+        }
       }
       // The or-pattern binds each of its names once in the pattern around it, so
       // each name meets that pattern's duplicate check here, as a lone binder
@@ -5209,12 +5261,8 @@ class Resolver {
       for (const [text, name] of sourceNames) {
         const duplicate = seen.get(text);
         if (duplicate !== undefined) {
-          this.#diagnostics.add({
-            severity: "error",
-            message: `\`${text}\` is bound twice in this pattern`,
-            primary: name.span,
-            labels: [{ span: duplicate.span, message: "first binding is here" }],
-          });
+          this.#reportBoundTwice(text, duplicate, earliest.get(text)!, scope);
+          seen.set(text, { ...duplicate, span: orderedBySource(duplicate.span, earliest.get(text)!)[0] });
           if (!shared.has(text)) shared.set(text, this.#declare(name, declaredKind(binderClass)));
           continue;
         }
@@ -5230,9 +5278,9 @@ class Resolver {
             );
           }
         }
-        // Recorded at this occurrence, so a later repeat's label points into
-        // this alternative rather than at a shared binding's first spelling.
-        seen.set(text, { ...shared.get(text)!, span: name.span });
+        // Recorded at this or-pattern's first occurrence, so a repeat's label
+        // points into it rather than at an enclosing shared binding's spelling.
+        seen.set(text, { ...shared.get(text)!, span: earliest.get(text)! });
       }
       return {
         kind: "Or",
@@ -5243,6 +5291,15 @@ class Resolver {
       };
     }
     if (pattern.kind === "As") {
+      const between = this.#text?.slice(pattern.pattern.span.end.offset, pattern.name.span.start.offset);
+      // Only a clause whose text is exactly ` as x` is deleted; without the
+      // source, or with a parenthesis in between, the binder is offered nothing.
+      this.#asDrops.set(
+        pattern.name.span.start.offset,
+        between !== undefined && /^\s+as\s+$/u.test(between)
+          ? { span: { ...pattern.name.span, start: pattern.pattern.span.end }, replacement: "" }
+          : undefined,
+      );
       const nested = this.#resolvePattern(
         pattern.pattern,
         scope,
@@ -5441,6 +5498,21 @@ class Resolver {
       };
     }
     if (pattern.kind === "Record") {
+      const fieldNames = pattern.fields.map((field) => field.name.text);
+      for (const field of pattern.fields) {
+        if (fieldNames.indexOf(field.name.text) !== fieldNames.lastIndexOf(field.name.text)) {
+          // A repeated field is its own refusal, and no edit to a binder
+          // under it can lift that, so none is offered.
+          for (const name of Parsed.patternNames(field.pattern)) {
+            this.#undroppableBinders.add(name.span.start.offset);
+          }
+        } else if (
+          field.pattern.kind === "Binding" &&
+          field.pattern.name.span.start.offset === field.name.span.start.offset
+        ) {
+          this.#punnedBinders.add(field.name.span.start.offset);
+        }
+      }
       return {
         kind: "Record",
         fields: pattern.fields.map((field) => ({
@@ -5463,21 +5535,35 @@ class Resolver {
     // shadowing (§5.1 rule 3): it is an error in every class, and it settles the
     // name before the class ever gets a say. An or-pattern's alternatives share
     // one binding per name (`sharedBindings`), already claimed above.
+    const at = pattern.name.span.start.offset;
+    const drop = this.#asDrops.has(at) ? this.#asDrops.get(at) : {
+      span: pattern.name.span,
+      replacement: this.#punnedBinders.has(at) ? `${pattern.name.text} = _` : "_",
+    };
+    if (sharedBindings === undefined && drop !== undefined && !this.#undroppableBinders.has(at)) {
+      this.#binderDrops.set(at, drop);
+    }
     const duplicate = seen.get(pattern.name.text);
     if (duplicate !== undefined) {
-      this.#diagnostics.add({
-        severity: "error",
-        message: `\`${pattern.name.text}\` is bound twice in this pattern`,
-        primary: pattern.name.span,
-        labels: [{ span: duplicate.span, message: "first binding is here" }],
-      });
+      this.#reportBoundTwice(pattern.name.text, duplicate, pattern.name.span, scope);
     }
     const claimed = duplicate === undefined && sharedBindings === undefined &&
       this.#claimBinder(pattern.name, scope, binderClass);
 
     const binding = sharedBindings?.get(pattern.name.text) ??
       this.#declare(pattern.name, declaredKind(binderClass));
-    seen.set(pattern.name.text, binding);
+    // Recorded at the earlier of this occurrence and the one it repeats, so a
+    // third occurrence is labelled at the first and every repeat gets its own
+    // caret. A repeat keeps the binding it repeats, the one the body reads, so
+    // a third occurrence's edit asks about that binding's uses. A binding
+    // shared by an or-pattern's alternatives carries its declaring
+    // occurrence's span, so the occurrence's own is written here.
+    seen.set(
+      pattern.name.text,
+      duplicate === undefined
+        ? { ...binding, span: pattern.name.span }
+        : { ...duplicate, span: orderedBySource(duplicate.span, pattern.name.span)[0] },
+    );
     if (claimed) {
       scope.define(
         pattern.name.text,
@@ -5486,6 +5572,30 @@ class Resolver {
       );
     }
     return { kind: "Binding", binding, span: pattern.span };
+  }
+
+  /**
+   * Reports one name bound twice in one pattern (Pattern Matching §2.1, §12).
+   * The pair is ordered by source position, not by which occurrence resolved
+   * second: a vector's rest resolves before its elements, so in `[x, ...x]` the
+   * rest is the one met first. The caret marks the later occurrence and the
+   * label the earlier, as "duplicate parameter" does.
+   */
+  #reportBoundTwice(text: string, met: Resolved.Binding, repeat: Source.Span, scope: Scope): void {
+    const [first, second] = orderedBySource(met.span, repeat);
+    const report: Diagnostics.Diagnostic = {
+      severity: "error",
+      message: `\`${text}\` is bound twice in this pattern; rename one occurrence`,
+      primary: second,
+      labels: [{ span: first, message: "first binding is here" }],
+    };
+    // The report is its own tag, so the edit can be added in place later.
+    this.#diagnostics.add(report, report);
+    // Only the later occurrence is ever dropped, and only outside an
+    // or-pattern, whose alternatives must keep binding the same names (§2.6).
+    // The body reads `met`'s binding, the one claimed first.
+    const edit = this.#binderDrops.get(second.start.offset);
+    if (edit !== undefined) this.#unusedRepeats.push({ report, scope, symbol: met.symbol, edit });
   }
 
   /**

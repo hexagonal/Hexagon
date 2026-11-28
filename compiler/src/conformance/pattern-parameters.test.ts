@@ -432,6 +432,6 @@ describe("pattern parameters are still binders you cannot collide with", () => {
   });
 
   test("§4.2 one pattern binding a name twice stays the pattern-shaped error", () => {
-    expect(diagnostics("fun f((p, p)) = p\n")).toContain("`p` is bound twice in this pattern");
+    expect(diagnostics("fun f((p, p)) = p\n")).toContain("`p` is bound twice in this pattern; rename one occurrence");
   });
 });

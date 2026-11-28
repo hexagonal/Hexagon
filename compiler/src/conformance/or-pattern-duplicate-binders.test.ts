@@ -90,7 +90,7 @@ describe("#104 a name an or-pattern binds is bound once in the whole pattern", (
       test.each(shapes.map((shape) => [shape.name, shape] as const))("%s", (_name, shape) => {
         const source = header + "\n" + program(shape);
         const report = soleReport(source, shape.pattern);
-        expect(report.message).toBe("`x` is bound twice in this pattern");
+        expect(report.message).toBe("`x` is bound twice in this pattern; rename one occurrence");
         expect(report.caretText).toBe("x");
         expect(report.caretAt).toBe(shape.caret);
         expect(report.labels).toEqual([{ message: "first binding is here", at: shape.label }]);
@@ -108,10 +108,7 @@ describe("#104 in a match arm, under every other pattern form", () => {
 
   test.each([
     ["a vector element", arm("Vector(Int)", "[x, (x | x)]"), "[x, (x | x)]", 1, 0],
-    // A vector pattern's rest is resolved before its elements, so here the
-    // caret marks the earlier text and the label the rest, as it does for a
-    // plain `[x, ...x]`.
-    ["a vector's rest", arm("Vector(T)", "[(A(x) | B(x)), ...x]"), "[(A(x) | B(x)), ...x]", 0, 2],
+    ["a vector's rest", arm("Vector(T)", "[(A(x) | B(x)), ...x]"), "[(A(x) | B(x)), ...x]", 2, 0],
     ["a record field", arm("{a: Int, b: T}", "{a = x, b = (A(x) | B(x))}"), "{a = x, b = (A(x) | B(x))}", 1, 0],
     ["a typed pattern", arm("(Int, T)", "((x: Int), ((A(x) | B(x)): T))"), "((x: Int), ((A(x) | B(x)): T))", 1, 0],
     [
@@ -135,16 +132,54 @@ describe("#104 in a match arm, under every other pattern form", () => {
     ],
   ])("%s", (_form, program, pattern, caret, label) => {
     const report = soleReport(header + "\n" + program, pattern);
-    expect(report.message).toBe("`x` is bound twice in this pattern");
+    expect(report.message).toBe("`x` is bound twice in this pattern; rename one occurrence");
     expect(report.caretText).toBe("x");
     expect(report.caretAt).toBe(caret);
     expect(report.labels).toEqual([{ message: "first binding is here", at: label }]);
   });
 
-  test("a plain binder and a rest mark the same pair as an or-pattern and a rest", () => {
-    const report = soleReport(header + "\n" + arm("Vector(Int)", "[x, ...x]"), "[x, ...x]");
-    expect(report.caretAt).toBe(0);
-    expect(report.labels).toEqual([{ message: "first binding is here", at: 1 }]);
+  // A vector's rest is resolved before its elements, but the report reads
+  // source order: the caret on the later occurrence, the label on the earlier.
+  test.each([
+    ["a rest at the end", "Vector(Int)", "[x, ...x]", 1],
+    ["a rest in the middle, the repeat before it", "Vector(Int)", "[x, ...x, y]", 1],
+    ["a rest first, the repeat after it", "Vector(Int)", "[...x, x]", 1],
+    ["a rest in the middle, the repeat after it", "Vector(Int)", "[a, ...x, x]", 1],
+    ["an or-pattern element, then a rest in the middle", "Vector(T)", "[(A(x) | B(x)), ...x, _]", 2],
+    ["a rest, then an or-pattern element", "Vector(T)", "[...x, (A(x) | B(x))]", 1],
+    ["an element, then `as` inside the rest", "Vector(Int)", "[x, ...(r as x)]", 1],
+    ["`as` over a vector, naming its rest", "Vector(Int)", "([x, ...r] as r)", 1],
+  ])("a vector with %s", (_shape, type, pattern, caret) => {
+    const name = pattern.includes("as r") ? "r" : "x";
+    const report = soleReport(header + "\n" + arm(type, pattern), pattern, name);
+    expect(report.message).toBe(`\`${name}\` is bound twice in this pattern; rename one occurrence`);
+    expect(report.caretText).toBe(name);
+    expect(report.caretAt).toBe(caret);
+    expect(report.labels).toEqual([{ message: "first binding is here", at: 0 }]);
+  });
+
+  test("an or-pattern whose alternative writes its rest first is marked at its first occurrence", () => {
+    const source = header + "\n" + arm("(Int, Vector(Int))", "(x, ([...x, x] | [x]))") + "        _ => 0\n";
+    const pattern = "(x, ([...x, x] | [x]))";
+    const start = source.indexOf(pattern);
+    const occurrences = [...pattern.matchAll(/\bx\b/gu)].map(({ index }) => start + index);
+    // Only the duplicate reports are read: the alternative's two `x`s share
+    // one binding, so the rest and the element also meet as a type mismatch.
+    const reports = compileMain(source).diagnostics
+      .filter(({ message }) => message.includes("bound twice"))
+      .map(({ message, primary, labels }) => ({
+        message,
+        caretAt: occurrences.indexOf(primary.start.offset),
+        labels: (labels ?? []).map(({ span, message }) => ({
+          message,
+          at: occurrences.indexOf(span.start.offset),
+        })),
+      }));
+    const twice = "`x` is bound twice in this pattern; rename one occurrence";
+    expect(reports).toEqual([
+      { message: twice, caretAt: 1, labels: [{ message: "first binding is here", at: 0 }] },
+      { message: twice, caretAt: 2, labels: [{ message: "first binding is here", at: 1 }] },
+    ]);
   });
 
   test("a fraction pattern names its own binder", () => {
@@ -153,7 +188,7 @@ describe("#104 in a match arm, under every other pattern form", () => {
       "(n | n) // n",
       "n",
     );
-    expect(report.message).toBe("`n` is bound twice in this pattern");
+    expect(report.message).toBe("`n` is bound twice in this pattern; rename one occurrence");
     expect(report.caretText).toBe("n");
     expect(report.caretAt).toBe(2);
     expect(report.labels).toEqual([{ message: "first binding is here", at: 0 }]);
@@ -187,8 +222,8 @@ describe("#104 controls", () => {
       "module Main\n\nunion U = C(Int, Int) | D(Int, Int)\nfun f((C(x, x) | D(x, x)): U): Int = x\n" +
         "export let out: Int = f(C(1, 2))\n",
     ).diagnostics.map(({ message }) => message)).toEqual([
-      "`x` is bound twice in this pattern",
-      "`x` is bound twice in this pattern",
+      "`x` is bound twice in this pattern; rename one occurrence",
+      "`x` is bound twice in this pattern; rename one occurrence",
     ]);
   });
 
@@ -204,7 +239,7 @@ describe("#104 more shapes, each one report per mistake", () => {
     compileMain(unions + body).diagnostics.map(({ message }) => message);
   const arm = (type: string, pattern: string, fallback = false) =>
     `let f(p: ${type}): Int =\n    match p with\n        ${pattern} => 1\n` + (fallback ? "        _ => 0\n" : "");
-  const twice = (name: string) => `\`${name}\` is bound twice in this pattern`;
+  const twice = (name: string) => `\`${name}\` is bound twice in this pattern; rename one occurrence`;
 
   // The check runs before an inherited name is skipped: within one alternative
   // of an enclosing or-pattern, its shared name can still be bound twice.
