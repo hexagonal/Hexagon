@@ -193,10 +193,12 @@ Non-uppercase-start per the type-variable start-class rule; lowercase `a` remain
 ```
 let keeps(r: { x: Int, ...a }): { x: Int, ...a } = { r with x = 1 } -- fine
 let closes(r: { x: Int, ...a }): { x: Int, ...a } = { x = r.x } -- ERROR: closes `...a`
+
 let grows(r: { n: Int, ...a }): { n: Int, ...a } =
     let k = r.xs -- ERROR: `...a` holds no `xs`
     r
-let joins(r: { x: Int, ...a }): { x: Int, ...b } = r -- ERROR: makes `...a` and `...b` one
+
+let joins(r: { x: Int, ...a }): { x: Int, ...b } = r -- ERROR: two tails made one
 let loose(r: { x: Int, ... }): { x: Int, ... } = { x = r.x } -- fine: a bare tail is inferred
 ```
 
